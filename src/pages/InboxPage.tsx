@@ -33,6 +33,7 @@ export default function InboxPage() {
             <motion.button
               key={conv.id}
               whileTap={{ scale: 0.98 }}
+              onClick={() => navigate(`/chat/${conv.id}`)}
               className="flex items-center gap-3 rounded-xl px-3 py-3 hover:bg-card transition-colors w-full text-left"
             >
               {/* Avatar */}
