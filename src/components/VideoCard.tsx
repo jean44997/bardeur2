@@ -32,7 +32,7 @@ function FloatingHeart({ id, x, y, onDone }: { id: string; x: number; y: number;
   );
 }
 
-export default function VideoCard({ video, isActive, isMuted, onToggleMute }: VideoCardProps) {
+export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOpenComments, onOpenGamification }: VideoCardProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [liked, setLiked] = useState(false);
   const [saved, setSaved] = useState(false);
