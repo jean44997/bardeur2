@@ -1,5 +1,6 @@
 import { Search, Circle } from "lucide-react";
 import { motion } from "framer-motion";
+import { useNavigate } from "react-router-dom";
 
 const conversations = [
   { id: "1", name: "Blaze Runner", msg: "T'as vu la dernière vidéo ? 🔥", time: "2min", unread: 3, online: true, verified: true },
