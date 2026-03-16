@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Heart, MessageCircle, Share2, Bookmark, Music, Plus, Check, Volume2, VolumeX, BadgeCheck } from "lucide-react";
+import { Heart, MessageCircle, Share2, Bookmark, Music, Plus, Check, Volume2, VolumeX, BadgeCheck, Trophy } from "lucide-react";
 import { VideoData, formatCount } from "@/data/mockVideos";
 
 interface VideoCardProps {
