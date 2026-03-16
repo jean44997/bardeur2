@@ -8,6 +8,8 @@ interface VideoCardProps {
   isActive: boolean;
   isMuted: boolean;
   onToggleMute: () => void;
+  onOpenComments: (count: number) => void;
+  onOpenGamification: () => void;
 }
 
 function FloatingHeart({ id, x, y, onDone }: { id: string; x: number; y: number; onDone: (id: string) => void }) {
