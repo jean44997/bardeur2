@@ -184,6 +184,7 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
         <ActionButton
           icon={<MessageCircle className="h-7 w-7 text-foreground" />}
           label={formatCount(video.stats.comments)}
+          onClick={() => onOpenComments(video.stats.comments)}
         />
         <ActionButton
           icon={<Share2 className="h-7 w-7 text-foreground" />}
