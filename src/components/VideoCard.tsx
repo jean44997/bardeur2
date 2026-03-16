@@ -204,6 +204,15 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
         >
           {isMuted ? <VolumeX className="h-5 w-5 text-foreground/70" /> : <Volume2 className="h-5 w-5 text-foreground/70" />}
         </motion.button>
+
+        {/* Gamification */}
+        <motion.button
+          whileTap={{ scale: 0.85 }}
+          onClick={onOpenGamification}
+          className="glass rounded-full p-2"
+        >
+          <Trophy className="h-5 w-5 text-accent" />
+        </motion.button>
       </div>
     </div>
   );
