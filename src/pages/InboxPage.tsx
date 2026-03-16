@@ -39,7 +39,7 @@ export default function InboxPage() {
                   {conv.name[0]}
                 </div>
                 {conv.online && (
-                  <div className="absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full bg-green-500 ring-2 ring-background" />
+                  <div className="absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full ring-2 ring-background" style={{ background: "hsl(142, 70%, 45%)" }} />
                 )}
               </div>
 
