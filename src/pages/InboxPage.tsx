@@ -11,6 +11,7 @@ const conversations = [
 ];
 
 export default function InboxPage() {
+  const navigate = useNavigate();
   return (
     <div className="min-h-[100svh] bg-background pb-20 md:pb-8 md:pl-[280px]">
       <div className="mx-auto max-w-lg px-4 pt-6">
