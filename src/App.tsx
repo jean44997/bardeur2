@@ -10,6 +10,8 @@ import ExplorePage from "./pages/ExplorePage";
 import ProfilePage from "./pages/ProfilePage";
 import InboxPage from "./pages/InboxPage";
 import CreatePage from "./pages/CreatePage";
+import AuthPage from "./pages/AuthPage";
+import ChatPage from "./pages/ChatPage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -20,18 +22,29 @@ const App = () => (
       <Toaster />
       <Sonner />
       <BrowserRouter>
-        <DesktopSidebar />
-        <main>
-          <Routes>
-            <Route path="/" element={<Index />} />
-            <Route path="/explore" element={<ExplorePage />} />
-            <Route path="/profile" element={<ProfilePage />} />
-            <Route path="/inbox" element={<InboxPage />} />
-            <Route path="/create" element={<CreatePage />} />
-            <Route path="*" element={<NotFound />} />
-          </Routes>
-        </main>
-        <BottomNav />
+        <Routes>
+          <Route path="/auth" element={<AuthPage />} />
+          <Route path="/chat/:id" element={<ChatPage />} />
+          <Route
+            path="*"
+            element={
+              <>
+                <DesktopSidebar />
+                <main>
+                  <Routes>
+                    <Route path="/" element={<Index />} />
+                    <Route path="/explore" element={<ExplorePage />} />
+                    <Route path="/profile" element={<ProfilePage />} />
+                    <Route path="/inbox" element={<InboxPage />} />
+                    <Route path="/create" element={<CreatePage />} />
+                    <Route path="*" element={<NotFound />} />
+                  </Routes>
+                </main>
+                <BottomNav />
+              </>
+            }
+          />
+        </Routes>
       </BrowserRouter>
     </TooltipProvider>
   </QueryClientProvider>
