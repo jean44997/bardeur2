@@ -1,5 +1,6 @@
 import { Search, Circle } from "lucide-react";
 import { motion } from "framer-motion";
+import { useNavigate } from "react-router-dom";
 
 const conversations = [
   { id: "1", name: "Blaze Runner", msg: "T'as vu la dernière vidéo ? 🔥", time: "2min", unread: 3, online: true, verified: true },
@@ -10,6 +11,7 @@ const conversations = [
 ];
 
 export default function InboxPage() {
+  const navigate = useNavigate();
   return (
     <div className="min-h-[100svh] bg-background pb-20 md:pb-8 md:pl-[280px]">
       <div className="mx-auto max-w-lg px-4 pt-6">
@@ -31,6 +33,7 @@ export default function InboxPage() {
             <motion.button
               key={conv.id}
               whileTap={{ scale: 0.98 }}
+              onClick={() => navigate(`/chat/${conv.id}`)}
               className="flex items-center gap-3 rounded-xl px-3 py-3 hover:bg-card transition-colors w-full text-left"
             >
               {/* Avatar */}

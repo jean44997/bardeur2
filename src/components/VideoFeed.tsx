@@ -1,10 +1,15 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import VideoCard from "./VideoCard";
+import CommentsDrawer from "./CommentsDrawer";
+import GamificationPanel from "./GamificationPanel";
 import { mockVideos } from "@/data/mockVideos";
 
 export default function VideoFeed() {
   const [activeIndex, setActiveIndex] = useState(0);
   const [isMuted, setIsMuted] = useState(true);
+  const [commentsOpen, setCommentsOpen] = useState(false);
+  const [commentCount, setCommentCount] = useState(0);
+  const [gamificationOpen, setGamificationOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
   const handleScroll = useCallback(() => {
@@ -22,19 +27,25 @@ export default function VideoFeed() {
   }, [handleScroll]);
 
   return (
-    <div
-      ref={containerRef}
-      className="h-[100svh] w-full snap-y-mandatory overflow-y-scroll no-scrollbar"
-    >
-      {mockVideos.map((video, i) => (
-        <VideoCard
-          key={video.id}
-          video={video}
-          isActive={i === activeIndex}
-          isMuted={isMuted}
-          onToggleMute={() => setIsMuted((p) => !p)}
-        />
-      ))}
-    </div>
+    <>
+      <div
+        ref={containerRef}
+        className="h-[100svh] w-full snap-y-mandatory overflow-y-scroll no-scrollbar"
+      >
+        {mockVideos.map((video, i) => (
+          <VideoCard
+            key={video.id}
+            video={video}
+            isActive={i === activeIndex}
+            isMuted={isMuted}
+            onToggleMute={() => setIsMuted((p) => !p)}
+            onOpenComments={(count) => { setCommentCount(count); setCommentsOpen(true); }}
+            onOpenGamification={() => setGamificationOpen(true)}
+          />
+        ))}
+      </div>
+      <CommentsDrawer isOpen={commentsOpen} onClose={() => setCommentsOpen(false)} commentCount={commentCount} />
+      <GamificationPanel isOpen={gamificationOpen} onClose={() => setGamificationOpen(false)} />
+    </>
   );
 }

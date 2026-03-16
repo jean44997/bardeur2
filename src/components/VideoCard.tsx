@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Heart, MessageCircle, Share2, Bookmark, Music, Plus, Check, Volume2, VolumeX, BadgeCheck } from "lucide-react";
+import { Heart, MessageCircle, Share2, Bookmark, Music, Plus, Check, Volume2, VolumeX, BadgeCheck, Trophy } from "lucide-react";
 import { VideoData, formatCount } from "@/data/mockVideos";
 
 interface VideoCardProps {
@@ -8,6 +8,8 @@ interface VideoCardProps {
   isActive: boolean;
   isMuted: boolean;
   onToggleMute: () => void;
+  onOpenComments: (count: number) => void;
+  onOpenGamification: () => void;
 }
 
 function FloatingHeart({ id, x, y, onDone }: { id: string; x: number; y: number; onDone: (id: string) => void }) {
@@ -30,7 +32,7 @@ function FloatingHeart({ id, x, y, onDone }: { id: string; x: number; y: number;
   );
 }
 
-export default function VideoCard({ video, isActive, isMuted, onToggleMute }: VideoCardProps) {
+export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOpenComments, onOpenGamification }: VideoCardProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [liked, setLiked] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -182,6 +184,7 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute }: Vi
         <ActionButton
           icon={<MessageCircle className="h-7 w-7 text-foreground" />}
           label={formatCount(video.stats.comments)}
+          onClick={() => onOpenComments(video.stats.comments)}
         />
         <ActionButton
           icon={<Share2 className="h-7 w-7 text-foreground" />}
@@ -200,6 +203,15 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute }: Vi
           className="glass rounded-full p-2"
         >
           {isMuted ? <VolumeX className="h-5 w-5 text-foreground/70" /> : <Volume2 className="h-5 w-5 text-foreground/70" />}
+        </motion.button>
+
+        {/* Gamification */}
+        <motion.button
+          whileTap={{ scale: 0.85 }}
+          onClick={onOpenGamification}
+          className="glass rounded-full p-2"
+        >
+          <Trophy className="h-5 w-5 text-accent" />
         </motion.button>
       </div>
     </div>
