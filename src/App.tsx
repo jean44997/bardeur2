@@ -12,6 +12,9 @@ import InboxPage from "./pages/InboxPage";
 import CreatePage from "./pages/CreatePage";
 import AuthPage from "./pages/AuthPage";
 import ChatPage from "./pages/ChatPage";
+import SettingsPage from "./pages/SettingsPage";
+import AdminPage from "./pages/AdminPage";
+import NotificationsPage from "./pages/NotificationsPage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -37,6 +40,9 @@ const App = () => (
                     <Route path="/profile" element={<ProfilePage />} />
                     <Route path="/inbox" element={<InboxPage />} />
                     <Route path="/create" element={<CreatePage />} />
+                    <Route path="/settings" element={<SettingsPage />} />
+                    <Route path="/admin" element={<AdminPage />} />
+                    <Route path="/notifications" element={<NotificationsPage />} />
                     <Route path="*" element={<NotFound />} />
                   </Routes>
                 </main>
