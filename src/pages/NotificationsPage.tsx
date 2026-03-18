@@ -1,20 +1,76 @@
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { ArrowLeft, Heart, MessageCircle, UserPlus, Video, Share2, AtSign } from "lucide-react";
+import { ArrowLeft, Heart, MessageCircle, UserPlus, Video, Share2, AtSign, Bell } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/useAuth";
 
-const notifications = [
-  { id: "1", type: "follow", icon: UserPlus, color: "text-primary", user: "blazerunner", text: "a commencé à te suivre", time: "2min", read: false },
-  { id: "2", type: "like", icon: Heart, color: "text-primary", user: "escapist.co", text: "a aimé ta vidéo", time: "15min", read: false },
-  { id: "3", type: "comment", icon: MessageCircle, color: "text-accent", user: "funfactory", text: "a commenté : \"Trop stylé 🔥🔥\"", time: "1h", read: false },
-  { id: "4", type: "mention", icon: AtSign, color: "text-accent", user: "joyride.tv", text: "t'a mentionné dans un commentaire", time: "2h", read: true },
-  { id: "5", type: "video", icon: Video, color: "text-primary", user: "meltdown.xo", text: "a publié une nouvelle vidéo", time: "3h", read: true },
-  { id: "6", type: "share", icon: Share2, color: "text-accent", user: "blazerunner", text: "a partagé ta vidéo", time: "5h", read: true },
-  { id: "7", type: "like", icon: Heart, color: "text-primary", user: "newuser42", text: "et 12 autres ont aimé ta vidéo", time: "8h", read: true },
-  { id: "8", type: "follow", icon: UserPlus, color: "text-primary", user: "creator_pro", text: "a commencé à te suivre", time: "1j", read: true },
-];
+interface Notification {
+  id: string;
+  type: string;
+  content: string;
+  from_username: string;
+  is_read: boolean;
+  created_at: string;
+}
+
+const typeIcons: Record<string, any> = {
+  follow: UserPlus,
+  like: Heart,
+  comment: MessageCircle,
+  mention: AtSign,
+  video: Video,
+  share: Share2,
+};
 
 export default function NotificationsPage() {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (user) fetchNotifications();
+  }, [user]);
+
+  const fetchNotifications = async () => {
+    if (!user) return;
+    setLoading(true);
+    const { data } = await supabase
+      .from("notifications")
+      .select("*, from_profile:from_user_id(username)")
+      .eq("user_id", user.id)
+      .order("created_at", { ascending: false })
+      .limit(50);
+
+    if (data) {
+      setNotifications(data.map((n: any) => ({
+        id: n.id,
+        type: n.type,
+        content: n.content,
+        from_username: n.from_profile?.username || "quelqu'un",
+        is_read: n.is_read,
+        created_at: n.created_at,
+      })));
+    }
+    setLoading(false);
+  };
+
+  const markAllRead = async () => {
+    if (!user) return;
+    await supabase.from("notifications").update({ is_read: true }).eq("user_id", user.id).eq("is_read", false);
+    setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
+  };
+
+  const getTimeAgo = (date: string) => {
+    const diff = Date.now() - new Date(date).getTime();
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return "maintenant";
+    if (mins < 60) return `${mins}min`;
+    const hours = Math.floor(mins / 60);
+    if (hours < 24) return `${hours}h`;
+    return `${Math.floor(hours / 24)}j`;
+  };
 
   return (
     <div className="min-h-[100svh] bg-background pb-20 md:pb-8 md:pl-[var(--sidebar-width,260px)]">
@@ -24,34 +80,48 @@ export default function NotificationsPage() {
             <ArrowLeft className="h-5 w-5 text-foreground" />
           </motion.button>
           <h1 className="text-xl font-bold text-foreground">Notifications</h1>
-          <span className="ml-auto text-xs text-primary font-semibold cursor-pointer">Tout marquer comme lu</span>
+          {notifications.some(n => !n.is_read) && (
+            <button onClick={markAllRead} className="ml-auto text-xs text-primary font-semibold">Tout marquer comme lu</button>
+          )}
         </div>
 
-        <div className="space-y-1">
-          {notifications.map((n, i) => (
-            <motion.div
-              key={n.id}
-              initial={{ opacity: 0, x: -10 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: i * 0.03 }}
-              className={`flex items-center gap-3 rounded-xl px-4 py-3 transition-colors cursor-pointer ${
-                !n.read ? "bg-primary/5" : "hover:bg-card"
-              }`}
-            >
-              <div className={`h-10 w-10 rounded-full bg-card flex items-center justify-center`}>
-                <n.icon className={`h-5 w-5 ${n.color}`} />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm text-foreground">
-                  <span className="font-semibold">@{n.user}</span>{" "}
-                  <span className="text-muted-foreground">{n.text}</span>
-                </p>
-                <span className="text-[11px] text-muted-foreground">{n.time}</span>
-              </div>
-              {!n.read && <div className="h-2 w-2 rounded-full gradient-primary flex-shrink-0" />}
-            </motion.div>
-          ))}
-        </div>
+        {loading ? (
+          <div className="text-center py-12">
+            <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: "linear" }} className="h-6 w-6 border-2 border-primary border-t-transparent rounded-full mx-auto" />
+          </div>
+        ) : notifications.length === 0 ? (
+          <div className="text-center py-12">
+            <Bell className="h-12 w-12 text-muted-foreground mx-auto mb-3 opacity-30" />
+            <p className="text-sm text-muted-foreground">Aucune notification pour le moment</p>
+          </div>
+        ) : (
+          <div className="space-y-1">
+            {notifications.map((n, i) => {
+              const Icon = typeIcons[n.type] || Bell;
+              return (
+                <motion.div
+                  key={n.id}
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: i * 0.03 }}
+                  className={`flex items-center gap-3 rounded-xl px-4 py-3 transition-colors cursor-pointer ${!n.is_read ? "bg-primary/5" : "hover:bg-card"}`}
+                >
+                  <div className="h-10 w-10 rounded-full bg-card flex items-center justify-center">
+                    <Icon className="h-5 w-5 text-primary" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-foreground">
+                      <span className="font-semibold">@{n.from_username}</span>{" "}
+                      <span className="text-muted-foreground">{n.content}</span>
+                    </p>
+                    <span className="text-[11px] text-muted-foreground">{getTimeAgo(n.created_at)}</span>
+                  </div>
+                  {!n.is_read && <div className="h-2 w-2 rounded-full gradient-primary flex-shrink-0" />}
+                </motion.div>
+              );
+            })}
+          </div>
+        )}
       </div>
     </div>
   );

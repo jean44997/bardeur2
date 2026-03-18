@@ -3,8 +3,10 @@ import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { AuthProvider } from "@/hooks/useAuth";
 import BottomNav from "@/components/BottomNav";
 import DesktopSidebar from "@/components/DesktopSidebar";
+import AuthGuard from "@/components/AuthGuard";
 import Index from "./pages/Index";
 import ExplorePage from "./pages/ExplorePage";
 import ProfilePage from "./pages/ProfilePage";
@@ -15,6 +17,7 @@ import ChatPage from "./pages/ChatPage";
 import SettingsPage from "./pages/SettingsPage";
 import AdminPage from "./pages/AdminPage";
 import NotificationsPage from "./pages/NotificationsPage";
+import ResetPasswordPage from "./pages/ResetPasswordPage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -25,32 +28,36 @@ const App = () => (
       <Toaster />
       <Sonner />
       <BrowserRouter>
-        <Routes>
-          <Route path="/auth" element={<AuthPage />} />
-          <Route path="/chat/:id" element={<ChatPage />} />
-          <Route
-            path="*"
-            element={
-              <>
-                <DesktopSidebar />
-                <main>
-                  <Routes>
-                    <Route path="/" element={<Index />} />
-                    <Route path="/explore" element={<ExplorePage />} />
-                    <Route path="/profile" element={<ProfilePage />} />
-                    <Route path="/inbox" element={<InboxPage />} />
-                    <Route path="/create" element={<CreatePage />} />
-                    <Route path="/settings" element={<SettingsPage />} />
-                    <Route path="/admin" element={<AdminPage />} />
-                    <Route path="/notifications" element={<NotificationsPage />} />
-                    <Route path="*" element={<NotFound />} />
-                  </Routes>
-                </main>
-                <BottomNav />
-              </>
-            }
-          />
-        </Routes>
+        <AuthProvider>
+          <Routes>
+            <Route path="/auth" element={<AuthPage />} />
+            <Route path="/reset-password" element={<ResetPasswordPage />} />
+            <Route path="/chat/:id" element={<AuthGuard><ChatPage /></AuthGuard>} />
+            <Route
+              path="*"
+              element={
+                <>
+                  <DesktopSidebar />
+                  <main>
+                    <Routes>
+                      <Route path="/" element={<Index />} />
+                      <Route path="/explore" element={<AuthGuard><ExplorePage /></AuthGuard>} />
+                      <Route path="/profile" element={<AuthGuard><ProfilePage /></AuthGuard>} />
+                      <Route path="/profile/:username" element={<ProfilePage />} />
+                      <Route path="/inbox" element={<AuthGuard><InboxPage /></AuthGuard>} />
+                      <Route path="/create" element={<AuthGuard><CreatePage /></AuthGuard>} />
+                      <Route path="/settings" element={<AuthGuard><SettingsPage /></AuthGuard>} />
+                      <Route path="/admin" element={<AuthGuard><AdminPage /></AuthGuard>} />
+                      <Route path="/notifications" element={<AuthGuard><NotificationsPage /></AuthGuard>} />
+                      <Route path="*" element={<NotFound />} />
+                    </Routes>
+                  </main>
+                  <BottomNav />
+                </>
+              }
+            />
+          </Routes>
+        </AuthProvider>
       </BrowserRouter>
     </TooltipProvider>
   </QueryClientProvider>
