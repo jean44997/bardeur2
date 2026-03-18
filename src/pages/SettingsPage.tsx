@@ -1,8 +1,10 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { ArrowLeft, User, Shield, Bell, Database, Info, Lock, Eye, EyeOff, Moon, Sun, Globe, Trash2, Download, ChevronRight } from "lucide-react";
+import { ArrowLeft, User, Shield, Bell, Database, Info, Lock, Eye, EyeOff, Globe, Trash2, Download, ChevronRight } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
+import { useAuth } from "@/hooks/useAuth";
+import { supabase } from "@/integrations/supabase/client";
 
 interface SettingItemProps {
   icon: React.ReactNode;
@@ -19,28 +21,17 @@ function SettingItem({ icon, label, description, toggle, value, onToggle, onClic
   return (
     <motion.button
       whileTap={{ scale: 0.98 }}
-      onClick={() => {
-        if (toggle && onToggle) onToggle(!value);
-        else if (onClick) onClick();
-      }}
-      className={`flex items-center gap-3 w-full px-4 py-3 rounded-xl transition-colors ${
-        danger ? "hover:bg-destructive/10" : "hover:bg-card"
-      }`}
+      onClick={() => { if (toggle && onToggle) onToggle(!value); else if (onClick) onClick(); }}
+      className={`flex items-center gap-3 w-full px-4 py-3 rounded-xl transition-colors ${danger ? "hover:bg-destructive/10" : "hover:bg-card"}`}
     >
-      <div className={`h-9 w-9 rounded-lg flex items-center justify-center ${danger ? "bg-destructive/20" : "bg-card"}`}>
-        {icon}
-      </div>
+      <div className={`h-9 w-9 rounded-lg flex items-center justify-center ${danger ? "bg-destructive/20" : "bg-card"}`}>{icon}</div>
       <div className="flex-1 text-left">
         <span className={`text-sm font-medium ${danger ? "text-destructive" : "text-foreground"}`}>{label}</span>
         {description && <p className="text-xs text-muted-foreground mt-0.5">{description}</p>}
       </div>
       {toggle ? (
         <div className={`h-6 w-11 rounded-full transition-colors flex items-center px-0.5 ${value ? "bg-primary" : "bg-muted"}`}>
-          <motion.div
-            className="h-5 w-5 rounded-full bg-foreground"
-            animate={{ x: value ? 20 : 0 }}
-            transition={{ type: "spring", stiffness: 500, damping: 30 }}
-          />
+          <motion.div className="h-5 w-5 rounded-full bg-foreground" animate={{ x: value ? 20 : 0 }} transition={{ type: "spring", stiffness: 500, damping: 30 }} />
         </div>
       ) : (
         <ChevronRight className="h-4 w-4 text-muted-foreground" />
@@ -51,17 +42,52 @@ function SettingItem({ icon, label, description, toggle, value, onToggle, onClic
 
 export default function SettingsPage() {
   const navigate = useNavigate();
-  const [privateAccount, setPrivateAccount] = useState(false);
-  const [hideLikes, setHideLikes] = useState(false);
-  const [hideSaves, setHideSaves] = useState(false);
-  const [invisible, setInvisible] = useState(false);
-  const [pushNotifs, setPushNotifs] = useState(true);
-  const [soundNotifs, setSoundNotifs] = useState(true);
+  const { profile, updateProfile, signOut, deleteAccount } = useAuth();
+  const [showPasswordChange, setShowPasswordChange] = useState(false);
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmNewPassword, setConfirmNewPassword] = useState("");
+  const { updatePassword } = useAuth();
+
+  const handleToggle = async (key: string, value: boolean) => {
+    await updateProfile({ [key]: value } as any);
+  };
+
+  const handlePasswordChange = async () => {
+    if (newPassword !== confirmNewPassword) { toast.error("Les mots de passe ne correspondent pas"); return; }
+    if (newPassword.length < 6) { toast.error("Minimum 6 caractères"); return; }
+    const { error } = await updatePassword(newPassword);
+    if (error) { toast.error(error.message); return; }
+    toast.success("Mot de passe mis à jour ! 🔒");
+    setShowPasswordChange(false);
+    setNewPassword("");
+    setConfirmNewPassword("");
+  };
+
+  const handleDeleteAccount = async () => {
+    if (!confirm("Es-tu sûr de vouloir supprimer ton compte ? Cette action est irréversible.")) return;
+    if (!confirm("Dernière chance ! Toutes tes données seront perdues.")) return;
+    await deleteAccount();
+    toast.success("Compte supprimé");
+    navigate("/auth");
+  };
+
+  const handleDownloadData = async () => {
+    toast.info("Préparation de tes données...");
+    // Export user data as JSON
+    const data = { profile };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "bardeur-yk-data.json";
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success("Données téléchargées !");
+  };
 
   return (
     <div className="min-h-[100svh] bg-background pb-20 md:pb-8 md:pl-[var(--sidebar-width,260px)]">
       <div className="mx-auto max-w-lg px-4 pt-6">
-        {/* Header */}
         <div className="flex items-center gap-3 mb-6">
           <motion.button whileTap={{ scale: 0.9 }} onClick={() => navigate(-1)}>
             <ArrowLeft className="h-5 w-5 text-foreground" />
@@ -73,20 +99,26 @@ export default function SettingsPage() {
         <div className="mb-6">
           <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-4 mb-2">Compte</h2>
           <div className="glass rounded-2xl overflow-hidden">
-            <SettingItem icon={<User className="h-4 w-4 text-primary" />} label="Modifier le profil" onClick={() => toast.info("Bientôt disponible")} />
-            <SettingItem icon={<Lock className="h-4 w-4 text-primary" />} label="Modifier le mot de passe" onClick={() => toast.info("Bientôt disponible")} />
-            <SettingItem icon={<Shield className="h-4 w-4 text-accent" />} label="Authentification 2FA" description="Sécurise ton compte" onClick={() => toast.info("Bientôt disponible")} />
+            <SettingItem icon={<User className="h-4 w-4 text-primary" />} label="Modifier le profil" onClick={() => navigate("/profile")} />
+            <SettingItem icon={<Lock className="h-4 w-4 text-primary" />} label="Modifier le mot de passe" onClick={() => setShowPasswordChange(p => !p)} />
           </div>
+          {showPasswordChange && (
+            <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} className="glass rounded-2xl p-4 mt-2 space-y-3">
+              <input type="password" placeholder="Nouveau mot de passe" value={newPassword} onChange={e => setNewPassword(e.target.value)} className="w-full glass rounded-xl px-4 py-3 bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none" />
+              <input type="password" placeholder="Confirmer" value={confirmNewPassword} onChange={e => setConfirmNewPassword(e.target.value)} className="w-full glass rounded-xl px-4 py-3 bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none" />
+              <motion.button whileTap={{ scale: 0.97 }} onClick={handlePasswordChange} className="w-full rounded-xl gradient-primary py-3 text-sm font-bold text-primary-foreground">Mettre à jour</motion.button>
+            </motion.div>
+          )}
         </div>
 
         {/* Confidentialité */}
         <div className="mb-6">
           <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-4 mb-2">Confidentialité</h2>
           <div className="glass rounded-2xl overflow-hidden">
-            <SettingItem icon={<Eye className="h-4 w-4 text-primary" />} label="Compte privé" toggle value={privateAccount} onToggle={setPrivateAccount} />
-            <SettingItem icon={<EyeOff className="h-4 w-4 text-muted-foreground" />} label="Masquer les j'aime" toggle value={hideLikes} onToggle={setHideLikes} />
-            <SettingItem icon={<EyeOff className="h-4 w-4 text-muted-foreground" />} label="Masquer les sauvegardes" toggle value={hideSaves} onToggle={setHideSaves} />
-            <SettingItem icon={<Globe className="h-4 w-4 text-accent" />} label="Mode invisible" description="Cache ton statut en ligne" toggle value={invisible} onToggle={setInvisible} />
+            <SettingItem icon={<Eye className="h-4 w-4 text-primary" />} label="Compte privé" toggle value={profile?.is_private} onToggle={v => handleToggle("is_private", v)} />
+            <SettingItem icon={<EyeOff className="h-4 w-4 text-muted-foreground" />} label="Masquer les j'aime" toggle value={profile?.hide_likes} onToggle={v => handleToggle("hide_likes", v)} />
+            <SettingItem icon={<EyeOff className="h-4 w-4 text-muted-foreground" />} label="Masquer les sauvegardes" toggle value={profile?.hide_saves} onToggle={v => handleToggle("hide_saves", v)} />
+            <SettingItem icon={<Globe className="h-4 w-4 text-accent" />} label="Mode invisible" description="Cache ton statut en ligne" toggle value={profile?.invisible_mode} onToggle={v => handleToggle("invisible_mode", v)} />
           </div>
         </div>
 
@@ -94,8 +126,8 @@ export default function SettingsPage() {
         <div className="mb-6">
           <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-4 mb-2">Notifications</h2>
           <div className="glass rounded-2xl overflow-hidden">
-            <SettingItem icon={<Bell className="h-4 w-4 text-primary" />} label="Notifications push" toggle value={pushNotifs} onToggle={setPushNotifs} />
-            <SettingItem icon={<Bell className="h-4 w-4 text-muted-foreground" />} label="Sons et vibrations" toggle value={soundNotifs} onToggle={setSoundNotifs} />
+            <SettingItem icon={<Bell className="h-4 w-4 text-primary" />} label="Notifications push" toggle value={profile?.push_notifications} onToggle={v => handleToggle("push_notifications", v)} />
+            <SettingItem icon={<Bell className="h-4 w-4 text-muted-foreground" />} label="Sons et vibrations" toggle value={profile?.sound_notifications} onToggle={v => handleToggle("sound_notifications", v)} />
           </div>
         </div>
 
@@ -103,8 +135,8 @@ export default function SettingsPage() {
         <div className="mb-6">
           <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-4 mb-2">Stockage et données</h2>
           <div className="glass rounded-2xl overflow-hidden">
-            <SettingItem icon={<Database className="h-4 w-4 text-muted-foreground" />} label="Vider le cache" onClick={() => toast.success("Cache vidé !")} />
-            <SettingItem icon={<Download className="h-4 w-4 text-accent" />} label="Télécharger mes données" onClick={() => toast.info("Bientôt disponible")} />
+            <SettingItem icon={<Database className="h-4 w-4 text-muted-foreground" />} label="Vider le cache" onClick={() => { localStorage.clear(); toast.success("Cache vidé !"); }} />
+            <SettingItem icon={<Download className="h-4 w-4 text-accent" />} label="Télécharger mes données" onClick={handleDownloadData} />
           </div>
         </div>
 
@@ -112,13 +144,19 @@ export default function SettingsPage() {
         <div className="mb-6">
           <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-4 mb-2">À propos</h2>
           <div className="glass rounded-2xl overflow-hidden">
-            <SettingItem icon={<Info className="h-4 w-4 text-muted-foreground" />} label="Version 1.0.0" description="BARDEUR YK" />
+            <SettingItem icon={<Info className="h-4 w-4 text-muted-foreground" />} label="Version 1.0.0" description="BARDEUR YK — Créé par mienthy" />
           </div>
         </div>
 
-        {/* Danger */}
-        <div className="glass rounded-2xl overflow-hidden">
-          <SettingItem icon={<Trash2 className="h-4 w-4 text-destructive" />} label="Supprimer mon compte" danger onClick={() => toast.error("Cette action est irréversible")} />
+        {/* Actions */}
+        <div className="space-y-2">
+          <motion.button whileTap={{ scale: 0.98 }} onClick={signOut} className="flex items-center gap-3 w-full glass rounded-2xl px-4 py-3">
+            <div className="h-9 w-9 rounded-lg bg-card flex items-center justify-center"><ArrowLeft className="h-4 w-4 text-muted-foreground" /></div>
+            <span className="text-sm font-medium text-foreground">Se déconnecter</span>
+          </motion.button>
+          <div className="glass rounded-2xl overflow-hidden">
+            <SettingItem icon={<Trash2 className="h-4 w-4 text-destructive" />} label="Supprimer mon compte" danger onClick={handleDeleteAccount} />
+          </div>
         </div>
       </div>
     </div>
