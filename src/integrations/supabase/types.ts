@@ -581,6 +581,7 @@ export type Database = {
       videos: {
         Row: {
           comments_count: number | null
+          comments_enabled: boolean
           created_at: string | null
           description: string | null
           hashtags: string[] | null
@@ -599,6 +600,7 @@ export type Database = {
         }
         Insert: {
           comments_count?: number | null
+          comments_enabled?: boolean
           created_at?: string | null
           description?: string | null
           hashtags?: string[] | null
@@ -617,6 +619,7 @@ export type Database = {
         }
         Update: {
           comments_count?: number | null
+          comments_enabled?: boolean
           created_at?: string | null
           description?: string | null
           hashtags?: string[] | null
@@ -648,6 +651,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      can_view_profile_content: {
+        Args: { _owner_id: string; _viewer_id: string }
+        Returns: boolean
+      }
       find_or_create_direct_conversation: {
         Args: { _other_user_id: string }
         Returns: string
