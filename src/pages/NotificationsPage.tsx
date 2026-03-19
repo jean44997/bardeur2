@@ -5,13 +5,14 @@ import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 
-interface Notification {
+interface NotificationItem {
   id: string;
   type: string;
   content: string;
   from_username: string;
   is_read: boolean;
   created_at: string;
+  reference_id?: string | null;
 }
 
 const typeIcons: Record<string, any> = {
@@ -21,16 +22,32 @@ const typeIcons: Record<string, any> = {
   mention: AtSign,
   video: Video,
   share: Share2,
+  message: MessageCircle,
 };
 
 export default function NotificationsPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (user) fetchNotifications();
+    if (!user) return;
+
+    fetchNotifications();
+
+    const channel = supabase
+      .channel(`notifications-${user.id}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "notifications", filter: `user_id=eq.${user.id}` },
+        () => fetchNotifications()
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [user]);
 
   const fetchNotifications = async () => {
@@ -44,14 +61,17 @@ export default function NotificationsPage() {
       .limit(50);
 
     if (data) {
-      setNotifications(data.map((n: any) => ({
-        id: n.id,
-        type: n.type,
-        content: n.content,
-        from_username: n.from_profile?.username || "quelqu'un",
-        is_read: n.is_read,
-        created_at: n.created_at,
-      })));
+      setNotifications(
+        data.map((n: any) => ({
+          id: n.id,
+          type: n.type,
+          content: n.content,
+          from_username: n.from_profile?.username || "quelqu'un",
+          is_read: n.is_read,
+          created_at: n.created_at,
+          reference_id: n.reference_id,
+        }))
+      );
     }
     setLoading(false);
   };
@@ -60,6 +80,24 @@ export default function NotificationsPage() {
     if (!user) return;
     await supabase.from("notifications").update({ is_read: true }).eq("user_id", user.id).eq("is_read", false);
     setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
+  };
+
+  const markOneRead = async (id: string) => {
+    await supabase.from("notifications").update({ is_read: true }).eq("id", id);
+    setNotifications(prev => prev.map(n => (n.id === id ? { ...n, is_read: true } : n)));
+  };
+
+  const handleOpenNotification = async (item: NotificationItem) => {
+    if (!item.is_read) await markOneRead(item.id);
+
+    if (item.type === "message" && item.reference_id) {
+      navigate(`/chat/${item.reference_id}`);
+      return;
+    }
+
+    if (item.from_username) {
+      navigate(`/profile/${item.from_username}`);
+    }
   };
 
   const getTimeAgo = (date: string) => {
@@ -99,12 +137,13 @@ export default function NotificationsPage() {
             {notifications.map((n, i) => {
               const Icon = typeIcons[n.type] || Bell;
               return (
-                <motion.div
+                <motion.button
                   key={n.id}
                   initial={{ opacity: 0, x: -10 }}
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ delay: i * 0.03 }}
-                  className={`flex items-center gap-3 rounded-xl px-4 py-3 transition-colors cursor-pointer ${!n.is_read ? "bg-primary/5" : "hover:bg-card"}`}
+                  onClick={() => handleOpenNotification(n)}
+                  className={`flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left transition-colors ${!n.is_read ? "bg-primary/5" : "hover:bg-card"}`}
                 >
                   <div className="h-10 w-10 rounded-full bg-card flex items-center justify-center">
                     <Icon className="h-5 w-5 text-primary" />
@@ -117,7 +156,7 @@ export default function NotificationsPage() {
                     <span className="text-[11px] text-muted-foreground">{getTimeAgo(n.created_at)}</span>
                   </div>
                   {!n.is_read && <div className="h-2 w-2 rounded-full gradient-primary flex-shrink-0" />}
-                </motion.div>
+                </motion.button>
               );
             })}
           </div>

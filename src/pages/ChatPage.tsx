@@ -12,6 +12,8 @@ interface Message {
   fromMe: boolean;
   time: string;
   status: "sent" | "delivered" | "read";
+  mediaUrl?: string;
+  mediaType?: string;
 }
 
 const quickEmojis = ["❤️", "🔥", "😂", "😍", "👏", "🤯", "💀", "🙏"];
@@ -25,7 +27,9 @@ export default function ChatPage() {
   const [showEmojis, setShowEmojis] = useState(false);
   const [otherUserName, setOtherUserName] = useState("Conversation");
   const [loading, setLoading] = useState(true);
+  const [uploadingImage, setUploadingImage] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (conversationId && user) {
@@ -33,31 +37,33 @@ export default function ChatPage() {
       fetchOtherUser();
       markAsRead();
 
-      // Realtime subscription
       const channel = supabase
         .channel(`messages-${conversationId}`)
-        .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages", filter: `conversation_id=eq.${conversationId}` },
-          (payload) => {
-            const msg = payload.new as any;
-            setMessages(prev => [...prev, {
-              id: msg.id,
-              text: msg.content,
-              fromMe: msg.sender_id === user.id,
-              time: new Date(msg.created_at).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }),
-              status: "delivered",
-            }]);
-            if (msg.sender_id !== user.id) markAsRead();
-          }
-        )
+        .on("postgres_changes", { event: "*", schema: "public", table: "messages", filter: `conversation_id=eq.${conversationId}` }, () => {
+          fetchMessages();
+          markAsRead();
+        })
         .subscribe();
 
-      return () => { supabase.removeChannel(channel); };
+      return () => {
+        supabase.removeChannel(channel);
+      };
     }
   }, [conversationId, user]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  const mapMessage = (m: any): Message => ({
+    id: m.id,
+    text: m.content || "",
+    fromMe: m.sender_id === user?.id,
+    time: new Date(m.created_at).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }),
+    status: m.is_read ? "read" : "delivered",
+    mediaUrl: m.media_url || undefined,
+    mediaType: m.media_type || undefined,
+  });
 
   const fetchMessages = async () => {
     if (!conversationId) return;
@@ -68,15 +74,7 @@ export default function ChatPage() {
       .eq("conversation_id", conversationId)
       .order("created_at", { ascending: true });
 
-    if (data) {
-      setMessages(data.map((m: any) => ({
-        id: m.id,
-        text: m.content,
-        fromMe: m.sender_id === user?.id,
-        time: new Date(m.created_at).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }),
-        status: m.is_read ? "read" : "delivered",
-      })));
-    }
+    if (data) setMessages(data.map(mapMessage));
     setLoading(false);
   };
 
@@ -92,12 +90,21 @@ export default function ChatPage() {
 
   const markAsRead = async () => {
     if (!conversationId || !user) return;
-    await supabase
-      .from("messages")
-      .update({ is_read: true })
-      .eq("conversation_id", conversationId)
-      .neq("sender_id", user.id)
-      .eq("is_read", false);
+    await Promise.all([
+      supabase
+        .from("messages")
+        .update({ is_read: true })
+        .eq("conversation_id", conversationId)
+        .neq("sender_id", user.id)
+        .eq("is_read", false),
+      supabase
+        .from("notifications")
+        .update({ is_read: true })
+        .eq("user_id", user.id)
+        .eq("type", "message")
+        .eq("reference_id", conversationId)
+        .eq("is_read", false),
+    ]);
   };
 
   const sendMessage = async () => {
@@ -107,8 +114,37 @@ export default function ChatPage() {
       sender_id: user.id,
       content: newMsg.trim(),
     });
-    if (error) { toast.error("Erreur d'envoi"); return; }
+    if (error) {
+      toast.error("Erreur d'envoi");
+      return;
+    }
     setNewMsg("");
+  };
+
+  const sendImage = async (file?: File | null) => {
+    if (!file || !user || !conversationId) return;
+    setUploadingImage(true);
+    try {
+      const ext = file.name.split(".").pop();
+      const path = `${user.id}/chat/${crypto.randomUUID()}.${ext}`;
+      const { error: uploadError } = await supabase.storage.from("media").upload(path, file);
+      if (uploadError) throw uploadError;
+      const { data } = supabase.storage.from("media").getPublicUrl(path);
+      const { error } = await supabase.from("messages").insert({
+        conversation_id: conversationId,
+        sender_id: user.id,
+        content: "",
+        media_url: data.publicUrl,
+        media_type: file.type || "image/*",
+      });
+      if (error) throw error;
+      toast.success("Image envoyée");
+    } catch {
+      toast.error("Impossible d'envoyer l'image");
+    } finally {
+      setUploadingImage(false);
+      if (imageInputRef.current) imageInputRef.current.value = "";
+    }
   };
 
   const StatusIcon = ({ status }: { status: string }) => {
@@ -156,6 +192,9 @@ export default function ChatPage() {
             >
               <div className="max-w-[75%]">
                 <div className={`px-4 py-2.5 text-sm ${msg.fromMe ? "gradient-primary text-primary-foreground rounded-2xl rounded-br-sm" : "glass text-foreground rounded-2xl rounded-bl-sm"}`}>
+                  {msg.mediaUrl && msg.mediaType?.startsWith("image") && (
+                    <img src={msg.mediaUrl} alt="Pièce jointe" className="mb-2 max-h-64 w-full rounded-xl object-cover" />
+                  )}
                   {msg.text}
                 </div>
                 <div className={`flex items-center gap-1 mt-0.5 ${msg.fromMe ? "justify-end" : "justify-start"}`}>
@@ -180,11 +219,12 @@ export default function ChatPage() {
       </AnimatePresence>
 
       <div className="border-t border-border px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+        <input ref={imageInputRef} type="file" accept="image/*" className="hidden" onChange={e => sendImage(e.target.files?.[0])} />
         <div className="flex items-center gap-2">
           <motion.button whileTap={{ scale: 0.9 }} onClick={() => setShowEmojis(p => !p)}>
             <Smile className="h-5 w-5 text-muted-foreground" />
           </motion.button>
-          <motion.button whileTap={{ scale: 0.9 }}>
+          <motion.button whileTap={{ scale: 0.9 }} onClick={() => imageInputRef.current?.click()} disabled={uploadingImage}>
             <ImageIcon className="h-5 w-5 text-muted-foreground" />
           </motion.button>
           <div className="flex-1 glass rounded-full flex items-center px-4 py-2.5">
@@ -202,7 +242,7 @@ export default function ChatPage() {
               <Send className="h-4 w-4 text-primary-foreground" />
             </motion.button>
           ) : (
-            <motion.button whileTap={{ scale: 0.85 }} className="rounded-full p-2.5 bg-secondary">
+            <motion.button whileTap={{ scale: 0.85 }} className="rounded-full p-2.5 bg-secondary" onClick={() => toast.info("Message vocal à brancher ensuite")}>
               <Mic className="h-4 w-4 text-muted-foreground" />
             </motion.button>
           )}
