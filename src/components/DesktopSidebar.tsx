@@ -25,7 +25,7 @@ export default function DesktopSidebar() {
   ].filter(i => i.show);
 
   return (
-    <aside className={`hidden md:flex fixed left-0 top-0 bottom-0 z-50 flex-col border-r border-border bg-sidebar transition-all duration-300 ${collapsed ? "w-[72px]" : "w-[260px]"}`}>
+    <aside className={`hidden md:flex fixed left-0 top-0 bottom-0 z-50 flex-col border-r border-border bg-sidebar transition-all duration-300 ${collapsed ? "w-[72px]" : "w-[260px]"}`} style={{ "--sidebar-width": collapsed ? "72px" : "260px" } as any}>
       <div className="flex items-center justify-between px-3 pt-4 pb-2 mb-2">
         <div className="flex items-center gap-2 overflow-hidden cursor-pointer" onClick={() => navigate("/")}>
           <img src={logo} alt="BARDEUR YK" className="h-9 w-9 rounded-lg object-contain flex-shrink-0" />

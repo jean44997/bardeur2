@@ -11,10 +11,11 @@ import { RefreshCw, Film } from "lucide-react";
 export default function VideoFeed() {
   const [videos, setVideos] = useState<VideoData[]>([]);
   const [activeIndex, setActiveIndex] = useState(0);
-  const [isMuted, setIsMuted] = useState(false); // Sound ON by default
+  const [isMuted, setIsMuted] = useState(false);
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [commentVideoId, setCommentVideoId] = useState<string | null>(null);
   const [commentCount, setCommentCount] = useState(0);
+  const [commentsEnabled, setCommentsEnabled] = useState(true);
   const [gamificationOpen, setGamificationOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -52,6 +53,7 @@ export default function VideoFeed() {
           saves: v.saves_count || 0,
         },
         isFollowing: false,
+        commentsEnabled: v.comments_enabled !== false,
       }));
       setVideos(mapped);
     }
@@ -107,7 +109,6 @@ export default function VideoFeed() {
 
   return (
     <>
-      {/* Refresh button */}
       <motion.button
         whileTap={{ scale: 0.9 }}
         onClick={fetchVideos}
@@ -128,6 +129,10 @@ export default function VideoFeed() {
             isMuted={isMuted}
             onToggleMute={() => setIsMuted((p) => !p)}
             onOpenComments={(count) => {
+              const v = videos[i] as any;
+              if (v.commentsEnabled === false) {
+                return;
+              }
               setCommentVideoId(video.id);
               setCommentCount(count);
               setCommentsOpen(true);
