@@ -1,7 +1,14 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Heart, MessageCircle, Share2, Bookmark, Music, Plus, Check, Volume2, VolumeX, BadgeCheck, Trophy } from "lucide-react";
+import {
+  Heart, MessageCircle, Share2, Bookmark, Music, Volume2, VolumeX,
+  BadgeCheck, Trophy, Download, Gauge, SkipForward, Flag, Link2,
+  Copy, X
+} from "lucide-react";
 import { VideoData, formatCount } from "@/data/mockVideos";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/useAuth";
+import { toast } from "sonner";
 
 interface VideoCardProps {
   video: VideoData;
@@ -17,7 +24,6 @@ function FloatingHeart({ id, x, y, onDone }: { id: string; x: number; y: number;
     const t = setTimeout(() => onDone(id), 900);
     return () => clearTimeout(t);
   }, [id, onDone]);
-
   const rotation = Math.random() * 30 - 15;
   return (
     <motion.div
@@ -34,29 +40,61 @@ function FloatingHeart({ id, x, y, onDone }: { id: string; x: number; y: number;
 
 export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOpenComments, onOpenGamification }: VideoCardProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const { user } = useAuth();
   const [liked, setLiked] = useState(false);
   const [saved, setSaved] = useState(false);
   const [following, setFollowing] = useState(video.isFollowing);
   const [likeCount, setLikeCount] = useState(video.stats.likes);
   const [hearts, setHearts] = useState<{ id: string; x: number; y: number }[]>([]);
   const [progress, setProgress] = useState(0);
+  const [showLongPress, setShowLongPress] = useState(false);
+  const [playbackRate, setPlaybackRate] = useState(1);
+  const [viewCounted, setViewCounted] = useState(false);
   const lastTapRef = useRef(0);
+  const longPressTimer = useRef<NodeJS.Timeout | null>(null);
+
+  // Check initial like/save status
+  useEffect(() => {
+    if (!user) return;
+    const checkStatus = async () => {
+      const [likeRes, saveRes, followRes] = await Promise.all([
+        supabase.from("likes").select("id").eq("user_id", user.id).eq("video_id", video.id).maybeSingle(),
+        supabase.from("saves").select("id").eq("user_id", user.id).eq("video_id", video.id).maybeSingle(),
+        supabase.from("follows").select("id").eq("follower_id", user.id).eq("following_id", video.user.id).maybeSingle(),
+      ]);
+      if (likeRes.data) setLiked(true);
+      if (saveRes.data) setSaved(true);
+      if (followRes.data) setFollowing(true);
+    };
+    checkStatus();
+  }, [user, video.id, video.user.id]);
 
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
     if (isActive) {
+      v.playbackRate = playbackRate;
       v.play().catch(() => {});
     } else {
       v.pause();
       v.currentTime = 0;
     }
-  }, [isActive]);
+  }, [isActive, playbackRate]);
 
   useEffect(() => {
     const v = videoRef.current;
     if (v) v.muted = isMuted;
   }, [isMuted]);
+
+  // Count view after 3 seconds
+  useEffect(() => {
+    if (!isActive || viewCounted) return;
+    const t = setTimeout(() => {
+      supabase.rpc("increment_video_views", { _video_id: video.id });
+      setViewCounted(true);
+    }, 3000);
+    return () => clearTimeout(t);
+  }, [isActive, viewCounted, video.id]);
 
   useEffect(() => {
     const v = videoRef.current;
@@ -78,10 +116,7 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
         const x = clientX - rect.left;
         const y = clientY - rect.top;
         setHearts((prev) => [...prev, { id: crypto.randomUUID(), x, y }]);
-        if (!liked) {
-          setLiked(true);
-          setLikeCount((c) => c + 1);
-        }
+        if (!liked) toggleLike();
       }
       lastTapRef.current = now;
     },
@@ -92,14 +127,91 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
     setHearts((prev) => prev.filter((h) => h.id !== id));
   }, []);
 
-  const toggleLike = () => {
-    setLiked((p) => !p);
-    setLikeCount((c) => (liked ? c - 1 : c + 1));
+  const toggleLike = async () => {
+    if (!user) { toast.error("Connecte-toi pour aimer"); return; }
+    const newLiked = !liked;
+    setLiked(newLiked);
+    setLikeCount((c) => newLiked ? c + 1 : c - 1);
+
+    if (newLiked) {
+      await supabase.from("likes").insert({ user_id: user.id, video_id: video.id });
+    } else {
+      await supabase.from("likes").delete().eq("user_id", user.id).eq("video_id", video.id);
+    }
+  };
+
+  const toggleSave = async () => {
+    if (!user) { toast.error("Connecte-toi pour sauvegarder"); return; }
+    const newSaved = !saved;
+    setSaved(newSaved);
+
+    if (newSaved) {
+      await supabase.from("saves").insert({ user_id: user.id, video_id: video.id });
+      toast.success("Sauvegardé ✅");
+    } else {
+      await supabase.from("saves").delete().eq("user_id", user.id).eq("video_id", video.id);
+    }
+  };
+
+  const handleFollow = async () => {
+    if (!user) { toast.error("Connecte-toi pour suivre"); return; }
+    if (following) {
+      await supabase.from("follows").delete().eq("follower_id", user.id).eq("following_id", video.user.id);
+      setFollowing(false);
+    } else {
+      await supabase.from("follows").insert({ follower_id: user.id, following_id: video.user.id });
+      setFollowing(true);
+    }
+  };
+
+  const handleShare = async () => {
+    const shareUrl = `${window.location.origin}/video/${video.id}`;
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: video.description, url: shareUrl });
+        if (user) await supabase.from("shares").insert({ user_id: user.id, video_id: video.id });
+      } catch {}
+    } else {
+      await navigator.clipboard.writeText(shareUrl);
+      toast.success("Lien copié ! 🔗");
+    }
+  };
+
+  const handleDownload = async () => {
+    try {
+      toast.info("Téléchargement en cours...");
+      const response = await fetch(video.url);
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `bardeur-${video.id}.mp4`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success("Vidéo téléchargée ! 📥");
+    } catch {
+      toast.error("Erreur de téléchargement");
+    }
+    setShowLongPress(false);
+  };
+
+  const handleLongPressStart = () => {
+    longPressTimer.current = setTimeout(() => setShowLongPress(true), 500);
+  };
+
+  const handleLongPressEnd = () => {
+    if (longPressTimer.current) clearTimeout(longPressTimer.current);
+  };
+
+  const changeSpeed = (rate: number) => {
+    setPlaybackRate(rate);
+    if (videoRef.current) videoRef.current.playbackRate = rate;
+    toast.success(`Vitesse: ${rate}x`);
+    setShowLongPress(false);
   };
 
   return (
     <div className="relative h-[100svh] w-full snap-start overflow-hidden bg-background">
-      {/* Video */}
       <video
         ref={videoRef}
         src={video.url}
@@ -110,67 +222,68 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
         preload="auto"
         onClick={handleDoubleTap}
         onTouchEnd={handleDoubleTap}
+        onMouseDown={handleLongPressStart}
+        onMouseUp={handleLongPressEnd}
+        onTouchStart={handleLongPressStart}
+        onTouchCancel={handleLongPressEnd}
       />
 
-      {/* Floating Hearts */}
       <AnimatePresence>
         {hearts.map((h) => (
           <FloatingHeart key={h.id} {...h} onDone={removeHeart} />
         ))}
       </AnimatePresence>
 
-      {/* Bottom Gradient Overlay */}
       <div className="gradient-overlay absolute inset-x-0 bottom-0 h-[45%] pointer-events-none" />
 
       {/* Progress Bar */}
       <div className="absolute bottom-0 left-0 right-0 h-[3px] bg-foreground/10 z-30">
-        <motion.div
-          className="h-full gradient-primary"
-          style={{ width: `${progress}%` }}
-          transition={{ duration: 0.1 }}
-        />
+        <motion.div className="h-full gradient-primary" style={{ width: `${progress}%` }} transition={{ duration: 0.1 }} />
       </div>
+
+      {/* Speed indicator */}
+      {playbackRate !== 1 && (
+        <div className="absolute top-16 left-1/2 -translate-x-1/2 z-30 glass rounded-full px-3 py-1">
+          <span className="text-xs font-bold text-foreground">{playbackRate}x</span>
+        </div>
+      )}
 
       {/* Bottom Info */}
       <div className="absolute bottom-4 left-4 right-20 z-20 text-shadow-video">
-        {/* User */}
         <div className="flex items-center gap-2 mb-2">
-          <div className="h-10 w-10 rounded-full gradient-primary flex items-center justify-center text-sm font-bold text-primary-foreground">
-            {video.user.displayName[0]}
+          <div className="h-10 w-10 rounded-full gradient-primary flex items-center justify-center text-sm font-bold text-primary-foreground overflow-hidden">
+            {video.user.avatar ? (
+              <img src={video.user.avatar} alt="" className="h-full w-full object-cover" />
+            ) : (
+              video.user.displayName[0]
+            )}
           </div>
-          <span className="font-semibold text-foreground text-[15px]">
-            @{video.user.username}
-          </span>
+          <span className="font-semibold text-foreground text-[15px]">@{video.user.username}</span>
           {video.user.verified && <BadgeCheck className="h-4 w-4 text-accent" />}
-          {!following && (
-            <motion.button
-              whileTap={{ scale: 0.9 }}
-              onClick={() => setFollowing(true)}
-              className="ml-1 rounded-md border border-primary bg-primary/20 px-2.5 py-0.5 text-xs font-semibold text-primary"
-            >
-              Suivre
-            </motion.button>
-          )}
+          <motion.button
+            whileTap={{ scale: 0.9 }}
+            onClick={handleFollow}
+            className={`ml-1 rounded-md px-2.5 py-0.5 text-xs font-semibold ${
+              following
+                ? "border border-muted-foreground/30 text-muted-foreground"
+                : "border border-primary bg-primary/20 text-primary"
+            }`}
+          >
+            {following ? "Suivi" : "Suivre"}
+          </motion.button>
         </div>
 
-        {/* Description */}
         <p className="text-sm text-foreground/90 mb-1.5 line-clamp-2">{video.description}</p>
 
-        {/* Hashtags */}
         <div className="flex flex-wrap gap-1 mb-2">
           {video.hashtags.map((tag) => (
-            <span key={tag} className="text-xs font-medium text-accent">
-              #{tag}
-            </span>
+            <span key={tag} className="text-xs font-medium text-accent">#{tag}</span>
           ))}
         </div>
 
-        {/* Sound */}
         <div className="flex items-center gap-1.5 text-xs text-foreground/70">
           <Music className="h-3 w-3" />
-          <span className="truncate max-w-[200px]">
-            {video.sound.name} — {video.sound.artist}
-          </span>
+          <span className="truncate max-w-[200px]">{video.sound.name} — {video.sound.artist}</span>
         </div>
       </div>
 
@@ -189,44 +302,81 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
         <ActionButton
           icon={<Share2 className="h-7 w-7 text-foreground" />}
           label={formatCount(video.stats.shares)}
+          onClick={handleShare}
         />
         <ActionButton
           icon={<Bookmark className={`h-7 w-7 ${saved ? "fill-accent text-accent" : "text-foreground"}`} />}
           label={formatCount(video.stats.saves)}
-          onClick={() => setSaved((p) => !p)}
+          onClick={toggleSave}
         />
-
-        {/* Mute toggle */}
-        <motion.button
-          whileTap={{ scale: 0.85 }}
-          onClick={onToggleMute}
-          className="glass rounded-full p-2"
-        >
+        <motion.button whileTap={{ scale: 0.85 }} onClick={onToggleMute} className="glass rounded-full p-2">
           {isMuted ? <VolumeX className="h-5 w-5 text-foreground/70" /> : <Volume2 className="h-5 w-5 text-foreground/70" />}
         </motion.button>
-
-        {/* Gamification */}
-        <motion.button
-          whileTap={{ scale: 0.85 }}
-          onClick={onOpenGamification}
-          className="glass rounded-full p-2"
-        >
+        <motion.button whileTap={{ scale: 0.85 }} onClick={onOpenGamification} className="glass rounded-full p-2">
           <Trophy className="h-5 w-5 text-accent" />
         </motion.button>
       </div>
+
+      {/* Long Press Menu */}
+      <AnimatePresence>
+        {showLongPress && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 z-50 bg-background/60 flex items-end justify-center"
+            onClick={() => setShowLongPress(false)}
+          >
+            <motion.div
+              initial={{ y: 200 }}
+              animate={{ y: 0 }}
+              exit={{ y: 200 }}
+              transition={{ type: "spring", damping: 25 }}
+              className="w-full max-w-lg glass rounded-t-3xl p-6 pb-10"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-bold text-foreground">Options</h3>
+                <motion.button whileTap={{ scale: 0.9 }} onClick={() => setShowLongPress(false)}>
+                  <X className="h-5 w-5 text-muted-foreground" />
+                </motion.button>
+              </div>
+              <div className="grid grid-cols-4 gap-3">
+                <LongPressOption icon={<Download className="h-5 w-5" />} label="Télécharger HD" onClick={handleDownload} />
+                <LongPressOption icon={<Gauge className="h-5 w-5" />} label="0.5x" onClick={() => changeSpeed(0.5)} />
+                <LongPressOption icon={<Gauge className="h-5 w-5" />} label="1x" onClick={() => changeSpeed(1)} />
+                <LongPressOption icon={<Gauge className="h-5 w-5" />} label="1.5x" onClick={() => changeSpeed(1.5)} />
+                <LongPressOption icon={<Gauge className="h-5 w-5" />} label="2x" onClick={() => changeSpeed(2)} />
+                <LongPressOption icon={<SkipForward className="h-5 w-5" />} label="3x" onClick={() => changeSpeed(3)} />
+                <LongPressOption icon={<Link2 className="h-5 w-5" />} label="Copier lien" onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/video/${video.id}`); toast.success("Lien copié"); setShowLongPress(false); }} />
+                <LongPressOption icon={<Flag className="h-5 w-5" />} label="Signaler" onClick={() => { toast.info("Signalement envoyé"); setShowLongPress(false); }} />
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
 
 function ActionButton({ icon, label, onClick }: { icon: React.ReactNode; label: string; onClick?: () => void }) {
   return (
-    <motion.button
-      whileTap={{ scale: 0.85 }}
-      onClick={onClick}
-      className="flex flex-col items-center gap-1"
-    >
+    <motion.button whileTap={{ scale: 0.85 }} onClick={onClick} className="flex flex-col items-center gap-1">
       {icon}
       <span className="text-[11px] font-semibold text-foreground/80 tabular-nums">{label}</span>
+    </motion.button>
+  );
+}
+
+function LongPressOption({ icon, label, onClick }: { icon: React.ReactNode; label: string; onClick: () => void }) {
+  return (
+    <motion.button
+      whileTap={{ scale: 0.9 }}
+      onClick={onClick}
+      className="flex flex-col items-center gap-1.5 rounded-xl bg-card p-3"
+    >
+      <span className="text-foreground">{icon}</span>
+      <span className="text-[10px] font-medium text-muted-foreground">{label}</span>
     </motion.button>
   );
 }

@@ -1,11 +1,12 @@
-import { useState, useEffect, useRef } from "react";
-import { Settings, Grid3X3, Heart, Bookmark, BadgeCheck, Share2, QrCode, Link2, Camera, Trash2, MessageCircle } from "lucide-react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { Settings, Grid3X3, Heart, Bookmark, BadgeCheck, Share2, QrCode, Link2, Camera, Trash2, MessageCircle, Edit3, ToggleLeft, ToggleRight, X } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import logo from "@/assets/logo.png";
+import QRCode from "qrcode";
 
 export default function ProfilePage() {
   const navigate = useNavigate();
@@ -13,20 +14,28 @@ export default function ProfilePage() {
   const { user, profile, updateProfile, role } = useAuth();
   const [activeTab, setActiveTab] = useState(0);
   const [showQR, setShowQR] = useState(false);
+  const [qrDataUrl, setQrDataUrl] = useState("");
   const [isEditing, setIsEditing] = useState(false);
   const [editBio, setEditBio] = useState("");
   const [editDisplayName, setEditDisplayName] = useState("");
   const [editWebsite, setEditWebsite] = useState("");
   const [videos, setVideos] = useState<any[]>([]);
-  const [stats, setStats] = useState({ followers: 0, following: 0, likes: 0, videos: 0 });
+  const [likedVideos, setLikedVideos] = useState<any[]>([]);
+  const [savedVideos, setSavedVideos] = useState<any[]>([]);
+  const [stats, setStats] = useState({ followers: 0, following: 0, likes: 0, videos: 0, views: 0 });
   const [viewedProfile, setViewedProfile] = useState<any>(null);
   const [isOwnProfile, setIsOwnProfile] = useState(true);
   const [isFollowing, setIsFollowing] = useState(false);
   const [isMutual, setIsMutual] = useState(false);
   const [openingChat, setOpeningChat] = useState(false);
+  const [editingVideo, setEditingVideo] = useState<any>(null);
+  const [editDesc, setEditDesc] = useState("");
+  const [editHashtags, setEditHashtags] = useState("");
+  const [editCommentsEnabled, setEditCommentsEnabled] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const targetUserId = isOwnProfile ? user?.id : viewedProfile?.id;
+  const currentProfile = isOwnProfile ? profile : viewedProfile;
 
   useEffect(() => {
     if (paramUsername) {
@@ -44,8 +53,12 @@ export default function ProfilePage() {
     if (targetUserId) {
       fetchStats(targetUserId);
       fetchVideos(targetUserId);
+      if (isOwnProfile && user) {
+        fetchLikedVideos();
+        fetchSavedVideos();
+      }
     }
-  }, [targetUserId]);
+  }, [targetUserId, activeTab]);
 
   const fetchUserByUsername = async (username: string) => {
     const { data } = await supabase.from("profiles").select("*").eq("username", username).single();
@@ -61,25 +74,27 @@ export default function ProfilePage() {
 
   const checkFollowStatus = async (otherId: string) => {
     if (!user) return;
-    const { data: following } = await supabase.from("follows").select("id").eq("follower_id", user.id).eq("following_id", otherId).maybeSingle();
-    setIsFollowing(!!following);
-    const { data: followedBack } = await supabase.from("follows").select("id").eq("follower_id", otherId).eq("following_id", user.id).maybeSingle();
-    setIsMutual(!!following && !!followedBack);
+    const [f1, f2] = await Promise.all([
+      supabase.from("follows").select("id").eq("follower_id", user.id).eq("following_id", otherId).maybeSingle(),
+      supabase.from("follows").select("id").eq("follower_id", otherId).eq("following_id", user.id).maybeSingle(),
+    ]);
+    setIsFollowing(!!f1.data);
+    setIsMutual(!!f1.data && !!f2.data);
   };
 
   const fetchStats = async (userId: string) => {
-    const [followers, following, totalLikes, videoCount] = await Promise.all([
+    const [followers, following, totalLikes, videoData] = await Promise.all([
       supabase.from("follows").select("*", { count: "exact", head: true }).eq("following_id", userId),
       supabase.from("follows").select("*", { count: "exact", head: true }).eq("follower_id", userId),
-      supabase.from("videos").select("likes_count").eq("user_id", userId),
+      supabase.from("videos").select("likes_count, views_count").eq("user_id", userId),
       supabase.from("videos").select("*", { count: "exact", head: true }).eq("user_id", userId),
     ]);
-
     setStats({
       followers: followers.count || 0,
       following: following.count || 0,
       likes: totalLikes.data?.reduce((sum: number, v: any) => sum + (v.likes_count || 0), 0) || 0,
-      videos: videoCount.count || 0,
+      videos: videoData.count || 0,
+      views: totalLikes.data?.reduce((sum: number, v: any) => sum + (v.views_count || 0), 0) || 0,
     });
   };
 
@@ -88,24 +103,38 @@ export default function ProfilePage() {
     if (data) setVideos(data);
   };
 
+  const fetchLikedVideos = async () => {
+    if (!user) return;
+    const { data } = await supabase
+      .from("likes")
+      .select("video_id, videos:video_id(id, video_url, thumbnail_url, description, likes_count, views_count)")
+      .eq("user_id", user.id)
+      .order("created_at", { ascending: false });
+    if (data) setLikedVideos(data.map((d: any) => d.videos).filter(Boolean));
+  };
+
+  const fetchSavedVideos = async () => {
+    if (!user) return;
+    const { data } = await supabase
+      .from("saves")
+      .select("video_id, videos:video_id(id, video_url, thumbnail_url, description, likes_count, views_count)")
+      .eq("user_id", user.id)
+      .order("created_at", { ascending: false });
+    if (data) setSavedVideos(data.map((d: any) => d.videos).filter(Boolean));
+  };
+
   const handleFollow = async () => {
     if (!user || !viewedProfile) return;
-
     if (isFollowing) {
       await supabase.from("follows").delete().eq("follower_id", user.id).eq("following_id", viewedProfile.id);
       setIsFollowing(false);
       setIsMutual(false);
       toast.success("Désabonné");
     } else {
-      const { error } = await supabase.from("follows").insert({ follower_id: user.id, following_id: viewedProfile.id });
-      if (error) {
-        toast.error("Impossible de suivre ce compte");
-        return;
-      }
+      await supabase.from("follows").insert({ follower_id: user.id, following_id: viewedProfile.id });
       setIsFollowing(true);
       toast.success("Abonné !");
     }
-
     fetchStats(viewedProfile.id);
     checkFollowStatus(viewedProfile.id);
   };
@@ -115,12 +144,7 @@ export default function ProfilePage() {
     setOpeningChat(true);
     const { data, error } = await supabase.rpc("find_or_create_direct_conversation", { _other_user_id: viewedProfile.id } as any);
     setOpeningChat(false);
-
-    if (error || !data) {
-      toast.error("Conversation indisponible pour le moment");
-      return;
-    }
-
+    if (error || !data) { toast.error("Conversation indisponible"); return; }
     navigate(`/chat/${data}`);
   };
 
@@ -135,12 +159,7 @@ export default function ProfilePage() {
       bio: editBio.trim(),
       website: normalizeWebsite(editWebsite.trim()),
     });
-
-    if (error) {
-      toast.error("Erreur lors de la sauvegarde");
-      return;
-    }
-
+    if (error) { toast.error("Erreur lors de la sauvegarde"); return; }
     toast.success("Profil mis à jour ! ✨");
     setIsEditing(false);
   };
@@ -149,27 +168,67 @@ export default function ProfilePage() {
     const file = e.target.files?.[0];
     if (!file || !user) return;
     const ext = file.name.split(".").pop();
-    const path = `${user.id}/avatar.${ext}`;
+    const path = `${user.id}/avatar_${Date.now()}.${ext}`;
     const { error: uploadError } = await supabase.storage.from("avatars").upload(path, file, { upsert: true });
-    if (uploadError) {
-      toast.error("Erreur d'upload");
-      return;
-    }
+    if (uploadError) { toast.error("Erreur d'upload"); return; }
     const { data: urlData } = supabase.storage.from("avatars").getPublicUrl(path);
     await updateProfile({ avatar_url: urlData.publicUrl });
     toast.success("Photo de profil mise à jour ! 📸");
   };
 
   const handleRemoveAvatar = async () => {
-    const { error } = await updateProfile({ avatar_url: "" });
-    if (error) {
-      toast.error("Impossible de supprimer la photo");
-      return;
-    }
+    await updateProfile({ avatar_url: "" });
     toast.success("Photo supprimée");
   };
 
-  const currentProfile = isOwnProfile ? profile : viewedProfile;
+  const generateQR = useCallback(async () => {
+    if (!currentProfile) return;
+    const url = `${window.location.origin}/profile/${currentProfile.username}`;
+    try {
+      const dataUrl = await QRCode.toDataURL(url, { width: 256, color: { dark: "#ffffff", light: "#00000000" }, margin: 2 });
+      setQrDataUrl(dataUrl);
+    } catch { setQrDataUrl(""); }
+  }, [currentProfile]);
+
+  const openQR = () => {
+    generateQR();
+    setShowQR(true);
+  };
+
+  // Post editing
+  const openEditVideo = (v: any) => {
+    setEditingVideo(v);
+    setEditDesc(v.description || "");
+    setEditHashtags((v.hashtags || []).join(" "));
+    setEditCommentsEnabled(v.comments_enabled !== false);
+  };
+
+  const saveVideoEdit = async () => {
+    if (!editingVideo) return;
+    const hashArr = editHashtags.split(/[#,\s]+/).filter(Boolean).map((h: string) => h.trim().toLowerCase());
+    const { error } = await supabase.from("videos").update({
+      description: editDesc.trim(),
+      hashtags: hashArr,
+      comments_enabled: editCommentsEnabled,
+    }).eq("id", editingVideo.id);
+    if (error) { toast.error("Erreur de mise à jour"); return; }
+    toast.success("Vidéo mise à jour ✅");
+    setEditingVideo(null);
+    if (targetUserId) fetchVideos(targetUserId);
+  };
+
+  const deleteVideo = async (videoId: string) => {
+    if (!confirm("Supprimer cette vidéo définitivement ?")) return;
+    const { error } = await supabase.from("videos").delete().eq("id", videoId);
+    if (error) { toast.error("Erreur de suppression"); return; }
+    toast.success("Vidéo supprimée");
+    setEditingVideo(null);
+    if (targetUserId) {
+      fetchVideos(targetUserId);
+      fetchStats(targetUserId);
+    }
+  };
+
   if (!currentProfile) return null;
 
   const formatCount = (n: number) => {
@@ -184,16 +243,20 @@ export default function ProfilePage() {
     { icon: Heart, label: "Aimées" },
     { icon: Bookmark, label: "Sauvegardées" },
   ];
-  const showAdminBadge = isOwnProfile && (role === "admin" || role === "super_admin");
+  const showAdminBadge = (isOwnProfile && (role === "admin" || role === "super_admin")) ||
+    (!isOwnProfile && viewedProfile);
+
+  const currentTabVideos = activeTab === 0 ? videos : activeTab === 1 ? likedVideos : savedVideos;
 
   return (
     <div className="min-h-[100svh] bg-background pb-20 md:pb-8 md:pl-[var(--sidebar-width,260px)]">
       <div className="mx-auto max-w-lg px-4 pt-8">
+        {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-xl font-bold text-foreground">@{currentProfile.username}</h1>
           {isOwnProfile && (
             <div className="flex items-center gap-2">
-              <motion.button whileTap={{ scale: 0.9 }} onClick={() => setShowQR(true)}>
+              <motion.button whileTap={{ scale: 0.9 }} onClick={openQR}>
                 <QrCode className="h-5 w-5 text-muted-foreground" />
               </motion.button>
               <motion.button whileTap={{ scale: 0.9 }} onClick={() => navigate("/settings")}>
@@ -203,22 +266,19 @@ export default function ProfilePage() {
           )}
         </div>
 
+        {/* Profile info */}
         <div className="flex flex-col items-center mb-6">
           <div className="relative mb-3">
             <div className="h-24 w-24 rounded-full gradient-primary flex items-center justify-center text-3xl font-bold text-primary-foreground ring-4 ring-background overflow-hidden">
               {currentProfile.avatar_url ? (
-                <img src={currentProfile.avatar_url} alt={currentProfile.display_name || currentProfile.username} className="h-full w-full object-cover" />
+                <img src={currentProfile.avatar_url} alt="" className="h-full w-full object-cover" />
               ) : (
                 currentProfile.display_name?.[0] || "?"
               )}
             </div>
             {isOwnProfile && (
               <>
-                <motion.button
-                  whileTap={{ scale: 0.9 }}
-                  onClick={() => fileInputRef.current?.click()}
-                  className="absolute bottom-0 right-0 h-8 w-8 rounded-full bg-primary flex items-center justify-center ring-2 ring-background"
-                >
+                <motion.button whileTap={{ scale: 0.9 }} onClick={() => fileInputRef.current?.click()} className="absolute bottom-0 right-0 h-8 w-8 rounded-full bg-primary flex items-center justify-center ring-2 ring-background">
                   <Camera className="h-4 w-4 text-primary-foreground" />
                 </motion.button>
                 <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarUpload} />
@@ -233,33 +293,36 @@ export default function ProfilePage() {
           )}
 
           <div className="flex items-center gap-1.5 mb-1">
-            <span className="text-lg font-bold text-foreground">
-              {isEditing ? (
-                <input value={editDisplayName} onChange={e => setEditDisplayName(e.target.value)} className="bg-transparent text-center outline-none border-b border-primary" />
-              ) : (
-                currentProfile.display_name || currentProfile.username
-              )}
-            </span>
-            {showAdminBadge && <BadgeCheck className="h-5 w-5 text-primary" />}
+            {isEditing ? (
+              <input value={editDisplayName} onChange={e => setEditDisplayName(e.target.value)} className="text-lg font-bold bg-transparent text-center text-foreground outline-none border-b border-primary" />
+            ) : (
+              <span className="text-lg font-bold text-foreground">{currentProfile.display_name || currentProfile.username}</span>
+            )}
+            {(role === "admin" || role === "super_admin") && isOwnProfile && <BadgeCheck className="h-5 w-5 text-primary" />}
           </div>
 
+          {/* Bio */}
           {isEditing ? (
-            <textarea value={editBio} onChange={e => setEditBio(e.target.value)} placeholder="Ta bio..." className="text-sm text-muted-foreground mb-2 text-center bg-transparent outline-none border border-border rounded-lg p-2 w-full max-w-xs resize-none" rows={2} />
+            <textarea value={editBio} onChange={e => setEditBio(e.target.value)} placeholder="Ta bio... 📝" className="text-sm text-muted-foreground mb-2 text-center bg-transparent outline-none border border-border rounded-lg p-2 w-full max-w-xs resize-none" rows={3} />
           ) : (
-            currentProfile.bio && <p className="text-sm text-muted-foreground mb-2 text-center max-w-xs whitespace-pre-wrap">{currentProfile.bio}</p>
+            (currentProfile.bio && currentProfile.bio.length > 0) && (
+              <p className="text-sm text-muted-foreground mb-2 text-center max-w-xs whitespace-pre-wrap">{currentProfile.bio}</p>
+            )
           )}
 
+          {/* Website */}
           {isEditing ? (
-            <input value={editWebsite} onChange={e => setEditWebsite(e.target.value)} placeholder="Lien site web" className="text-xs text-accent mb-2 bg-transparent outline-none border border-border rounded-lg p-2 w-full max-w-xs" />
+            <input value={editWebsite} onChange={e => setEditWebsite(e.target.value)} placeholder="ton-site.com" className="text-xs text-accent mb-2 bg-transparent outline-none border border-border rounded-lg p-2 w-full max-w-xs" />
           ) : (
-            currentProfile.website && (
-              <a href={normalizeWebsite(currentProfile.website)} target="_blank" rel="noreferrer" className="mb-3 text-xs font-medium text-primary underline-offset-4 hover:underline">
-                {currentProfile.website}
+            (currentProfile.website && currentProfile.website.length > 0) && (
+              <a href={normalizeWebsite(currentProfile.website)} target="_blank" rel="noreferrer" className="mb-3 text-xs font-medium text-primary underline-offset-4 hover:underline flex items-center gap-1">
+                <Link2 className="h-3 w-3" /> {currentProfile.website}
               </a>
             )
           )}
 
-          <div className="flex gap-8 mb-4">
+          {/* Stats */}
+          <div className="flex gap-6 mb-4">
             {[
               { label: "Abonnements", value: formatCount(stats.following) },
               { label: "Abonnés", value: formatCount(stats.followers) },
@@ -272,6 +335,7 @@ export default function ProfilePage() {
             ))}
           </div>
 
+          {/* Actions */}
           <div className="flex gap-2 flex-wrap justify-center">
             {isOwnProfile ? (
               isEditing ? (
@@ -285,11 +349,11 @@ export default function ProfilePage() {
             ) : (
               <>
                 <motion.button whileTap={{ scale: 0.95 }} onClick={handleFollow} className={`rounded-lg px-6 py-2 text-sm font-semibold ${isFollowing ? "glass text-foreground" : "gradient-primary text-primary-foreground"}`}>
-                  {isFollowing ? "Abonné" : "Suivre"}
+                  {isFollowing ? "Suivi ✓" : "Suivre"}
                 </motion.button>
                 {isMutual && (
                   <motion.button whileTap={{ scale: 0.95 }} onClick={handleOpenConversation} disabled={openingChat} className="glass rounded-lg px-4 py-2 text-sm text-foreground disabled:opacity-60">
-                    <span className="flex items-center gap-2"><MessageCircle className="h-4 w-4" /> {openingChat ? "Ouverture..." : "Message"}</span>
+                    <span className="flex items-center gap-2"><MessageCircle className="h-4 w-4" /> {openingChat ? "..." : "Message"}</span>
                   </motion.button>
                 )}
               </>
@@ -297,12 +361,13 @@ export default function ProfilePage() {
             <motion.button whileTap={{ scale: 0.95 }} className="glass rounded-lg px-4 py-2" onClick={() => { navigator.clipboard.writeText(shareUrl); toast.success("Lien copié ! 🔗"); }}>
               <Link2 className="h-4 w-4 text-foreground" />
             </motion.button>
-            <motion.button whileTap={{ scale: 0.95 }} className="glass rounded-lg px-4 py-2" onClick={() => setShowQR(true)}>
+            <motion.button whileTap={{ scale: 0.95 }} className="glass rounded-lg px-4 py-2" onClick={openQR}>
               <Share2 className="h-4 w-4 text-foreground" />
             </motion.button>
           </div>
         </div>
 
+        {/* Tabs */}
         <div className="flex border-b border-border mb-4">
           {tabs.map((tab, i) => (
             <button
@@ -311,29 +376,48 @@ export default function ProfilePage() {
               className={`flex-1 flex items-center justify-center gap-1.5 pb-3 text-sm font-medium border-b-2 transition-colors ${i === activeTab ? "border-primary text-foreground" : "border-transparent text-muted-foreground"}`}
             >
               <tab.icon className="h-4 w-4" />
-              {tab.label}
+              <span className="hidden sm:inline">{tab.label}</span>
             </button>
           ))}
         </div>
 
+        {/* Video Grid */}
         <div className="grid grid-cols-3 gap-1">
-          {videos.length === 0 ? (
+          {currentTabVideos.length === 0 ? (
             <div className="col-span-3 text-center py-12">
-              <p className="text-sm text-muted-foreground">Aucune vidéo publiée</p>
+              <p className="text-sm text-muted-foreground">
+                {activeTab === 0 ? "Aucune vidéo publiée" : activeTab === 1 ? "Aucun j'aime" : "Aucune sauvegarde"}
+              </p>
             </div>
           ) : (
-            videos.map(v => (
-              <motion.div key={v.id} whileTap={{ scale: 0.97 }} className="aspect-[9/16] rounded-lg bg-card flex items-center justify-center cursor-pointer overflow-hidden">
+            currentTabVideos.map((v: any) => (
+              <motion.div
+                key={v.id}
+                whileTap={{ scale: 0.97 }}
+                className="aspect-[9/16] rounded-lg bg-card flex items-center justify-center cursor-pointer overflow-hidden relative group"
+                onClick={() => isOwnProfile && activeTab === 0 ? openEditVideo(v) : null}
+              >
                 {v.thumbnail_url ? (
-                  <img src={v.thumbnail_url} alt="Miniature vidéo" className="h-full w-full object-cover" />
+                  <img src={v.thumbnail_url} alt="" className="h-full w-full object-cover" loading="lazy" />
+                ) : v.video_url ? (
+                  <video src={v.video_url} className="h-full w-full object-cover" muted preload="metadata" />
                 ) : (
                   <span className="text-2xl opacity-20">▶</span>
+                )}
+                <div className="absolute bottom-1 left-1 flex items-center gap-1 text-[10px] text-foreground/80 bg-background/60 rounded px-1">
+                  <Heart className="h-2.5 w-2.5" /> {v.likes_count || 0}
+                </div>
+                {isOwnProfile && activeTab === 0 && (
+                  <div className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <Edit3 className="h-3.5 w-3.5 text-foreground drop-shadow" />
+                  </div>
                 )}
               </motion.div>
             ))
           )}
         </div>
 
+        {/* QR Modal */}
         <AnimatePresence>
           {showQR && (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 bg-background/80 flex items-center justify-center px-8" onClick={() => setShowQR(false)}>
@@ -341,10 +425,40 @@ export default function ProfilePage() {
                 <img src={logo} alt="BARDEUR YK" className="h-12 w-12 mx-auto mb-3 rounded-xl" />
                 <h3 className="text-lg font-bold text-foreground mb-1">@{currentProfile.username}</h3>
                 <p className="text-xs text-muted-foreground mb-4">Scanne pour voir le profil</p>
-                <div className="h-40 w-40 mx-auto rounded-xl bg-foreground flex items-center justify-center mb-4">
-                  <QrCode className="h-24 w-24 text-background" />
-                </div>
+                {qrDataUrl ? (
+                  <img src={qrDataUrl} alt="QR Code" className="h-40 w-40 mx-auto rounded-xl mb-4" />
+                ) : (
+                  <div className="h-40 w-40 mx-auto rounded-xl bg-card flex items-center justify-center mb-4">
+                    <QrCode className="h-16 w-16 text-muted-foreground animate-pulse" />
+                  </div>
+                )}
                 <p className="text-xs text-muted-foreground break-all">{shareUrl}</p>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Edit Video Modal */}
+        <AnimatePresence>
+          {editingVideo && (
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 bg-background/80 flex items-end sm:items-center justify-center" onClick={() => setEditingVideo(null)}>
+              <motion.div initial={{ y: 100 }} animate={{ y: 0 }} exit={{ y: 100 }} className="w-full max-w-md glass rounded-t-2xl sm:rounded-2xl p-6" onClick={e => e.stopPropagation()}>
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-sm font-bold text-foreground">Modifier la vidéo</h3>
+                  <motion.button whileTap={{ scale: 0.9 }} onClick={() => setEditingVideo(null)}><X className="h-5 w-5 text-muted-foreground" /></motion.button>
+                </div>
+                <textarea value={editDesc} onChange={e => setEditDesc(e.target.value)} placeholder="Description..." className="w-full glass rounded-xl px-4 py-3 bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none resize-none mb-3" rows={3} />
+                <input value={editHashtags} onChange={e => setEditHashtags(e.target.value)} placeholder="#hashtags" className="w-full glass rounded-xl px-4 py-3 bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none mb-3" />
+                <motion.button whileTap={{ scale: 0.95 }} onClick={() => setEditCommentsEnabled(!editCommentsEnabled)} className="flex items-center gap-2 w-full px-4 py-3 rounded-xl hover:bg-card mb-3">
+                  {editCommentsEnabled ? <ToggleRight className="h-5 w-5 text-primary" /> : <ToggleLeft className="h-5 w-5 text-muted-foreground" />}
+                  <span className="text-sm text-foreground">Commentaires {editCommentsEnabled ? "activés" : "désactivés"}</span>
+                </motion.button>
+                <div className="flex gap-2">
+                  <motion.button whileTap={{ scale: 0.95 }} onClick={saveVideoEdit} className="flex-1 rounded-xl gradient-primary py-3 text-sm font-bold text-primary-foreground">Sauvegarder</motion.button>
+                  <motion.button whileTap={{ scale: 0.95 }} onClick={() => deleteVideo(editingVideo.id)} className="rounded-xl bg-destructive/20 px-4 py-3 text-sm font-bold text-destructive">
+                    <Trash2 className="h-4 w-4" />
+                  </motion.button>
+                </div>
               </motion.div>
             </motion.div>
           )}
