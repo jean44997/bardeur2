@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { Upload, Camera, Music, Sparkles, Film, Type, Video, Mic, Palette, Wand2, X, Image } from "lucide-react";
+import { Upload, Camera, Video, X, Image, Palette, Mic, MicOff } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -11,6 +11,7 @@ export default function CreatePage() {
   const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
 
@@ -24,12 +25,59 @@ export default function CreatePage() {
   const [isRecording, setIsRecording] = useState(false);
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
   const [cameraMode, setCameraMode] = useState<"photo" | "video">("video");
-  const [showLivePrep, setShowLivePrep] = useState(false);
+
+  // 3D Canvas background animation
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    let animId: number;
+    let time = 0;
+
+    const resize = () => { canvas.width = canvas.offsetWidth * 2; canvas.height = canvas.offsetHeight * 2; };
+    resize();
+    window.addEventListener("resize", resize);
+
+    const draw = () => {
+      time += 0.003;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const cx = canvas.width / 2, cy = canvas.height / 2;
+
+      // Perspective grid
+      ctx.strokeStyle = "hsla(330,100%,60%,0.04)";
+      ctx.lineWidth = 1;
+      for (let i = -8; i <= 8; i++) {
+        ctx.beginPath();
+        for (let z = 1; z < 15; z++) {
+          const s = 400 / (400 + z * 50);
+          const sx = cx + i * 50 * s;
+          const sy = cy + (z * 50 - 200) * s * 0.5;
+          z === 1 ? ctx.moveTo(sx, sy) : ctx.lineTo(sx, sy);
+        }
+        ctx.stroke();
+      }
+
+      // Orbiting rings
+      for (let r = 0; r < 3; r++) {
+        ctx.beginPath();
+        const rad = 80 + r * 50;
+        const ox = Math.sin(time + r) * 25;
+        const oy = Math.cos(time * 0.7 + r) * 15;
+        ctx.ellipse(cx + ox, cy * 0.5 + oy, rad, rad * 0.3, time + r, 0, Math.PI * 2);
+        ctx.strokeStyle = `hsla(${330 + r * 40},100%,60%,${0.06 - r * 0.015})`;
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      }
+
+      animId = requestAnimationFrame(draw);
+    };
+    draw();
+    return () => { cancelAnimationFrame(animId); window.removeEventListener("resize", resize); };
+  }, []);
 
   useEffect(() => {
-    return () => {
-      if (cameraStream) cameraStream.getTracks().forEach(t => t.stop());
-    };
+    return () => { if (cameraStream) cameraStream.getTracks().forEach(t => t.stop()); };
   }, [cameraStream]);
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -49,10 +97,7 @@ export default function CreatePage() {
       setCameraStream(stream);
       setShowCamera(true);
       setTimeout(() => {
-        if (cameraRef.current) {
-          cameraRef.current.srcObject = stream;
-          cameraRef.current.play();
-        }
+        if (cameraRef.current) { cameraRef.current.srcObject = stream; cameraRef.current.play(); }
       }, 100);
     } catch {
       toast.error("Autorise l'accès à la caméra dans les paramètres de ton navigateur");
@@ -61,13 +106,11 @@ export default function CreatePage() {
 
   const takePhoto = () => {
     if (!cameraRef.current) return;
-    const canvas = document.createElement("canvas");
-    canvas.width = cameraRef.current.videoWidth;
-    canvas.height = cameraRef.current.videoHeight;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    ctx.drawImage(cameraRef.current, 0, 0);
-    canvas.toBlob((blob) => {
+    const c = document.createElement("canvas");
+    c.width = cameraRef.current.videoWidth;
+    c.height = cameraRef.current.videoHeight;
+    c.getContext("2d")?.drawImage(cameraRef.current, 0, 0);
+    c.toBlob((blob) => {
       if (!blob) return;
       const file = new File([blob], `photo_${Date.now()}.jpg`, { type: "image/jpeg" });
       setSelectedFile(file);
@@ -83,9 +126,8 @@ export default function CreatePage() {
     mr.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
     mr.onstop = () => {
       const blob = new Blob(chunksRef.current, { type: "video/webm" });
-      const file = new File([blob], `video_${Date.now()}.webm`, { type: "video/webm" });
-      setSelectedFile(file);
-      setPreview(URL.createObjectURL(file));
+      setSelectedFile(new File([blob], `video_${Date.now()}.webm`, { type: "video/webm" }));
+      setPreview(URL.createObjectURL(blob));
       closeCamera();
     };
     mr.start();
@@ -93,13 +135,10 @@ export default function CreatePage() {
     setIsRecording(true);
   };
 
-  const stopRecording = () => {
-    mediaRecorderRef.current?.stop();
-    setIsRecording(false);
-  };
+  const stopRecording = () => { mediaRecorderRef.current?.stop(); setIsRecording(false); };
 
   const closeCamera = () => {
-    if (cameraStream) cameraStream.getTracks().forEach(t => t.stop());
+    cameraStream?.getTracks().forEach(t => t.stop());
     setCameraStream(null);
     setShowCamera(false);
     setIsRecording(false);
@@ -111,7 +150,7 @@ export default function CreatePage() {
     try {
       const ext = selectedFile.name.split(".").pop();
       const path = `${user.id}/${crypto.randomUUID()}.${ext}`;
-      const { error: uploadError } = await supabase.storage.from("media").upload(path, selectedFile);
+      const { error: uploadError } = await supabase.storage.from("media").upload(path, selectedFile, { contentType: selectedFile.type });
       if (uploadError) throw uploadError;
       const { data: urlData } = supabase.storage.from("media").getPublicUrl(path);
       const hashtagArray = hashtags.split(/[#,\s]+/).filter(Boolean).map(h => h.trim().toLowerCase());
@@ -140,14 +179,17 @@ export default function CreatePage() {
   };
 
   return (
-    <div className="min-h-[100svh] bg-background pb-20 md:pb-8 md:pl-[var(--sidebar-width,260px)] flex items-center justify-center">
-      <div className="mx-auto max-w-md px-4 w-full">
+    <div className="min-h-[100svh] bg-background pb-20 md:pb-8 md:pl-[var(--sidebar-width,260px)] flex items-center justify-center relative overflow-hidden">
+      {/* 3D Background Canvas */}
+      <canvas ref={canvasRef} className="absolute inset-0 w-full h-full pointer-events-none opacity-60" />
+
+      <div className="mx-auto max-w-md px-4 w-full relative z-10">
 
         {/* Camera View */}
         <AnimatePresence>
           {showCamera && (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 bg-background flex flex-col">
-              <video ref={cameraRef} className="flex-1 w-full object-cover" muted playsInline autoPlay />
+              <video ref={cameraRef} className="flex-1 w-full object-cover" muted playsInline autoPlay style={{ transform: "scaleX(-1)" }} />
               <div className="absolute top-4 right-4 z-10">
                 <motion.button whileTap={{ scale: 0.9 }} onClick={closeCamera} className="glass rounded-full p-2">
                   <X className="h-6 w-6 text-foreground" />
@@ -157,7 +199,7 @@ export default function CreatePage() {
                 <button onClick={() => setCameraMode("photo")} className={`px-3 py-1 rounded-full text-xs font-bold ${cameraMode === "photo" ? "gradient-primary text-primary-foreground" : "glass text-foreground"}`}>Photo</button>
                 <button onClick={() => setCameraMode("video")} className={`px-3 py-1 rounded-full text-xs font-bold ${cameraMode === "video" ? "gradient-primary text-primary-foreground" : "glass text-foreground"}`}>Vidéo</button>
               </div>
-              <div className="absolute bottom-8 left-0 right-0 flex justify-center">
+              <div className="absolute bottom-8 left-0 right-0 flex justify-center gap-6 items-center">
                 {cameraMode === "photo" ? (
                   <motion.button whileTap={{ scale: 0.9 }} onClick={takePhoto} className="h-20 w-20 rounded-full border-4 border-foreground bg-foreground/20" />
                 ) : (
@@ -190,10 +232,26 @@ export default function CreatePage() {
             <input ref={fileInputRef} type="file" accept="video/*,image/*" className="hidden" onChange={handleFileSelect} />
 
             <div className="grid grid-cols-2 gap-3">
-              <ToolButton icon={<Camera className="h-6 w-6" />} label="Caméra" desc="Photo & Vidéo" onClick={openCamera} />
-              <ToolButton icon={<Video className="h-6 w-6" />} label="Live" desc="En direct" onClick={() => setShowLivePrep(true)} />
-              <ToolButton icon={<Image className="h-6 w-6" />} label="Galerie" desc="Choisir un fichier" onClick={() => fileInputRef.current?.click()} />
-              <ToolButton icon={<Palette className="h-6 w-6" />} label="Effets" desc="Filtres & AR" onClick={() => toast.info("Effets bientôt disponibles")} />
+              <motion.button whileTap={{ scale: 0.93 }} onClick={openCamera} className="glass rounded-2xl p-4 flex flex-col items-center gap-2">
+                <span className="text-primary"><Camera className="h-6 w-6" /></span>
+                <span className="text-xs font-semibold text-foreground">Caméra</span>
+                <span className="text-[10px] text-muted-foreground">Photo & Vidéo</span>
+              </motion.button>
+              <motion.button whileTap={{ scale: 0.93 }} onClick={() => navigate("/live")} className="glass rounded-2xl p-4 flex flex-col items-center gap-2">
+                <span className="text-primary"><Video className="h-6 w-6" /></span>
+                <span className="text-xs font-semibold text-foreground">Live</span>
+                <span className="text-[10px] text-muted-foreground">En direct</span>
+              </motion.button>
+              <motion.button whileTap={{ scale: 0.93 }} onClick={() => fileInputRef.current?.click()} className="glass rounded-2xl p-4 flex flex-col items-center gap-2">
+                <span className="text-primary"><Image className="h-6 w-6" /></span>
+                <span className="text-xs font-semibold text-foreground">Galerie</span>
+                <span className="text-[10px] text-muted-foreground">Choisir un fichier</span>
+              </motion.button>
+              <motion.button whileTap={{ scale: 0.93 }} onClick={() => toast.info("Effets bientôt disponibles")} className="glass rounded-2xl p-4 flex flex-col items-center gap-2">
+                <span className="text-primary"><Palette className="h-6 w-6" /></span>
+                <span className="text-xs font-semibold text-foreground">Effets</span>
+                <span className="text-[10px] text-muted-foreground">Filtres & AR</span>
+              </motion.button>
             </div>
           </div>
         ) : (
@@ -202,23 +260,19 @@ export default function CreatePage() {
               {selectedFile.type.startsWith("video") ? (
                 <video src={preview!} className="w-full max-h-60 rounded-xl object-contain bg-background" controls />
               ) : (
-                <img src={preview!} className="w-full max-h-60 rounded-xl object-contain" />
+                <img src={preview!} className="w-full max-h-60 rounded-xl object-contain" alt="Aperçu" />
               )}
             </div>
-
             <div className="space-y-3 mb-4">
               <textarea value={description} onChange={e => setDescription(e.target.value)} placeholder="Ajoute une description... 📝" className="w-full glass rounded-xl px-4 py-3 bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none resize-none" rows={3} />
               <input value={hashtags} onChange={e => setHashtags(e.target.value)} placeholder="#hashtags séparés par des espaces" className="w-full glass rounded-xl px-4 py-3 bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none" />
-              <motion.button
-                whileTap={{ scale: 0.95 }}
-                onClick={() => setCommentsEnabled(!commentsEnabled)}
-                className="flex items-center gap-2 w-full glass rounded-xl px-4 py-3"
-              >
-                <MessageIcon enabled={commentsEnabled} />
+              <motion.button whileTap={{ scale: 0.95 }} onClick={() => setCommentsEnabled(!commentsEnabled)} className="flex items-center gap-2 w-full glass rounded-xl px-4 py-3">
+                <div className={`h-5 w-5 rounded-full flex items-center justify-center ${commentsEnabled ? "bg-primary" : "bg-muted"}`}>
+                  {commentsEnabled ? <span className="text-[10px] text-primary-foreground">✓</span> : <X className="h-3 w-3 text-muted-foreground" />}
+                </div>
                 <span className="text-sm text-foreground">Commentaires {commentsEnabled ? "activés" : "désactivés"}</span>
               </motion.button>
             </div>
-
             <div className="flex gap-2">
               <motion.button whileTap={{ scale: 0.95 }} onClick={() => { setSelectedFile(null); setPreview(null); }} className="flex-1 glass rounded-xl py-3 text-sm font-semibold text-foreground">Annuler</motion.button>
               <motion.button whileTap={{ scale: 0.95 }} onClick={handleUpload} disabled={uploading} className="flex-1 rounded-xl gradient-primary py-3 text-sm font-bold text-primary-foreground disabled:opacity-50">
@@ -227,39 +281,7 @@ export default function CreatePage() {
             </div>
           </div>
         )}
-
-        {/* Live Prep Modal */}
-        <AnimatePresence>
-          {showLivePrep && (
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 bg-background/90 flex items-center justify-center px-4" onClick={() => setShowLivePrep(false)}>
-              <motion.div initial={{ scale: 0.9 }} animate={{ scale: 1 }} className="glass rounded-2xl p-6 max-w-sm w-full text-center" onClick={e => e.stopPropagation()}>
-                <Video className="h-12 w-12 text-primary mx-auto mb-3" />
-                <h2 className="text-lg font-bold text-foreground mb-2">Passer en Live</h2>
-                <p className="text-sm text-muted-foreground mb-4">Le système de live est en cours de développement. Bientôt tu pourras diffuser en direct et gagner de l'XP !</p>
-                <motion.button whileTap={{ scale: 0.95 }} onClick={() => setShowLivePrep(false)} className="rounded-xl gradient-primary px-6 py-3 text-sm font-bold text-primary-foreground">
-                  Compris 👍
-                </motion.button>
-              </motion.div>
-            </motion.div>
-          )}
-        </AnimatePresence>
       </div>
     </div>
-  );
-}
-
-function MessageIcon({ enabled }: { enabled: boolean }) {
-  return enabled
-    ? <div className="h-5 w-5 rounded-full bg-primary flex items-center justify-center"><span className="text-[10px] text-primary-foreground">✓</span></div>
-    : <div className="h-5 w-5 rounded-full bg-muted flex items-center justify-center"><X className="h-3 w-3 text-muted-foreground" /></div>;
-}
-
-function ToolButton({ icon, label, desc, onClick }: { icon: React.ReactNode; label: string; desc: string; onClick: () => void }) {
-  return (
-    <motion.button whileTap={{ scale: 0.93 }} onClick={onClick} className="glass rounded-2xl p-4 flex flex-col items-center gap-2">
-      <span className="text-primary">{icon}</span>
-      <span className="text-xs font-semibold text-foreground">{label}</span>
-      <span className="text-[10px] text-muted-foreground">{desc}</span>
-    </motion.button>
   );
 }

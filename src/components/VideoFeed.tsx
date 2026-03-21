@@ -6,20 +6,31 @@ import CommentsDrawer from "./CommentsDrawer";
 import GamificationPanel from "./GamificationPanel";
 import { VideoData } from "@/data/mockVideos";
 import { motion } from "framer-motion";
-import { RefreshCw, Film } from "lucide-react";
+import { RefreshCw, Film, Radio } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+
+interface LiveStream {
+  id: string;
+  title: string;
+  username: string;
+  displayName: string;
+  avatar: string;
+  viewers: number;
+}
 
 export default function VideoFeed() {
   const [videos, setVideos] = useState<VideoData[]>([]);
+  const [activeLives, setActiveLives] = useState<LiveStream[]>([]);
   const [activeIndex, setActiveIndex] = useState(0);
   const [isMuted, setIsMuted] = useState(false);
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [commentVideoId, setCommentVideoId] = useState<string | null>(null);
   const [commentCount, setCommentCount] = useState(0);
-  const [commentsEnabled, setCommentsEnabled] = useState(true);
   const [gamificationOpen, setGamificationOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const containerRef = useRef<HTMLDivElement>(null);
   const { user } = useAuth();
+  const navigate = useNavigate();
 
   const fetchVideos = useCallback(async () => {
     setLoading(true);
@@ -60,9 +71,30 @@ export default function VideoFeed() {
     setLoading(false);
   }, []);
 
+  const fetchLives = useCallback(async () => {
+    const { data } = await supabase
+      .from("lives")
+      .select("*, profiles:user_id(username, display_name, avatar_url)")
+      .eq("is_active", true)
+      .order("created_at", { ascending: false })
+      .limit(10);
+
+    if (data) {
+      setActiveLives(data.map((l: any) => ({
+        id: l.id,
+        title: l.title || "Live",
+        username: l.profiles?.username || "",
+        displayName: l.profiles?.display_name || "Utilisateur",
+        avatar: l.profiles?.avatar_url || "",
+        viewers: l.viewers_count || 0,
+      })));
+    }
+  }, []);
+
   useEffect(() => {
     fetchVideos();
-  }, [fetchVideos]);
+    fetchLives();
+  }, [fetchVideos, fetchLives]);
 
   const handleScroll = useCallback(() => {
     const el = containerRef.current;
@@ -86,7 +118,7 @@ export default function VideoFeed() {
     );
   }
 
-  if (videos.length === 0) {
+  if (videos.length === 0 && activeLives.length === 0) {
     return (
       <div className="h-[100svh] w-full flex items-center justify-center bg-background px-4">
         <div className="text-center">
@@ -94,12 +126,8 @@ export default function VideoFeed() {
             <Film className="h-8 w-8 text-muted-foreground" />
           </div>
           <h2 className="text-lg font-bold text-foreground mb-2">Aucune vidéo pour le moment</h2>
-          <p className="text-sm text-muted-foreground mb-4">Sois le premier à publier une vidéo !</p>
-          <motion.button
-            whileTap={{ scale: 0.95 }}
-            onClick={fetchVideos}
-            className="rounded-xl gradient-primary px-6 py-3 text-sm font-bold text-primary-foreground flex items-center gap-2 mx-auto"
-          >
+          <p className="text-sm text-muted-foreground mb-4">Sois le premier à publier !</p>
+          <motion.button whileTap={{ scale: 0.95 }} onClick={fetchVideos} className="rounded-xl gradient-primary px-6 py-3 text-sm font-bold text-primary-foreground flex items-center gap-2 mx-auto">
             <RefreshCw className="h-4 w-4" /> Actualiser
           </motion.button>
         </div>
@@ -109,18 +137,40 @@ export default function VideoFeed() {
 
   return (
     <>
-      <motion.button
-        whileTap={{ scale: 0.9 }}
-        onClick={fetchVideos}
-        className="fixed top-4 right-4 z-40 glass rounded-full p-2 md:right-8"
-      >
+      <motion.button whileTap={{ scale: 0.9 }} onClick={() => { fetchVideos(); fetchLives(); }} className="fixed top-4 right-4 z-40 glass rounded-full p-2 md:right-8">
         <RefreshCw className="h-4 w-4 text-foreground" />
       </motion.button>
 
-      <div
-        ref={containerRef}
-        className="h-[100svh] w-full snap-y-mandatory overflow-y-scroll no-scrollbar"
-      >
+      {/* Active Lives Banner */}
+      {activeLives.length > 0 && (
+        <div className="fixed top-4 left-4 right-16 z-40 md:left-[calc(var(--sidebar-width,260px)+1rem)]">
+          <div className="flex gap-2 overflow-x-auto no-scrollbar">
+            {activeLives.map(live => (
+              <motion.button
+                key={live.id}
+                whileTap={{ scale: 0.95 }}
+                onClick={() => navigate(`/live/${live.id}`)}
+                className="flex-shrink-0 glass rounded-full px-3 py-1.5 flex items-center gap-2"
+              >
+                <div className="relative">
+                  <div className="h-8 w-8 rounded-full gradient-primary flex items-center justify-center text-[10px] font-bold text-primary-foreground overflow-hidden ring-2 ring-destructive">
+                    {live.avatar ? <img src={live.avatar} alt="" className="h-full w-full object-cover" /> : live.displayName[0]}
+                  </div>
+                  <div className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full bg-destructive border-2 border-background animate-pulse" />
+                </div>
+                <div className="text-left">
+                  <p className="text-[10px] font-bold text-foreground leading-tight">{live.displayName}</p>
+                  <p className="text-[8px] text-muted-foreground leading-tight flex items-center gap-0.5">
+                    <Radio className="h-2 w-2 text-destructive" /> En direct
+                  </p>
+                </div>
+              </motion.button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div ref={containerRef} className="h-[100svh] w-full snap-y-mandatory overflow-y-scroll no-scrollbar">
         {videos.map((video, i) => (
           <VideoCard
             key={video.id}
@@ -130,9 +180,7 @@ export default function VideoFeed() {
             onToggleMute={() => setIsMuted((p) => !p)}
             onOpenComments={(count) => {
               const v = videos[i] as any;
-              if (v.commentsEnabled === false) {
-                return;
-              }
+              if (v.commentsEnabled === false) { return; }
               setCommentVideoId(video.id);
               setCommentCount(count);
               setCommentsOpen(true);
@@ -141,12 +189,7 @@ export default function VideoFeed() {
           />
         ))}
       </div>
-      <CommentsDrawer
-        isOpen={commentsOpen}
-        onClose={() => setCommentsOpen(false)}
-        commentCount={commentCount}
-        videoId={commentVideoId}
-      />
+      <CommentsDrawer isOpen={commentsOpen} onClose={() => setCommentsOpen(false)} commentCount={commentCount} videoId={commentVideoId} />
       <GamificationPanel isOpen={gamificationOpen} onClose={() => setGamificationOpen(false)} />
     </>
   );
