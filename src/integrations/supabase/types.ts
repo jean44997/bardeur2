@@ -273,6 +273,66 @@ export type Database = {
           },
         ]
       }
+      live_messages: {
+        Row: {
+          content: string
+          created_at: string | null
+          id: string
+          live_id: string
+          user_id: string
+        }
+        Insert: {
+          content: string
+          created_at?: string | null
+          id?: string
+          live_id: string
+          user_id: string
+        }
+        Update: {
+          content?: string
+          created_at?: string | null
+          id?: string
+          live_id?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      lives: {
+        Row: {
+          created_at: string | null
+          ended_at: string | null
+          id: string
+          is_active: boolean | null
+          started_at: string | null
+          title: string | null
+          user_id: string
+          viewers_count: number | null
+          xp_earned: number | null
+        }
+        Insert: {
+          created_at?: string | null
+          ended_at?: string | null
+          id?: string
+          is_active?: boolean | null
+          started_at?: string | null
+          title?: string | null
+          user_id: string
+          viewers_count?: number | null
+          xp_earned?: number | null
+        }
+        Update: {
+          created_at?: string | null
+          ended_at?: string | null
+          id?: string
+          is_active?: boolean | null
+          started_at?: string | null
+          title?: string | null
+          user_id?: string
+          viewers_count?: number | null
+          xp_earned?: number | null
+        }
+        Relationships: []
+      }
       messages: {
         Row: {
           content: string | null
@@ -368,6 +428,27 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      profile_views: {
+        Row: {
+          id: string
+          profile_id: string
+          viewed_at: string | null
+          viewer_id: string
+        }
+        Insert: {
+          id?: string
+          profile_id: string
+          viewed_at?: string | null
+          viewer_id: string
+        }
+        Update: {
+          id?: string
+          profile_id?: string
+          viewed_at?: string | null
+          viewer_id?: string
+        }
+        Relationships: []
       }
       profiles: {
         Row: {

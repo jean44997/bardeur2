@@ -62,7 +62,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
+      async (_event, session) => {
         setSession(session);
         setUser(session?.user ?? null);
         if (session?.user) {
@@ -91,13 +91,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => subscription.unsubscribe();
   }, []);
 
+  // Use current origin for all redirect URLs - never lovable.app
+  const getRedirectUrl = (path: string = "") => {
+    return `${window.location.origin}${path}`;
+  };
+
   const signUp = async (email: string, password: string, username: string) => {
     const { error } = await supabase.auth.signUp({
       email,
       password,
       options: {
         data: { username, display_name: username },
-        emailRedirectTo: window.location.origin,
+        emailRedirectTo: getRedirectUrl("/auth"),
       },
     });
     return { error };
@@ -118,7 +123,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const resetPassword = async (email: string) => {
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/reset-password`,
+      redirectTo: getRedirectUrl("/reset-password"),
     });
     return { error };
   };
@@ -143,7 +148,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const deleteAccount = async () => {
-    // Sign out - actual deletion would need an edge function
     await signOut();
     return { error: null };
   };

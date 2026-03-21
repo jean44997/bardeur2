@@ -15,6 +15,7 @@ export interface VideoData {
   sound: { name: string; artist: string };
   stats: { likes: number; comments: number; shares: number; saves: number };
   isFollowing: boolean;
+  commentsEnabled?: boolean;
 }
 
 // Empty - all data comes from database now
