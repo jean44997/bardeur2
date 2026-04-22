@@ -5,6 +5,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
+import AudioBubble from "@/components/AudioBubble";
 
 interface Message {
   id: string;
@@ -123,7 +124,7 @@ export default function ChatPage() {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, sampleRate: 48000, channelCount: 2 } });
       audioStreamRef.current = stream;
       audioChunksRef.current = [];
-      const mr = new MediaRecorder(stream, { mimeType: "audio/webm;codecs=opus" });
+      const mr = new MediaRecorder(stream, { mimeType: "audio/webm;codecs=opus", audioBitsPerSecond: 192000 });
       mr.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
       mr.onstop = async () => {
         stream.getTracks().forEach(t => t.stop());
@@ -215,12 +216,7 @@ export default function ChatPage() {
                     <img src={msg.mediaUrl} alt="" className="mb-2 max-h-64 w-full rounded-xl object-cover" loading="lazy" />
                   )}
                   {msg.mediaUrl && msg.mediaType?.startsWith("audio") && (
-                    <div className="flex items-center gap-2 rounded-full bg-background/20 px-2 py-1 mb-1">
-                      <span className="flex h-5 items-end gap-0.5">
-                        {[8, 13, 18, 11, 16].map((h, i) => <span key={i} className="w-1 rounded-full bg-primary-foreground/80" style={{ height: h }} />)}
-                      </span>
-                      <audio src={msg.mediaUrl} controls className="h-8 w-[210px] max-w-full" preload="metadata" />
-                    </div>
+                    <div className="mb-1"><AudioBubble src={msg.mediaUrl} /></div>
                   )}
                   {msg.text && msg.text !== "Message supprimé" ? msg.text : msg.text === "Message supprimé" ? <span className="italic opacity-60">{msg.text}</span> : null}
                 </div>
