@@ -29,6 +29,7 @@ export default function VideoFeed() {
   const [gamificationOpen, setGamificationOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const containerRef = useRef<HTMLDivElement>(null);
+  const scrollTimerRef = useRef<number | null>(null);
   const { user } = useAuth();
   const navigate = useNavigate();
 
@@ -99,9 +100,13 @@ export default function VideoFeed() {
   const handleScroll = useCallback(() => {
     const el = containerRef.current;
     if (!el) return;
-    const idx = Math.round(el.scrollTop / el.clientHeight);
-    setActiveIndex(idx);
-  }, []);
+    if (scrollTimerRef.current) window.clearTimeout(scrollTimerRef.current);
+    scrollTimerRef.current = window.setTimeout(() => {
+      const idx = Math.max(0, Math.min(videos.length - 1, Math.round(el.scrollTop / el.clientHeight)));
+      setActiveIndex(idx);
+      el.scrollTo({ top: idx * el.clientHeight, behavior: "smooth" });
+    }, 90);
+  }, [videos.length]);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -141,28 +146,29 @@ export default function VideoFeed() {
         <RefreshCw className="h-4 w-4 text-foreground" />
       </motion.button>
 
-      {/* Active Lives Banner */}
+      {/* Active Lives Section */}
       {activeLives.length > 0 && (
-        <div className="fixed top-4 left-4 right-16 z-40 md:left-[calc(var(--sidebar-width,260px)+1rem)]">
-          <div className="flex gap-2 overflow-x-auto no-scrollbar">
+        <div className="fixed top-4 left-4 right-16 z-40 md:left-[calc(var(--sidebar-width,260px)+1rem)] md:right-24">
+          <div className="mb-2 flex items-center gap-2 text-xs font-bold text-foreground"><Radio className="h-3.5 w-3.5 text-destructive" /> Lives</div>
+          <div className="flex gap-3 overflow-x-auto no-scrollbar pb-1">
             {activeLives.map(live => (
               <motion.button
                 key={live.id}
                 whileTap={{ scale: 0.95 }}
                 onClick={() => navigate(`/live/${live.id}`)}
-                className="flex-shrink-0 glass rounded-full px-3 py-1.5 flex items-center gap-2"
+                className="flex w-36 flex-shrink-0 flex-col overflow-hidden rounded-2xl glass text-left"
               >
-                <div className="relative">
-                  <div className="h-8 w-8 rounded-full gradient-primary flex items-center justify-center text-[10px] font-bold text-primary-foreground overflow-hidden ring-2 ring-destructive">
-                    {live.avatar ? <img src={live.avatar} alt="" className="h-full w-full object-cover" /> : live.displayName[0]}
+                <div className="relative aspect-[4/5] bg-card">
+                  <div className="absolute inset-0 grid place-items-center gradient-primary/20">
+                    <div className="h-14 w-14 rounded-full gradient-primary flex items-center justify-center text-sm font-bold text-primary-foreground overflow-hidden ring-2 ring-destructive">
+                      {live.avatar ? <img src={live.avatar} alt="" className="h-full w-full object-cover" /> : live.displayName[0]}
+                    </div>
                   </div>
-                  <div className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full bg-destructive border-2 border-background animate-pulse" />
+                  <span className="absolute left-2 top-2 rounded-full bg-destructive px-2 py-0.5 text-[9px] font-bold text-destructive-foreground">LIVE</span>
                 </div>
-                <div className="text-left">
-                  <p className="text-[10px] font-bold text-foreground leading-tight">{live.displayName}</p>
-                  <p className="text-[8px] text-muted-foreground leading-tight flex items-center gap-0.5">
-                    <Radio className="h-2 w-2 text-destructive" /> En direct
-                  </p>
+                <div className="p-2">
+                  <p className="truncate text-xs font-bold text-foreground">{live.displayName}</p>
+                  <p className="truncate text-[10px] text-muted-foreground">{live.viewers} spectateurs</p>
                 </div>
               </motion.button>
             ))}
