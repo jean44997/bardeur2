@@ -196,7 +196,8 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
   };
 
   const handleLongPressStart = () => {
-    longPressTimer.current = setTimeout(() => setShowLongPress(true), 500);
+    if (longPressTimer.current) clearTimeout(longPressTimer.current);
+    longPressTimer.current = setTimeout(() => setShowLongPress(true), 8000);
   };
 
   const handleLongPressEnd = () => {
@@ -215,13 +216,13 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
       <video
         ref={videoRef}
         src={video.url}
-        className="absolute inset-0 h-full w-full object-cover"
+        className="absolute inset-0 h-full w-full object-contain bg-background"
         loop
         muted={isMuted}
         playsInline
         preload="auto"
         onClick={handleDoubleTap}
-        onTouchEnd={handleDoubleTap}
+        onTouchEnd={(e) => { handleLongPressEnd(); handleDoubleTap(e); }}
         onMouseDown={handleLongPressStart}
         onMouseUp={handleLongPressEnd}
         onTouchStart={handleLongPressStart}
