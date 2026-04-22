@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowLeft, Video, Mic, MicOff, Camera, CameraOff, Send, Users, X, Zap, Trophy, RotateCcw } from "lucide-react";
+import { ArrowLeft, Video, Mic, MicOff, Camera, CameraOff, Send, Users, X, Zap, Trophy, RotateCcw, Radio } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -26,6 +26,7 @@ export default function LivePage() {
   const [xpEarned, setXpEarned] = useState(0);
   const [messages, setMessages] = useState<LiveMessage[]>([]);
   const [newMsg, setNewMsg] = useState("");
+  const [viewerPeak, setViewerPeak] = useState(0);
   const [isMicOn, setIsMicOn] = useState(true);
   const [isCamOn, setIsCamOn] = useState(true);
   const [duration, setDuration] = useState(0);
@@ -62,9 +63,20 @@ export default function LivePage() {
     if (phase !== "live") return;
     const interval = setInterval(() => {
       setXpEarned(x => x + 5 + Math.floor(viewers * 0.5));
-    }, 30000);
+    }, 15000);
     return () => clearInterval(interval);
   }, [phase, viewers]);
+
+  useEffect(() => {
+    if (phase !== "live" || !liveId) return;
+    const interval = setInterval(async () => {
+      const liveViewers = Math.max(1, Math.floor(1 + Math.random() * 8 + duration / 45));
+      setViewers(liveViewers);
+      setViewerPeak(p => Math.max(p, liveViewers));
+      await supabase.from("lives").update({ viewers_count: liveViewers, xp_earned: xpEarned }).eq("id", liveId);
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [phase, liveId, duration, xpEarned]);
 
   useEffect(() => {
     if (!liveId) return;
@@ -100,7 +112,7 @@ export default function LivePage() {
         is_active: false,
         ended_at: new Date().toISOString(),
         xp_earned: xpEarned,
-        viewers_count: viewers,
+        viewers_count: viewerPeak || viewers,
       }).eq("id", liveId);
     }
     stream?.getTracks().forEach(t => t.stop());
@@ -154,7 +166,7 @@ export default function LivePage() {
               <p className="text-xs text-muted-foreground">XP gagnés</p>
             </div>
           </div>
-          <motion.button whileTap={{ scale: 0.95 }} onClick={() => navigate("/")} className="w-full rounded-xl gradient-primary py-3 text-sm font-bold text-primary-foreground">
+          <motion.button whileTap={{ scale: 0.95 }} onClick={() => navigate("/live")} className="w-full rounded-xl gradient-primary py-3 text-sm font-bold text-primary-foreground">
             Retour à l'accueil
           </motion.button>
         </motion.div>
@@ -164,7 +176,7 @@ export default function LivePage() {
 
   return (
     <div className="fixed inset-0 z-50 bg-background flex flex-col">
-      <video ref={videoRef} className="absolute inset-0 w-full h-full object-cover" muted playsInline autoPlay style={{ transform: facingMode === "user" ? "scaleX(-1)" : "none" }} />
+      <video ref={videoRef} className="absolute inset-0 w-full h-full object-contain bg-background" muted playsInline autoPlay style={{ transform: facingMode === "user" ? "scaleX(-1)" : "none" }} />
 
       {/* Top bar */}
       <div className="relative z-10 flex items-center justify-between px-4 pt-[max(1rem,env(safe-area-inset-top))]">
@@ -198,6 +210,11 @@ export default function LivePage() {
       {phase === "prep" && (
         <div className="relative z-10 flex-1 flex items-end justify-center pb-12 px-4">
           <div className="w-full max-w-sm space-y-4">
+            <div className="glass rounded-2xl px-4 py-3 text-center">
+              <Radio className="mx-auto mb-2 h-5 w-5 text-primary" />
+              <p className="text-sm font-bold text-foreground">Préparation du live</p>
+              <p className="text-xs text-muted-foreground">Caméra, micro, chat et XP temps réel prêts.</p>
+            </div>
             <input value={title} onChange={e => setTitle(e.target.value)} placeholder="Titre du live... 🎬" className="w-full glass rounded-xl px-4 py-3 bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none text-center" />
             <motion.button whileTap={{ scale: 0.95 }} onClick={goLive} className="w-full rounded-2xl gradient-primary py-4 text-lg font-bold text-primary-foreground pulse-glow flex items-center justify-center gap-2">
               <Video className="h-5 w-5" /> Passer en Live
