@@ -4,6 +4,7 @@ import { ArrowLeft, User, Bell, Database, Info, Lock, Eye, EyeOff, Globe, Trash2
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
+import { supabase } from "@/integrations/supabase/client";
 
 interface SettingItemProps {
   icon: React.ReactNode;
@@ -48,6 +49,9 @@ export default function SettingsPage() {
   const [showPasswordChange, setShowPasswordChange] = useState(false);
   const [newPassword, setNewPassword] = useState("");
   const [confirmNewPassword, setConfirmNewPassword] = useState("");
+  const [mfaQr, setMfaQr] = useState("");
+  const [mfaFactorId, setMfaFactorId] = useState("");
+  const [mfaCode, setMfaCode] = useState("");
   const [notificationPermission, setNotificationPermission] = useState<string>(typeof Notification !== "undefined" ? Notification.permission : "unsupported");
   const [mediaPermission, setMediaPermission] = useState<"idle" | "granted" | "denied">("idle");
 
@@ -81,6 +85,26 @@ export default function SettingsPage() {
     setShowPasswordChange(false);
     setNewPassword("");
     setConfirmNewPassword("");
+  };
+
+  const startMfaSetup = async () => {
+    const { data, error } = await supabase.auth.mfa.enroll({ factorType: "totp" });
+    if (error) { toast.error("Double authentification indisponible"); return; }
+    setMfaFactorId(data.id);
+    setMfaQr(data.totp.qr_code);
+    toast.success("Scanne le QR code puis entre le code");
+  };
+
+  const verifyMfaSetup = async () => {
+    if (!mfaFactorId || !mfaCode.trim()) return;
+    const { data: challenge, error: challengeError } = await supabase.auth.mfa.challenge({ factorId: mfaFactorId });
+    if (challengeError) { toast.error("Code 2FA impossible à vérifier"); return; }
+    const { error } = await supabase.auth.mfa.verify({ factorId: mfaFactorId, challengeId: challenge.id, code: mfaCode.trim() });
+    if (error) { toast.error("Code 2FA incorrect"); return; }
+    toast.success("Double authentification activée 🔐");
+    setMfaQr("");
+    setMfaFactorId("");
+    setMfaCode("");
   };
 
   const requestNotificationPermission = async () => {
@@ -152,8 +176,15 @@ export default function SettingsPage() {
           <div className="glass rounded-2xl overflow-hidden">
             <SettingItem icon={<User className="h-4 w-4 text-primary" />} label="Modifier le profil" onClick={() => navigate("/profile")} />
             <SettingItem icon={<Lock className="h-4 w-4 text-primary" />} label="Modifier le mot de passe" onClick={() => setShowPasswordChange(p => !p)} />
-            <SettingItem icon={<Shield className="h-4 w-4 text-primary" />} label="Double facteur" description="Renforcement du mot de passe activé, 2FA avancé à brancher ensuite côté authentification" />
+            <SettingItem icon={<Shield className="h-4 w-4 text-primary" />} label="Double facteur" description="Optionnel : active une vérification par code sécurisé" onClick={startMfaSetup} />
           </div>
+          {mfaQr && (
+            <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} className="glass rounded-2xl p-4 mt-2 space-y-3 text-center">
+              <img src={mfaQr} alt="QR code double authentification" className="mx-auto h-44 w-44 rounded-xl bg-foreground p-2" />
+              <input inputMode="numeric" placeholder="Code à 6 chiffres" value={mfaCode} onChange={e => setMfaCode(e.target.value)} className="w-full glass rounded-xl px-4 py-3 bg-transparent text-center text-sm text-foreground placeholder:text-muted-foreground outline-none" />
+              <motion.button whileTap={{ scale: 0.97 }} onClick={verifyMfaSetup} className="w-full rounded-xl gradient-primary py-3 text-sm font-bold text-primary-foreground">Activer 2FA</motion.button>
+            </motion.div>
+          )}
           {showPasswordChange && (
             <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} className="glass rounded-2xl p-4 mt-2 space-y-3">
               <input type="password" placeholder="Nouveau mot de passe" value={newPassword} onChange={e => setNewPassword(e.target.value)} className="w-full glass rounded-xl px-4 py-3 bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none" />
