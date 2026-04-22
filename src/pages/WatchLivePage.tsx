@@ -32,6 +32,12 @@ export default function WatchLivePage() {
     };
     fetchLive();
 
+    const bumpViewer = async () => {
+      const { data } = await supabase.from("lives").select("viewers_count").eq("id", liveId).single();
+      await supabase.from("lives").update({ viewers_count: ((data as any)?.viewers_count || 0) + 1 }).eq("id", liveId);
+    };
+    bumpViewer();
+
     const channel = supabase
       .channel(`watch-live-${liveId}`)
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "live_messages", filter: `live_id=eq.${liveId}` }, (payload) => {
