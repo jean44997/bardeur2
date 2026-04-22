@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { ArrowLeft, User, Bell, Database, Info, Lock, Eye, EyeOff, Globe, Trash2, Download, ChevronRight, Camera, Mic, Shield } from "lucide-react";
+import { ArrowLeft, User, Bell, Database, Info, Lock, Eye, EyeOff, Globe, Trash2, Download, ChevronRight, Camera, Mic, Shield, Mail, Smartphone, CheckCircle2, AlertCircle } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
@@ -52,6 +52,10 @@ export default function SettingsPage() {
   const [mfaQr, setMfaQr] = useState("");
   const [mfaFactorId, setMfaFactorId] = useState("");
   const [mfaCode, setMfaCode] = useState("");
+  const [mfaMethod, setMfaMethod] = useState<"email" | "phone">("email");
+  const [mfaPhone, setMfaPhone] = useState("");
+  const [mfaStatus, setMfaStatus] = useState<"idle" | "sending" | "waiting" | "checking" | "verified" | "error">("idle");
+  const [mfaMessage, setMfaMessage] = useState("Choisis une méthode puis vérifie le code en temps réel.");
   const [notificationPermission, setNotificationPermission] = useState<string>(typeof Notification !== "undefined" ? Notification.permission : "unsupported");
   const [mediaPermission, setMediaPermission] = useState<"idle" | "granted" | "denied">("idle");
 
@@ -88,19 +92,34 @@ export default function SettingsPage() {
   };
 
   const startMfaSetup = async () => {
-    const { data, error } = await supabase.auth.mfa.enroll({ factorType: "totp" });
-    if (error) { toast.error("Double authentification indisponible"); return; }
+    setMfaStatus("sending");
+    setMfaMessage("Préparation du code sécurisé...");
+    const enrollOptions = mfaMethod === "phone"
+      ? ({ factorType: "phone", phone: mfaPhone.trim() } as any)
+      : ({ factorType: "totp" } as const);
+    if (mfaMethod === "phone" && mfaPhone.trim().length < 8) {
+      setMfaStatus("error");
+      setMfaMessage("Ajoute un numéro complet avec indicatif pays.");
+      return;
+    }
+    const { data, error } = await supabase.auth.mfa.enroll(enrollOptions);
+    if (error) { setMfaStatus("error"); setMfaMessage(error.message || "Double authentification indisponible"); toast.error("Double authentification indisponible"); return; }
     setMfaFactorId(data.id);
-    setMfaQr(data.totp.qr_code);
-    toast.success("Scanne le QR code puis entre le code");
+    setMfaQr((data as any).totp?.qr_code || "");
+    setMfaStatus("waiting");
+    setMfaMessage(mfaMethod === "phone" ? "Code envoyé. Entre-le pour activer la 2FA." : "Scanne le QR code ou utilise ton email sécurisé, puis entre le code à 6 chiffres.");
   };
 
   const verifyMfaSetup = async () => {
     if (!mfaFactorId || !mfaCode.trim()) return;
+    setMfaStatus("checking");
+    setMfaMessage("Vérification du code en cours...");
     const { data: challenge, error: challengeError } = await supabase.auth.mfa.challenge({ factorId: mfaFactorId });
-    if (challengeError) { toast.error("Code 2FA impossible à vérifier"); return; }
+    if (challengeError) { setMfaStatus("error"); setMfaMessage("Code impossible à vérifier, réessaie."); toast.error("Code 2FA impossible à vérifier"); return; }
     const { error } = await supabase.auth.mfa.verify({ factorId: mfaFactorId, challengeId: challenge.id, code: mfaCode.trim() });
-    if (error) { toast.error("Code 2FA incorrect"); return; }
+    if (error) { setMfaStatus("error"); setMfaMessage("Code incorrect ou expiré."); toast.error("Code 2FA incorrect"); return; }
+    setMfaStatus("verified");
+    setMfaMessage("Double authentification activée sur ce compte.");
     toast.success("Double authentification activée 🔐");
     setMfaQr("");
     setMfaFactorId("");
