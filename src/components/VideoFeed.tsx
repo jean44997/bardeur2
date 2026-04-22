@@ -159,7 +159,7 @@ export default function VideoFeed() {
                 className="flex w-36 flex-shrink-0 flex-col overflow-hidden rounded-2xl glass text-left"
               >
                 <div className="relative aspect-[4/5] bg-card">
-                  <div className="absolute inset-0 grid place-items-center gradient-primary/20">
+                  <div className="absolute inset-0 grid place-items-center bg-primary/10">
                     <div className="h-14 w-14 rounded-full gradient-primary flex items-center justify-center text-sm font-bold text-primary-foreground overflow-hidden ring-2 ring-destructive">
                       {live.avatar ? <img src={live.avatar} alt="" className="h-full w-full object-cover" /> : live.displayName[0]}
                     </div>
@@ -176,7 +176,7 @@ export default function VideoFeed() {
         </div>
       )}
 
-      <div ref={containerRef} className="h-[100svh] w-full snap-y-mandatory overflow-y-scroll no-scrollbar">
+      <div ref={containerRef} className="h-[100svh] w-full snap-y snap-mandatory overflow-y-scroll no-scrollbar overscroll-contain">
         {videos.map((video, i) => (
           <VideoCard
             key={video.id}
