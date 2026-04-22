@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowLeft, Video, Mic, MicOff, Camera, CameraOff, Send, Users, X, Zap, Trophy, RotateCcw, Radio } from "lucide-react";
+import { ArrowLeft, Video, Mic, MicOff, Camera, CameraOff, Send, Users, X, Zap, Trophy, RotateCcw, Radio, Square } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -10,6 +10,8 @@ interface LiveMessage {
   id: string;
   username: string;
   content: string;
+  mediaUrl?: string;
+  mediaType?: string;
 }
 
 export default function LivePage() {
@@ -17,6 +19,8 @@ export default function LivePage() {
   const { user, profile } = useAuth();
   const videoRef = useRef<HTMLVideoElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const audioRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
 
   const [phase, setPhase] = useState<"prep" | "live" | "ended">("prep");
   const [title, setTitle] = useState("");
@@ -27,6 +31,7 @@ export default function LivePage() {
   const [messages, setMessages] = useState<LiveMessage[]>([]);
   const [newMsg, setNewMsg] = useState("");
   const [viewerPeak, setViewerPeak] = useState(0);
+  const [isRecordingAudio, setIsRecordingAudio] = useState(false);
   const [isMicOn, setIsMicOn] = useState(true);
   const [isCamOn, setIsCamOn] = useState(true);
   const [duration, setDuration] = useState(0);
@@ -84,7 +89,7 @@ export default function LivePage() {
       .channel(`live-chat-${liveId}`)
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "live_messages", filter: `live_id=eq.${liveId}` }, (payload) => {
         const msg = payload.new as any;
-        setMessages(prev => [...prev.slice(-100), { id: msg.id, username: msg.user_id.slice(0, 8), content: msg.content }]);
+        setMessages(prev => [...prev.slice(-100), { id: msg.id, username: msg.user_id.slice(0, 8), content: msg.content, mediaUrl: msg.media_url || undefined, mediaType: msg.media_type || undefined }]);
       })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
@@ -142,6 +147,30 @@ export default function LivePage() {
     if (!newMsg.trim() || !liveId || !user) return;
     await supabase.from("live_messages").insert({ live_id: liveId, user_id: user.id, content: newMsg.trim() });
     setNewMsg("");
+  };
+
+  const toggleAudioMessage = async () => {
+    if (isRecordingAudio) { audioRecorderRef.current?.stop(); setIsRecordingAudio(false); return; }
+    if (!liveId || !user) return;
+    try {
+      const s = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, sampleRate: 48000, channelCount: 2 } });
+      audioChunksRef.current = [];
+      const mr = new MediaRecorder(s, { mimeType: "audio/webm;codecs=opus", audioBitsPerSecond: 192000 });
+      mr.ondataavailable = e => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
+      mr.onstop = async () => {
+        s.getTracks().forEach(t => t.stop());
+        const blob = new Blob(audioChunksRef.current, { type: "audio/webm;codecs=opus" });
+        if (blob.size < 1000) return;
+        const path = `${user.id}/live-audio/${crypto.randomUUID()}.webm`;
+        const { error } = await supabase.storage.from("media").upload(path, blob, { contentType: "audio/webm" });
+        if (error) { toast.error("Vocal live impossible"); return; }
+        const { data } = supabase.storage.from("media").getPublicUrl(path);
+        await supabase.from("live_messages").insert({ live_id: liveId, user_id: user.id, content: "🎤 Vocal live", media_url: data.publicUrl, media_type: "audio/webm" } as any);
+      };
+      audioRecorderRef.current = mr;
+      mr.start();
+      setIsRecordingAudio(true);
+    } catch { toast.error("Autorise le micro pour envoyer un vocal live"); }
   };
 
   const fmt = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, "0")}`;
@@ -244,6 +273,7 @@ export default function LivePage() {
                 <motion.div key={msg.id} initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} className="glass rounded-lg px-3 py-1.5 inline-block max-w-[85%]">
                   <span className="text-xs font-bold text-primary">@{msg.username}</span>{" "}
                   <span className="text-xs text-foreground">{msg.content}</span>
+                  {msg.mediaUrl && msg.mediaType?.startsWith("audio") && <audio src={msg.mediaUrl} controls className="mt-1 h-8 w-48" preload="metadata" />}
                 </motion.div>
               ))}
               <div ref={chatEndRef} />
@@ -251,6 +281,9 @@ export default function LivePage() {
             <div className="px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
               <div className="glass rounded-full flex items-center px-4 py-2">
                 <input value={newMsg} onChange={e => setNewMsg(e.target.value)} onKeyDown={e => e.key === "Enter" && sendMessage()} placeholder="Commenter..." className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none" />
+                <motion.button whileTap={{ scale: 0.9 }} onClick={toggleAudioMessage} className="mr-2">
+                  {isRecordingAudio ? <Square className="h-4 w-4 text-destructive" /> : <Mic className="h-4 w-4 text-accent" />}
+                </motion.button>
                 <motion.button whileTap={{ scale: 0.9 }} onClick={sendMessage}>
                   <Send className="h-4 w-4 text-primary" />
                 </motion.button>
