@@ -32,6 +32,7 @@ export default function LivePage() {
   const [newMsg, setNewMsg] = useState("");
   const [viewerPeak, setViewerPeak] = useState(0);
   const [isRecordingAudio, setIsRecordingAudio] = useState(false);
+  const [activeLives, setActiveLives] = useState<any[]>([]);
   const [isMicOn, setIsMicOn] = useState(true);
   const [isCamOn, setIsCamOn] = useState(true);
   const [duration, setDuration] = useState(0);
@@ -57,6 +58,23 @@ export default function LivePage() {
     startPreview();
     return () => { stream?.getTracks().forEach(t => t.stop()); };
   }, [facingMode]);
+
+  useEffect(() => {
+    const fetchActiveLives = async () => {
+      const { data } = await supabase
+        .from("lives")
+        .select("*, profiles:user_id(username, display_name, avatar_url)")
+        .eq("is_active", true)
+        .order("created_at", { ascending: false })
+        .limit(20);
+      setActiveLives(data || []);
+    };
+    fetchActiveLives();
+    const channel = supabase.channel("live-room-list")
+      .on("postgres_changes", { event: "*", schema: "public", table: "lives" }, fetchActiveLives)
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, []);
 
   useEffect(() => {
     if (phase !== "live") return;
@@ -239,6 +257,25 @@ export default function LivePage() {
       {phase === "prep" && (
         <div className="relative z-10 flex-1 flex items-end justify-center pb-12 px-4">
           <div className="w-full max-w-sm space-y-4">
+            {activeLives.length > 0 && (
+              <div className="glass rounded-2xl p-3">
+                <p className="mb-2 text-xs font-bold uppercase text-muted-foreground">Lives maintenant</p>
+                <div className="max-h-32 space-y-2 overflow-y-auto no-scrollbar">
+                  {activeLives.map(l => (
+                    <button key={l.id} onClick={() => navigate(`/live/${l.id}`)} className="flex w-full items-center gap-2 rounded-xl bg-card px-3 py-2 text-left">
+                      <span className="relative flex h-8 w-8 items-center justify-center overflow-hidden rounded-full gradient-primary text-xs font-bold text-primary-foreground">
+                        {l.profiles?.avatar_url ? <img src={l.profiles.avatar_url} alt="" className="h-full w-full object-cover" /> : (l.profiles?.display_name || "L")[0]}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-xs font-bold text-foreground">{l.title || `Live de ${l.profiles?.display_name || "Utilisateur"}`}</span>
+                        <span className="block text-[10px] text-muted-foreground">{l.viewers_count || 0} spectateurs · @{l.profiles?.username}</span>
+                      </span>
+                      <span className="rounded-full bg-destructive px-2 py-0.5 text-[9px] font-bold text-destructive-foreground">LIVE</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
             <div className="glass rounded-2xl px-4 py-3 text-center">
               <Radio className="mx-auto mb-2 h-5 w-5 text-primary" />
               <p className="text-sm font-bold text-foreground">Préparation du live</p>
