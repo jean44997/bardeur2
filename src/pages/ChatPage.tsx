@@ -120,14 +120,14 @@ export default function ChatPage() {
 
   const startAudioRecording = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, sampleRate: 44100 } });
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, sampleRate: 48000, channelCount: 2 } });
       audioStreamRef.current = stream;
       audioChunksRef.current = [];
       const mr = new MediaRecorder(stream, { mimeType: "audio/webm;codecs=opus" });
       mr.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
       mr.onstop = async () => {
         stream.getTracks().forEach(t => t.stop());
-        const blob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+        const blob = new Blob(audioChunksRef.current, { type: "audio/webm;codecs=opus" });
         if (blob.size < 1000) { toast.info("Audio trop court"); return; }
         await sendAudioBlob(blob);
       };
@@ -215,7 +215,12 @@ export default function ChatPage() {
                     <img src={msg.mediaUrl} alt="" className="mb-2 max-h-64 w-full rounded-xl object-cover" loading="lazy" />
                   )}
                   {msg.mediaUrl && msg.mediaType?.startsWith("audio") && (
-                    <audio src={msg.mediaUrl} controls className="w-full max-w-[240px] h-8 mb-1" preload="metadata" />
+                    <div className="flex items-center gap-2 rounded-full bg-background/20 px-2 py-1 mb-1">
+                      <span className="flex h-5 items-end gap-0.5">
+                        {[8, 13, 18, 11, 16].map((h, i) => <span key={i} className="w-1 rounded-full bg-primary-foreground/80" style={{ height: h }} />)}
+                      </span>
+                      <audio src={msg.mediaUrl} controls className="h-8 w-[210px] max-w-full" preload="metadata" />
+                    </div>
                   )}
                   {msg.text && msg.text !== "Message supprimé" ? msg.text : msg.text === "Message supprimé" ? <span className="italic opacity-60">{msg.text}</span> : null}
                 </div>
