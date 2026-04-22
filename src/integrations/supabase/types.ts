@@ -279,6 +279,8 @@ export type Database = {
           created_at: string | null
           id: string
           live_id: string
+          media_type: string | null
+          media_url: string | null
           user_id: string
         }
         Insert: {
@@ -286,6 +288,8 @@ export type Database = {
           created_at?: string | null
           id?: string
           live_id: string
+          media_type?: string | null
+          media_url?: string | null
           user_id: string
         }
         Update: {
@@ -293,9 +297,26 @@ export type Database = {
           created_at?: string | null
           id?: string
           live_id?: string
+          media_type?: string | null
+          media_url?: string | null
           user_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "live_messages_live_id_fkey"
+            columns: ["live_id"]
+            isOneToOne: false
+            referencedRelation: "lives"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "live_messages_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       lives: {
         Row: {
@@ -331,7 +352,15 @@ export type Database = {
           viewers_count?: number | null
           xp_earned?: number | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "lives_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       messages: {
         Row: {

@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { Upload, Camera, Video, X, Image, Palette, Mic, MicOff } from "lucide-react";
+import { Upload, Camera, Video, X, Image, Palette, Sparkles, Wand2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -25,6 +25,7 @@ export default function CreatePage() {
   const [isRecording, setIsRecording] = useState(false);
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
   const [cameraMode, setCameraMode] = useState<"photo" | "video">("video");
+  const [effect, setEffect] = useState<"none" | "pop" | "cinema" | "mono">("none");
 
   // 3D Canvas background animation
   useEffect(() => {
@@ -91,8 +92,8 @@ export default function CreatePage() {
   const openCamera = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "user", width: { ideal: 1920 }, height: { ideal: 1080 } },
-        audio: true,
+        video: { facingMode: "user", width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 60 } },
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, sampleRate: 48000, channelCount: 2 },
       });
       setCameraStream(stream);
       setShowCamera(true);
@@ -122,7 +123,7 @@ export default function CreatePage() {
   const startRecording = () => {
     if (!cameraStream) return;
     chunksRef.current = [];
-    const mr = new MediaRecorder(cameraStream, { mimeType: "video/webm;codecs=vp9" });
+      const mr = new MediaRecorder(cameraStream, { mimeType: "video/webm;codecs=vp9,opus", videoBitsPerSecond: 8_000_000, audioBitsPerSecond: 192_000 });
     mr.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
     mr.onstop = () => {
       const blob = new Blob(chunksRef.current, { type: "video/webm" });
@@ -247,10 +248,10 @@ export default function CreatePage() {
                 <span className="text-xs font-semibold text-foreground">Galerie</span>
                 <span className="text-[10px] text-muted-foreground">Choisir un fichier</span>
               </motion.button>
-              <motion.button whileTap={{ scale: 0.93 }} onClick={() => toast.info("Effets bientôt disponibles")} className="glass rounded-2xl p-4 flex flex-col items-center gap-2">
+              <motion.button whileTap={{ scale: 0.93 }} onClick={() => setEffect(effect === "pop" ? "cinema" : effect === "cinema" ? "mono" : "pop")} className="glass rounded-2xl p-4 flex flex-col items-center gap-2">
                 <span className="text-primary"><Palette className="h-6 w-6" /></span>
                 <span className="text-xs font-semibold text-foreground">Effets</span>
-                <span className="text-[10px] text-muted-foreground">Filtres & AR</span>
+                <span className="text-[10px] text-muted-foreground">{effect === "none" ? "Filtres" : effect}</span>
               </motion.button>
             </div>
           </div>
@@ -258,12 +259,19 @@ export default function CreatePage() {
           <div>
             <div className="glass rounded-2xl p-4 mb-4">
               {selectedFile.type.startsWith("video") ? (
-                <video src={preview!} className="w-full max-h-60 rounded-xl object-contain bg-background" controls />
+                <video src={preview!} className={`w-full max-h-60 rounded-xl object-contain bg-background ${effect === "pop" ? "saturate-150 contrast-125" : effect === "cinema" ? "contrast-125 brightness-90" : effect === "mono" ? "grayscale" : ""}`} controls />
               ) : (
-                <img src={preview!} className="w-full max-h-60 rounded-xl object-contain" alt="Aperçu" />
+                <img src={preview!} className={`w-full max-h-60 rounded-xl object-contain ${effect === "pop" ? "saturate-150 contrast-125" : effect === "cinema" ? "contrast-125 brightness-90" : effect === "mono" ? "grayscale" : ""}`} alt="Aperçu" />
               )}
             </div>
             <div className="space-y-3 mb-4">
+              <div className="grid grid-cols-4 gap-2">
+                {(["none", "pop", "cinema", "mono"] as const).map(f => (
+                  <button key={f} onClick={() => setEffect(f)} className={`rounded-xl px-2 py-2 text-xs font-semibold ${effect === f ? "gradient-primary text-primary-foreground" : "glass text-foreground"}`}>
+                    {f === "none" ? <Sparkles className="mx-auto h-4 w-4" /> : f === "pop" ? "Pop" : f === "cinema" ? "Ciné" : "N&B"}
+                  </button>
+                ))}
+              </div>
               <textarea value={description} onChange={e => setDescription(e.target.value)} placeholder="Ajoute une description... 📝" className="w-full glass rounded-xl px-4 py-3 bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none resize-none" rows={3} />
               <input value={hashtags} onChange={e => setHashtags(e.target.value)} placeholder="#hashtags séparés par des espaces" className="w-full glass rounded-xl px-4 py-3 bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none" />
               <motion.button whileTap={{ scale: 0.95 }} onClick={() => setCommentsEnabled(!commentsEnabled)} className="flex items-center gap-2 w-full glass rounded-xl px-4 py-3">
