@@ -50,6 +50,7 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
   const [showLongPress, setShowLongPress] = useState(false);
   const [playbackRate, setPlaybackRate] = useState(1);
   const [viewCounted, setViewCounted] = useState(false);
+  const [playedEnough, setPlayedEnough] = useState(false);
   const lastTapRef = useRef(0);
   const longPressTimer = useRef<NodeJS.Timeout | null>(null);
 
@@ -78,6 +79,9 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
     } else {
       v.pause();
       v.currentTime = 0;
+      setProgress(0);
+      setPlayedEnough(false);
+      setShowLongPress(false);
     }
   }, [isActive, playbackRate]);
 
@@ -101,6 +105,7 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
     if (!v || !isActive) return;
     const update = () => {
       if (v.duration) setProgress((v.currentTime / v.duration) * 100);
+      if (v.currentTime >= 8) setPlayedEnough(true);
     };
     v.addEventListener("timeupdate", update);
     return () => v.removeEventListener("timeupdate", update);
@@ -197,7 +202,10 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
 
   const handleLongPressStart = () => {
     if (longPressTimer.current) clearTimeout(longPressTimer.current);
-    longPressTimer.current = setTimeout(() => setShowLongPress(true), 8000);
+    longPressTimer.current = setTimeout(() => {
+      if (playedEnough || (videoRef.current?.currentTime || 0) >= 8) setShowLongPress(true);
+      else toast.info("Options disponibles après 8 secondes de lecture");
+    }, 8000);
   };
 
   const handleLongPressEnd = () => {

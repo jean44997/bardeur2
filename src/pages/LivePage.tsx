@@ -5,6 +5,7 @@ import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
+import AudioBubble from "@/components/AudioBubble";
 
 interface LiveMessage {
   id: string;
@@ -41,8 +42,8 @@ export default function LivePage() {
   const startPreview = useCallback(async () => {
     try {
       const s = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode, width: { ideal: 1920 }, height: { ideal: 1080 } },
-        audio: true,
+        video: { facingMode, width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30, max: 60 } },
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, sampleRate: 48000, channelCount: 2 },
       });
       setStream(s);
       if (videoRef.current) {
@@ -310,7 +311,7 @@ export default function LivePage() {
                 <motion.div key={msg.id} initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} className="glass rounded-lg px-3 py-1.5 inline-block max-w-[85%]">
                   <span className="text-xs font-bold text-primary">@{msg.username}</span>{" "}
                   <span className="text-xs text-foreground">{msg.content}</span>
-                  {msg.mediaUrl && msg.mediaType?.startsWith("audio") && <audio src={msg.mediaUrl} controls className="mt-1 h-8 w-48" preload="metadata" />}
+                  {msg.mediaUrl && msg.mediaType?.startsWith("audio") && <div className="mt-1"><AudioBubble src={msg.mediaUrl} compact /></div>}
                 </motion.div>
               ))}
               <div ref={chatEndRef} />

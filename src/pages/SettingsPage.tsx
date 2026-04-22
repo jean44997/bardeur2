@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { ArrowLeft, User, Bell, Database, Info, Lock, Eye, EyeOff, Globe, Trash2, Download, ChevronRight, Camera, Mic, Shield } from "lucide-react";
+import { ArrowLeft, User, Bell, Database, Info, Lock, Eye, EyeOff, Globe, Trash2, Download, ChevronRight, Camera, Mic, Shield, Mail, Smartphone, CheckCircle2, AlertCircle } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
@@ -52,6 +52,10 @@ export default function SettingsPage() {
   const [mfaQr, setMfaQr] = useState("");
   const [mfaFactorId, setMfaFactorId] = useState("");
   const [mfaCode, setMfaCode] = useState("");
+  const [mfaMethod, setMfaMethod] = useState<"email" | "phone">("email");
+  const [mfaPhone, setMfaPhone] = useState("");
+  const [mfaStatus, setMfaStatus] = useState<"idle" | "sending" | "waiting" | "checking" | "verified" | "error">("idle");
+  const [mfaMessage, setMfaMessage] = useState("Choisis une méthode puis vérifie le code en temps réel.");
   const [notificationPermission, setNotificationPermission] = useState<string>(typeof Notification !== "undefined" ? Notification.permission : "unsupported");
   const [mediaPermission, setMediaPermission] = useState<"idle" | "granted" | "denied">("idle");
 
@@ -88,19 +92,34 @@ export default function SettingsPage() {
   };
 
   const startMfaSetup = async () => {
-    const { data, error } = await supabase.auth.mfa.enroll({ factorType: "totp" });
-    if (error) { toast.error("Double authentification indisponible"); return; }
+    setMfaStatus("sending");
+    setMfaMessage("Préparation du code sécurisé...");
+    const enrollOptions = mfaMethod === "phone"
+      ? ({ factorType: "phone", phone: mfaPhone.trim() } as any)
+      : ({ factorType: "totp" } as const);
+    if (mfaMethod === "phone" && mfaPhone.trim().length < 8) {
+      setMfaStatus("error");
+      setMfaMessage("Ajoute un numéro complet avec indicatif pays.");
+      return;
+    }
+    const { data, error } = await supabase.auth.mfa.enroll(enrollOptions);
+    if (error) { setMfaStatus("error"); setMfaMessage(error.message || "Double authentification indisponible"); toast.error("Double authentification indisponible"); return; }
     setMfaFactorId(data.id);
-    setMfaQr(data.totp.qr_code);
-    toast.success("Scanne le QR code puis entre le code");
+    setMfaQr((data as any).totp?.qr_code || "");
+    setMfaStatus("waiting");
+    setMfaMessage(mfaMethod === "phone" ? "Code envoyé. Entre-le pour activer la 2FA." : "Scanne le QR code ou utilise ton email sécurisé, puis entre le code à 6 chiffres.");
   };
 
   const verifyMfaSetup = async () => {
     if (!mfaFactorId || !mfaCode.trim()) return;
+    setMfaStatus("checking");
+    setMfaMessage("Vérification du code en cours...");
     const { data: challenge, error: challengeError } = await supabase.auth.mfa.challenge({ factorId: mfaFactorId });
-    if (challengeError) { toast.error("Code 2FA impossible à vérifier"); return; }
+    if (challengeError) { setMfaStatus("error"); setMfaMessage("Code impossible à vérifier, réessaie."); toast.error("Code 2FA impossible à vérifier"); return; }
     const { error } = await supabase.auth.mfa.verify({ factorId: mfaFactorId, challengeId: challenge.id, code: mfaCode.trim() });
-    if (error) { toast.error("Code 2FA incorrect"); return; }
+    if (error) { setMfaStatus("error"); setMfaMessage("Code incorrect ou expiré."); toast.error("Code 2FA incorrect"); return; }
+    setMfaStatus("verified");
+    setMfaMessage("Double authentification activée sur ce compte.");
     toast.success("Double authentification activée 🔐");
     setMfaQr("");
     setMfaFactorId("");
@@ -176,13 +195,23 @@ export default function SettingsPage() {
           <div className="glass rounded-2xl overflow-hidden">
             <SettingItem icon={<User className="h-4 w-4 text-primary" />} label="Modifier le profil" onClick={() => navigate("/profile")} />
             <SettingItem icon={<Lock className="h-4 w-4 text-primary" />} label="Modifier le mot de passe" onClick={() => setShowPasswordChange(p => !p)} />
-            <SettingItem icon={<Shield className="h-4 w-4 text-primary" />} label="Double facteur" description="Optionnel : active une vérification par code sécurisé" onClick={startMfaSetup} />
+            <SettingItem icon={<Shield className="h-4 w-4 text-primary" />} label="Double facteur" description="Optionnel : email/app ou numéro, avec code vérifié en direct" onClick={() => setMfaStatus(s => s === "idle" ? "waiting" : "idle")} />
           </div>
-          {mfaQr && (
+          {mfaStatus !== "idle" && (
             <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} className="glass rounded-2xl p-4 mt-2 space-y-3 text-center">
-              <img src={mfaQr} alt="QR code double authentification" className="mx-auto h-44 w-44 rounded-xl bg-foreground p-2" />
-              <input inputMode="numeric" placeholder="Code à 6 chiffres" value={mfaCode} onChange={e => setMfaCode(e.target.value)} className="w-full glass rounded-xl px-4 py-3 bg-transparent text-center text-sm text-foreground placeholder:text-muted-foreground outline-none" />
-              <motion.button whileTap={{ scale: 0.97 }} onClick={verifyMfaSetup} className="w-full rounded-xl gradient-primary py-3 text-sm font-bold text-primary-foreground">Activer 2FA</motion.button>
+              <div className="grid grid-cols-2 gap-2">
+                <button onClick={() => setMfaMethod("email")} className={`rounded-xl px-3 py-2 text-xs font-bold ${mfaMethod === "email" ? "bg-primary text-primary-foreground" : "bg-card text-foreground"}`}><Mail className="mx-auto mb-1 h-4 w-4" />Email/app</button>
+                <button onClick={() => setMfaMethod("phone")} className={`rounded-xl px-3 py-2 text-xs font-bold ${mfaMethod === "phone" ? "bg-primary text-primary-foreground" : "bg-card text-foreground"}`}><Smartphone className="mx-auto mb-1 h-4 w-4" />Numéro</button>
+              </div>
+              {mfaMethod === "phone" && <input inputMode="tel" placeholder="+2250102030405" value={mfaPhone} onChange={e => setMfaPhone(e.target.value)} className="w-full glass rounded-xl px-4 py-3 bg-transparent text-center text-sm text-foreground placeholder:text-muted-foreground outline-none" />}
+              {mfaQr && <img src={mfaQr} alt="QR code double authentification" className="mx-auto h-44 w-44 rounded-xl bg-foreground p-2" />}
+              <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
+                {mfaStatus === "verified" ? <CheckCircle2 className="h-4 w-4 text-primary" /> : mfaStatus === "error" ? <AlertCircle className="h-4 w-4 text-destructive" /> : <Shield className="h-4 w-4 text-accent" />}
+                <span>{mfaMessage}</span>
+              </div>
+              {!mfaFactorId ? <motion.button whileTap={{ scale: 0.97 }} onClick={startMfaSetup} disabled={mfaStatus === "sending"} className="w-full rounded-xl gradient-primary py-3 text-sm font-bold text-primary-foreground">Recevoir / préparer le code</motion.button> : null}
+              {mfaFactorId && <input inputMode="numeric" maxLength={6} placeholder="Code à 6 chiffres" value={mfaCode} onChange={e => { const value = e.target.value.replace(/\D/g, "").slice(0, 6); setMfaCode(value); if (value.length === 6) setTimeout(verifyMfaSetup, 150); }} className="w-full glass rounded-xl px-4 py-3 bg-transparent text-center text-sm text-foreground placeholder:text-muted-foreground outline-none" />}
+              {mfaFactorId && <motion.button whileTap={{ scale: 0.97 }} onClick={verifyMfaSetup} disabled={mfaStatus === "checking" || mfaCode.length < 6} className="w-full rounded-xl gradient-primary py-3 text-sm font-bold text-primary-foreground">Vérifier maintenant</motion.button>}
             </motion.div>
           )}
           {showPasswordChange && (

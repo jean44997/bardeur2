@@ -5,8 +5,9 @@ import { useNavigate, useParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
+import AudioBubble from "@/components/AudioBubble";
 
-interface LiveMsg { id: string; username: string; content: string; }
+interface LiveMsg { id: string; username: string; content: string; mediaUrl?: string; mediaType?: string; }
 
 export default function WatchLivePage() {
   const navigate = useNavigate();
@@ -42,7 +43,7 @@ export default function WatchLivePage() {
       .channel(`watch-live-${liveId}`)
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "live_messages", filter: `live_id=eq.${liveId}` }, (payload) => {
         const m = payload.new as any;
-        setMessages(prev => [...prev.slice(-100), { id: m.id, username: m.user_id.slice(0, 8), content: m.content }]);
+        setMessages(prev => [...prev.slice(-100), { id: m.id, username: m.user_id.slice(0, 8), content: m.content, mediaUrl: m.media_url || undefined, mediaType: m.media_type || undefined }]);
       })
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "lives", filter: `id=eq.${liveId}` }, (payload) => {
         const updated = payload.new as any;
@@ -110,6 +111,7 @@ export default function WatchLivePage() {
             <motion.div key={msg.id} initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} className="glass rounded-lg px-3 py-1.5 inline-block max-w-[85%]">
               <span className="text-xs font-bold text-primary">@{msg.username}</span>{" "}
               <span className="text-xs text-foreground">{msg.content}</span>
+              {msg.mediaUrl && msg.mediaType?.startsWith("audio") && <div className="mt-1"><AudioBubble src={msg.mediaUrl} compact /></div>}
             </motion.div>
           ))}
           <div ref={chatEndRef} />
