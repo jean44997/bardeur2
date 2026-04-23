@@ -51,6 +51,9 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
   const [playbackRate, setPlaybackRate] = useState(1);
   const [viewCounted, setViewCounted] = useState(false);
   const [playedEnough, setPlayedEnough] = useState(false);
+  const [pausedByUser, setPausedByUser] = useState(false);
+  const [buffered, setBuffered] = useState(0);
+  const [saveCount, setSaveCount] = useState(video.stats.saves);
   const lastTapRef = useRef(0);
   const longPressTimer = useRef<NodeJS.Timeout | null>(null);
 
@@ -75,15 +78,16 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
     if (!v) return;
     if (isActive) {
       v.playbackRate = playbackRate;
-      v.play().catch(() => {});
+      if (!pausedByUser) v.play().catch(() => {});
     } else {
       v.pause();
       v.currentTime = 0;
       setProgress(0);
       setPlayedEnough(false);
       setShowLongPress(false);
+      setPausedByUser(false);
     }
-  }, [isActive, playbackRate]);
+  }, [isActive, playbackRate, pausedByUser]);
 
   useEffect(() => {
     const v = videoRef.current;
@@ -128,6 +132,20 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
     [liked]
   );
 
+  const handleVideoClick = (e: React.MouseEvent<HTMLVideoElement>) => {
+    handleDoubleTap(e);
+    if (Date.now() - lastTapRef.current < 360) return;
+    const v = videoRef.current;
+    if (!v || !isActive) return;
+    if (v.paused) {
+      setPausedByUser(false);
+      v.play().catch(() => {});
+    } else {
+      setPausedByUser(true);
+      v.pause();
+    }
+  };
+
   const removeHeart = useCallback((id: string) => {
     setHearts((prev) => prev.filter((h) => h.id !== id));
   }, []);
@@ -138,23 +156,27 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
     setLiked(newLiked);
     setLikeCount((c) => newLiked ? c + 1 : c - 1);
 
-    if (newLiked) {
-      await supabase.from("likes").insert({ user_id: user.id, video_id: video.id });
-    } else {
-      await supabase.from("likes").delete().eq("user_id", user.id).eq("video_id", video.id);
-    }
+    const { error } = newLiked
+      ? await supabase.from("likes").insert({ user_id: user.id, video_id: video.id })
+      : await supabase.from("likes").delete().eq("user_id", user.id).eq("video_id", video.id);
+    if (error) { setLiked(!newLiked); setLikeCount((c) => newLiked ? c - 1 : c + 1); toast.error("Action impossible"); }
   };
 
   const toggleSave = async () => {
     if (!user) { toast.error("Connecte-toi pour sauvegarder"); return; }
     const newSaved = !saved;
     setSaved(newSaved);
+    setSaveCount((c) => newSaved ? c + 1 : Math.max(0, c - 1));
 
-    if (newSaved) {
-      await supabase.from("saves").insert({ user_id: user.id, video_id: video.id });
+    const { error } = newSaved
+      ? await supabase.from("saves").insert({ user_id: user.id, video_id: video.id })
+      : await supabase.from("saves").delete().eq("user_id", user.id).eq("video_id", video.id);
+    if (error) {
+      setSaved(!newSaved);
+      setSaveCount((c) => newSaved ? Math.max(0, c - 1) : c + 1);
+      toast.error("Sauvegarde impossible");
+    } else if (newSaved) {
       toast.success("Sauvegardé ✅");
-    } else {
-      await supabase.from("saves").delete().eq("user_id", user.id).eq("video_id", video.id);
     }
   };
 
@@ -229,7 +251,11 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
         muted={isMuted}
         playsInline
         preload="auto"
-        onClick={handleDoubleTap}
+        onClick={handleVideoClick}
+        onProgress={(e) => {
+          const v = e.currentTarget;
+          if (v.duration && v.buffered.length) setBuffered((v.buffered.end(v.buffered.length - 1) / v.duration) * 100);
+        }}
         onTouchEnd={(e) => { handleLongPressEnd(); handleDoubleTap(e); }}
         onMouseDown={handleLongPressStart}
         onMouseUp={handleLongPressEnd}
@@ -247,8 +273,11 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
 
       {/* Progress Bar */}
       <div className="absolute bottom-0 left-0 right-0 h-[3px] bg-foreground/10 z-30">
+        <div className="absolute inset-y-0 left-0 bg-foreground/25" style={{ width: `${buffered}%` }} />
         <motion.div className="h-full gradient-primary" style={{ width: `${progress}%` }} transition={{ duration: 0.1 }} />
       </div>
+
+      {pausedByUser && isActive && <div className="absolute inset-0 z-10 grid place-items-center pointer-events-none"><div className="glass rounded-full px-4 py-2 text-xs font-bold text-foreground">Pause</div></div>}
 
       {/* Speed indicator */}
       {playbackRate !== 1 && (
@@ -315,7 +344,7 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
         />
         <ActionButton
           icon={<Bookmark className={`h-7 w-7 ${saved ? "fill-accent text-accent" : "text-foreground"}`} />}
-          label={formatCount(video.stats.saves)}
+          label={formatCount(saveCount)}
           onClick={toggleSave}
         />
         <motion.button whileTap={{ scale: 0.85 }} onClick={onToggleMute} className="glass rounded-full p-2">
