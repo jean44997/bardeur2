@@ -53,8 +53,10 @@ export default function ProfilePage() {
     if (targetUserId) {
       fetchStats(targetUserId);
       fetchVideos(targetUserId);
+      if (user && (isOwnProfile || currentProfile?.hide_likes === false)) {
+        fetchLikedVideos(targetUserId);
+      }
       if (isOwnProfile && user) {
-        fetchLikedVideos();
         fetchSavedVideos();
       }
     }
@@ -103,12 +105,12 @@ export default function ProfilePage() {
     if (data) setVideos(data);
   };
 
-  const fetchLikedVideos = async () => {
-    if (!user) return;
+  const fetchLikedVideos = async (profileId = user?.id) => {
+    if (!profileId) return;
     const { data } = await supabase
       .from("likes")
       .select("video_id, videos:video_id(id, video_url, thumbnail_url, description, likes_count, views_count)")
-      .eq("user_id", user.id)
+      .eq("user_id", profileId)
       .order("created_at", { ascending: false });
     if (data) setLikedVideos(data.map((d: any) => d.videos).filter(Boolean));
   };
@@ -167,9 +169,10 @@ export default function ProfilePage() {
   const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !user) return;
+    if (!file.type.startsWith("image/")) { toast.error("Choisis une image valide"); return; }
     const ext = file.name.split(".").pop();
     const path = `${user.id}/avatar_${Date.now()}.${ext}`;
-    const { error: uploadError } = await supabase.storage.from("avatars").upload(path, file, { upsert: true });
+    const { error: uploadError } = await supabase.storage.from("avatars").upload(path, file, { upsert: true, contentType: file.type });
     if (uploadError) { toast.error("Erreur d'upload"); return; }
     const { data: urlData } = supabase.storage.from("avatars").getPublicUrl(path);
     await updateProfile({ avatar_url: urlData.publicUrl });
@@ -395,7 +398,7 @@ export default function ProfilePage() {
                 key={v.id}
                 whileTap={{ scale: 0.97 }}
                 className="aspect-[9/16] rounded-lg bg-card flex items-center justify-center cursor-pointer overflow-hidden relative group"
-                onClick={() => isOwnProfile && activeTab === 0 ? openEditVideo(v) : null}
+                onClick={() => isOwnProfile && activeTab === 0 ? openEditVideo(v) : navigate(`/?video=${v.id}`)}
               >
                 {v.thumbnail_url ? (
                   <img src={v.thumbnail_url} alt="" className="h-full w-full object-cover" loading="lazy" />
