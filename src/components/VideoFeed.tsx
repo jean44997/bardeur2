@@ -7,7 +7,7 @@ import GamificationPanel from "./GamificationPanel";
 import { VideoData } from "@/data/mockVideos";
 import { motion } from "framer-motion";
 import { RefreshCw, Film, Radio, Clock, Flame } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Skeleton } from "@/components/ui/skeleton";
 
 interface LiveStream {
@@ -35,6 +35,7 @@ export default function VideoFeed() {
   const scrollTimerRef = useRef<number | null>(null);
   const { user } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
   const fetchVideos = useCallback(async () => {
     setLoading(true);
@@ -46,6 +47,7 @@ export default function VideoFeed() {
       .limit(50);
 
     if (data && !error) {
+      const targetVideoId = searchParams.get("video");
       const mapped: VideoData[] = data.map((v: any) => ({
         id: v.id,
         url: v.video_url,
@@ -70,10 +72,10 @@ export default function VideoFeed() {
         isFollowing: false,
         commentsEnabled: v.comments_enabled !== false,
       }));
-      setVideos(mapped);
+      setVideos(targetVideoId ? [...mapped].sort((a, b) => Number(b.id === targetVideoId) - Number(a.id === targetVideoId)) : mapped);
     }
     setLoading(false);
-  }, []);
+  }, [searchParams]);
 
   const fetchLives = useCallback(async () => {
     setLivesLoading(true);
