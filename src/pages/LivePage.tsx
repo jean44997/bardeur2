@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowLeft, Video, Mic, MicOff, Camera, CameraOff, Send, Users, X, Zap, Trophy, RotateCcw, Radio, Square } from "lucide-react";
+import { ArrowLeft, Video, Mic, MicOff, Camera, CameraOff, Send, Users, X, Zap, Trophy, RotateCcw, Radio, Square, Check, CheckCheck } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -13,6 +13,7 @@ interface LiveMessage {
   content: string;
   mediaUrl?: string;
   mediaType?: string;
+  status?: "sending" | "delivered" | "read";
 }
 
 export default function LivePage() {
@@ -33,6 +34,8 @@ export default function LivePage() {
   const [newMsg, setNewMsg] = useState("");
   const [viewerPeak, setViewerPeak] = useState(0);
   const [isRecordingAudio, setIsRecordingAudio] = useState(false);
+  const [sendState, setSendState] = useState<"idle" | "sending" | "delivered" | "error">("idle");
+  const [typing, setTyping] = useState(false);
   const [activeLives, setActiveLives] = useState<any[]>([]);
   const [isMicOn, setIsMicOn] = useState(true);
   const [isCamOn, setIsCamOn] = useState(true);
@@ -164,8 +167,12 @@ export default function LivePage() {
 
   const sendMessage = async () => {
     if (!newMsg.trim() || !liveId || !user) return;
-    await supabase.from("live_messages").insert({ live_id: liveId, user_id: user.id, content: newMsg.trim() });
+    setSendState("sending");
+    const { error } = await supabase.from("live_messages").insert({ live_id: liveId, user_id: user.id, content: newMsg.trim() });
+    setSendState(error ? "error" : "delivered");
+    if (error) { toast.error("Message non envoyé"); return; }
     setNewMsg("");
+    setTimeout(() => setSendState("idle"), 1200);
   };
 
   const toggleAudioMessage = async () => {
@@ -181,10 +188,13 @@ export default function LivePage() {
         const blob = new Blob(audioChunksRef.current, { type: "audio/webm;codecs=opus" });
         if (blob.size < 1000) return;
         const path = `${user.id}/live-audio/${crypto.randomUUID()}.webm`;
+        setSendState("sending");
         const { error } = await supabase.storage.from("media").upload(path, blob, { contentType: "audio/webm" });
-        if (error) { toast.error("Vocal live impossible"); return; }
+        if (error) { setSendState("error"); toast.error("Vocal live impossible"); return; }
         const { data } = supabase.storage.from("media").getPublicUrl(path);
-        await supabase.from("live_messages").insert({ live_id: liveId, user_id: user.id, content: "🎤 Vocal live", media_url: data.publicUrl, media_type: "audio/webm" } as any);
+        const { error: insertError } = await supabase.from("live_messages").insert({ live_id: liveId, user_id: user.id, content: "🎤 Vocal live", media_url: data.publicUrl, media_type: "audio/webm" } as any);
+        setSendState(insertError ? "error" : "delivered");
+        setTimeout(() => setSendState("idle"), 1200);
       };
       audioRecorderRef.current = mr;
       mr.start();
@@ -193,6 +203,7 @@ export default function LivePage() {
   };
 
   const fmt = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, "0")}`;
+  const statusIcon = sendState === "sending" ? <Check className="h-3 w-3 text-muted-foreground" /> : sendState === "delivered" ? <CheckCheck className="h-3 w-3 text-accent" /> : null;
 
   if (phase === "ended") {
     return (
@@ -314,14 +325,16 @@ export default function LivePage() {
                   {msg.mediaUrl && msg.mediaType?.startsWith("audio") && <div className="mt-1"><AudioBubble src={msg.mediaUrl} compact /></div>}
                 </motion.div>
               ))}
+              {(typing || isRecordingAudio || sendState !== "idle") && <p className="px-2 text-[11px] text-muted-foreground">{isRecordingAudio ? "Vocal en cours…" : sendState === "sending" ? "Envoi…" : typing ? "En train d'écrire…" : "Livré"}</p>}
               <div ref={chatEndRef} />
             </div>
             <div className="px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
               <div className="glass rounded-full flex items-center px-4 py-2">
-                <input value={newMsg} onChange={e => setNewMsg(e.target.value)} onKeyDown={e => e.key === "Enter" && sendMessage()} placeholder="Commenter..." className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none" />
+                <input value={newMsg} onFocus={() => setTyping(true)} onBlur={() => setTyping(false)} onChange={e => { setNewMsg(e.target.value); setTyping(e.target.value.length > 0); }} onKeyDown={e => e.key === "Enter" && sendMessage()} placeholder="Commenter..." className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none" />
                 <motion.button whileTap={{ scale: 0.9 }} onClick={toggleAudioMessage} className="mr-2">
                   {isRecordingAudio ? <Square className="h-4 w-4 text-destructive" /> : <Mic className="h-4 w-4 text-accent" />}
                 </motion.button>
+                {statusIcon}
                 <motion.button whileTap={{ scale: 0.9 }} onClick={sendMessage}>
                   <Send className="h-4 w-4 text-primary" />
                 </motion.button>
