@@ -13,11 +13,13 @@ export default function AudioBubble({ src, compact = false }: AudioBubbleProps) 
   const [progress, setProgress] = useState(0);
   const [duration, setDuration] = useState(0);
   const [volume, setVolume] = useState(0.85);
+  const [buffered, setBuffered] = useState(0);
 
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
     audio.volume = volume;
+    audio.preload = "auto";
   }, [volume]);
 
   const toggle = async () => {
@@ -46,6 +48,12 @@ export default function AudioBubble({ src, compact = false }: AudioBubbleProps) 
         src={src}
         preload="metadata"
         onLoadedMetadata={(e) => setDuration(e.currentTarget.duration || 0)}
+        onProgress={(e) => {
+          const audio = e.currentTarget;
+          if (audio.duration && audio.buffered.length) {
+            setBuffered((audio.buffered.end(audio.buffered.length - 1) / audio.duration) * 100);
+          }
+        }}
         onTimeUpdate={(e) => setProgress(e.currentTarget.duration ? (e.currentTarget.currentTime / e.currentTarget.duration) * 100 : 0)}
         onEnded={() => { setPlaying(false); setProgress(0); }}
       />
@@ -63,6 +71,10 @@ export default function AudioBubble({ src, compact = false }: AudioBubbleProps) 
       {!compact && (
         <div className="mt-2 flex items-center gap-2">
           <Volume2 className="h-3 w-3 text-foreground/60" />
+          <div className="relative h-1 flex-1 overflow-hidden rounded-full bg-muted">
+            <span className="absolute inset-y-0 left-0 bg-muted-foreground/30" style={{ width: `${buffered}%` }} />
+            <span className="absolute inset-y-0 left-0 bg-primary" style={{ width: `${progress}%` }} />
+          </div>
           <input
             type="range"
             min="0"
@@ -70,7 +82,7 @@ export default function AudioBubble({ src, compact = false }: AudioBubbleProps) 
             step="0.05"
             value={volume}
             onChange={(e) => setVolume(Number(e.target.value))}
-            className="h-1 flex-1 accent-primary"
+            className="h-1 w-20 accent-primary"
             aria-label="Volume du vocal"
           />
         </div>
