@@ -6,8 +6,9 @@ import CommentsDrawer from "./CommentsDrawer";
 import GamificationPanel from "./GamificationPanel";
 import { VideoData } from "@/data/mockVideos";
 import { motion } from "framer-motion";
-import { RefreshCw, Film, Radio } from "lucide-react";
+import { RefreshCw, Film, Radio, Clock, Flame } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { Skeleton } from "@/components/ui/skeleton";
 
 interface LiveStream {
   id: string;
@@ -28,6 +29,8 @@ export default function VideoFeed() {
   const [commentCount, setCommentCount] = useState(0);
   const [gamificationOpen, setGamificationOpen] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [livesLoading, setLivesLoading] = useState(true);
+  const [liveSort, setLiveSort] = useState<"now" | "recent">("now");
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollTimerRef = useRef<number | null>(null);
   const { user } = useAuth();
@@ -73,11 +76,12 @@ export default function VideoFeed() {
   }, []);
 
   const fetchLives = useCallback(async () => {
+    setLivesLoading(true);
     const { data } = await supabase
       .from("lives")
       .select("*, profiles:user_id(username, display_name, avatar_url)")
       .eq("is_active", true)
-      .order("created_at", { ascending: false })
+      .order(liveSort === "now" ? "viewers_count" : "created_at", { ascending: false })
       .limit(10);
 
     if (data) {
@@ -90,12 +94,15 @@ export default function VideoFeed() {
         viewers: l.viewers_count || 0,
       })));
     }
-  }, []);
+    setLivesLoading(false);
+  }, [liveSort]);
 
   useEffect(() => {
     fetchVideos();
     fetchLives();
   }, [fetchVideos, fetchLives]);
+
+  const preloadVideos = videos.filter((_, i) => Math.abs(i - activeIndex) <= 2 && i !== activeIndex);
 
   const handleScroll = useCallback(() => {
     const el = containerRef.current;
@@ -147,11 +154,17 @@ export default function VideoFeed() {
       </motion.button>
 
       {/* Active Lives Section */}
-      {activeLives.length > 0 && (
+      {(activeLives.length > 0 || livesLoading) && (
         <div className="fixed top-4 left-4 right-16 z-40 md:left-[calc(var(--sidebar-width,260px)+1rem)] md:right-24">
-          <div className="mb-2 flex items-center gap-2 text-xs font-bold text-foreground"><Radio className="h-3.5 w-3.5 text-destructive" /> Lives</div>
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 text-xs font-bold text-foreground"><Radio className="h-3.5 w-3.5 text-destructive" /> Lives</div>
+            <div className="flex rounded-full glass p-0.5">
+              <button onClick={() => setLiveSort("now")} className={`flex items-center gap-1 rounded-full px-2 py-1 text-[10px] font-bold ${liveSort === "now" ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}><Flame className="h-3 w-3" /> En direct</button>
+              <button onClick={() => setLiveSort("recent")} className={`flex items-center gap-1 rounded-full px-2 py-1 text-[10px] font-bold ${liveSort === "recent" ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}><Clock className="h-3 w-3" /> Récents</button>
+            </div>
+          </div>
           <div className="flex gap-3 overflow-x-auto no-scrollbar pb-1">
-            {activeLives.map(live => (
+            {livesLoading ? Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-44 w-36 flex-shrink-0 rounded-2xl" />) : activeLives.map(live => (
               <motion.button
                 key={live.id}
                 whileTap={{ scale: 0.95 }}
@@ -175,6 +188,10 @@ export default function VideoFeed() {
           </div>
         </div>
       )}
+
+      <div aria-hidden className="fixed -left-[9999px] top-0 h-1 w-1 overflow-hidden">
+        {preloadVideos.map((video) => <video key={video.id} src={video.url} poster={video.poster} preload="auto" muted playsInline />)}
+      </div>
 
       <div ref={containerRef} className="h-[100svh] w-full snap-y snap-mandatory overflow-y-scroll no-scrollbar overscroll-contain">
         {videos.map((video, i) => (
