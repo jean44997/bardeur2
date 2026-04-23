@@ -56,6 +56,9 @@ export default function SettingsPage() {
   const [mfaPhone, setMfaPhone] = useState("");
   const [mfaStatus, setMfaStatus] = useState<"idle" | "sending" | "waiting" | "checking" | "verified" | "error">("idle");
   const [mfaMessage, setMfaMessage] = useState("Choisis une méthode puis vérifie le code en temps réel.");
+  const [mfaEnabled, setMfaEnabled] = useState(false);
+  const [mfaActiveLabel, setMfaActiveLabel] = useState("Désactivée");
+  const [mfaFactors, setMfaFactors] = useState<any[]>([]);
   const [notificationPermission, setNotificationPermission] = useState<string>(typeof Notification !== "undefined" ? Notification.permission : "unsupported");
   const [mediaPermission, setMediaPermission] = useState<"idle" | "granted" | "denied">("idle");
 
@@ -63,7 +66,17 @@ export default function SettingsPage() {
     if (typeof Notification !== "undefined") {
       setNotificationPermission(Notification.permission);
     }
+    loadMfaStatus();
   }, []);
+
+  const loadMfaStatus = async () => {
+    const { data } = await supabase.auth.mfa.listFactors();
+    const factors = [...((data as any)?.totp || []), ...((data as any)?.phone || [])];
+    const verified = factors.filter((f: any) => f.status === "verified");
+    setMfaFactors(factors);
+    setMfaEnabled(verified.length > 0);
+    setMfaActiveLabel(verified.length ? `Activée · ${verified[0].factor_type === "phone" ? "numéro" : "email/app"}` : factors.length ? "En cours" : "Désactivée");
+  };
 
   const handleToggle = async (key: string, value: boolean) => {
     await updateProfile({ [key]: value } as any);
@@ -123,6 +136,26 @@ export default function SettingsPage() {
     toast.success("Double authentification activée 🔐");
     setMfaQr("");
     setMfaFactorId("");
+    setMfaCode("");
+    loadMfaStatus();
+  };
+
+  const revokeMfa = async () => {
+    const factor = mfaFactors.find((f: any) => f.status === "verified") || mfaFactors[0];
+    if (!factor) return;
+    const { error } = await supabase.auth.mfa.unenroll({ factorId: factor.id });
+    if (error) { toast.error("Révocation impossible"); return; }
+    setMfaStatus("idle");
+    setMfaMessage("Méthode révoquée. Tu peux en choisir une nouvelle.");
+    await loadMfaStatus();
+    toast.success("Double authentification désactivée");
+  };
+
+  const changeMfaMethod = async () => {
+    if (mfaFactors.length) await revokeMfa();
+    setMfaStatus("waiting");
+    setMfaFactorId("");
+    setMfaQr("");
     setMfaCode("");
   };
 
@@ -195,10 +228,14 @@ export default function SettingsPage() {
           <div className="glass rounded-2xl overflow-hidden">
             <SettingItem icon={<User className="h-4 w-4 text-primary" />} label="Modifier le profil" onClick={() => navigate("/profile")} />
             <SettingItem icon={<Lock className="h-4 w-4 text-primary" />} label="Modifier le mot de passe" onClick={() => setShowPasswordChange(p => !p)} />
-            <SettingItem icon={<Shield className="h-4 w-4 text-primary" />} label="Double facteur" description="Optionnel : email/app ou numéro, avec code vérifié en direct" onClick={() => setMfaStatus(s => s === "idle" ? "waiting" : "idle")} />
+            <SettingItem icon={<Shield className="h-4 w-4 text-primary" />} label={`Double facteur : ${mfaActiveLabel}`} description="Optionnel : email/app ou numéro, avec statuts et code vérifié en direct" onClick={() => setMfaStatus(s => s === "idle" ? "waiting" : "idle")} />
           </div>
           {mfaStatus !== "idle" && (
             <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} className="glass rounded-2xl p-4 mt-2 space-y-3 text-center">
+              <div className="flex items-center justify-between rounded-xl bg-card px-3 py-2 text-left">
+                <span className="text-xs font-bold text-foreground">État 2FA</span>
+                <span className={`text-xs font-bold ${mfaEnabled ? "text-primary" : mfaActiveLabel === "En cours" ? "text-accent" : "text-muted-foreground"}`}>{mfaActiveLabel}</span>
+              </div>
               <div className="grid grid-cols-2 gap-2">
                 <button onClick={() => setMfaMethod("email")} className={`rounded-xl px-3 py-2 text-xs font-bold ${mfaMethod === "email" ? "bg-primary text-primary-foreground" : "bg-card text-foreground"}`}><Mail className="mx-auto mb-1 h-4 w-4" />Email/app</button>
                 <button onClick={() => setMfaMethod("phone")} className={`rounded-xl px-3 py-2 text-xs font-bold ${mfaMethod === "phone" ? "bg-primary text-primary-foreground" : "bg-card text-foreground"}`}><Smartphone className="mx-auto mb-1 h-4 w-4" />Numéro</button>
@@ -212,6 +249,10 @@ export default function SettingsPage() {
               {!mfaFactorId ? <motion.button whileTap={{ scale: 0.97 }} onClick={startMfaSetup} disabled={mfaStatus === "sending"} className="w-full rounded-xl gradient-primary py-3 text-sm font-bold text-primary-foreground">Recevoir / préparer le code</motion.button> : null}
               {mfaFactorId && <input inputMode="numeric" maxLength={6} placeholder="Code à 6 chiffres" value={mfaCode} onChange={e => { const value = e.target.value.replace(/\D/g, "").slice(0, 6); setMfaCode(value); if (value.length === 6) setTimeout(verifyMfaSetup, 150); }} className="w-full glass rounded-xl px-4 py-3 bg-transparent text-center text-sm text-foreground placeholder:text-muted-foreground outline-none" />}
               {mfaFactorId && <motion.button whileTap={{ scale: 0.97 }} onClick={verifyMfaSetup} disabled={mfaStatus === "checking" || mfaCode.length < 6} className="w-full rounded-xl gradient-primary py-3 text-sm font-bold text-primary-foreground">Vérifier maintenant</motion.button>}
+              <div className="grid grid-cols-2 gap-2">
+                <button onClick={changeMfaMethod} className="rounded-xl bg-card px-3 py-2 text-xs font-bold text-foreground">Changer méthode</button>
+                <button onClick={revokeMfa} disabled={!mfaFactors.length} className="rounded-xl bg-destructive/20 px-3 py-2 text-xs font-bold text-destructive disabled:opacity-40">Révoquer</button>
+              </div>
             </motion.div>
           )}
           {showPasswordChange && (
