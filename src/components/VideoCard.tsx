@@ -133,8 +133,9 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
   );
 
   const handleVideoClick = (e: React.MouseEvent<HTMLVideoElement>) => {
+    const previousTap = lastTapRef.current;
     handleDoubleTap(e);
-    if (Date.now() - lastTapRef.current < 360) return;
+    if (Date.now() - previousTap < 350) return;
     const v = videoRef.current;
     if (!v || !isActive) return;
     if (v.paused) {
