@@ -53,8 +53,10 @@ export default function ProfilePage() {
     if (targetUserId) {
       fetchStats(targetUserId);
       fetchVideos(targetUserId);
+      if (user && (isOwnProfile || currentProfile?.hide_likes === false)) {
+        fetchLikedVideos(targetUserId);
+      }
       if (isOwnProfile && user) {
-        fetchLikedVideos();
         fetchSavedVideos();
       }
     }
@@ -103,12 +105,12 @@ export default function ProfilePage() {
     if (data) setVideos(data);
   };
 
-  const fetchLikedVideos = async () => {
-    if (!user) return;
+  const fetchLikedVideos = async (profileId = user?.id) => {
+    if (!profileId) return;
     const { data } = await supabase
       .from("likes")
       .select("video_id, videos:video_id(id, video_url, thumbnail_url, description, likes_count, views_count)")
-      .eq("user_id", user.id)
+      .eq("user_id", profileId)
       .order("created_at", { ascending: false });
     if (data) setLikedVideos(data.map((d: any) => d.videos).filter(Boolean));
   };
