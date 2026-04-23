@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
-import { ArrowLeft, Users, Send, Heart } from "lucide-react";
+import { ArrowLeft, Users, Send, Heart, Mic, Square, Check, CheckCheck } from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -14,12 +14,17 @@ export default function WatchLivePage() {
   const { id: liveId } = useParams();
   const { user } = useAuth();
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const audioRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
 
   const [live, setLive] = useState<any>(null);
   const [streamerName, setStreamerName] = useState("");
   const [messages, setMessages] = useState<LiveMsg[]>([]);
   const [newMsg, setNewMsg] = useState("");
   const [hearts, setHearts] = useState<string[]>([]);
+  const [isRecordingAudio, setIsRecordingAudio] = useState(false);
+  const [sendState, setSendState] = useState<"idle" | "sending" | "delivered" | "error">("idle");
+  const [typing, setTyping] = useState(false);
 
   useEffect(() => {
     if (!liveId) return;
@@ -59,8 +64,39 @@ export default function WatchLivePage() {
 
   const sendMessage = async () => {
     if (!newMsg.trim() || !liveId || !user) return;
-    await supabase.from("live_messages").insert({ live_id: liveId, user_id: user.id, content: newMsg.trim() });
+    setSendState("sending");
+    const { error } = await supabase.from("live_messages").insert({ live_id: liveId, user_id: user.id, content: newMsg.trim() });
+    setSendState(error ? "error" : "delivered");
+    if (error) { toast.error("Message non envoyé"); return; }
     setNewMsg("");
+    setTimeout(() => setSendState("idle"), 1200);
+  };
+
+  const toggleAudioMessage = async () => {
+    if (isRecordingAudio) { audioRecorderRef.current?.stop(); setIsRecordingAudio(false); return; }
+    if (!liveId || !user) return;
+    try {
+      const s = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, sampleRate: 48000, channelCount: 2 } });
+      audioChunksRef.current = [];
+      const mr = new MediaRecorder(s, { mimeType: "audio/webm;codecs=opus", audioBitsPerSecond: 192000 });
+      mr.ondataavailable = e => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
+      mr.onstop = async () => {
+        s.getTracks().forEach(t => t.stop());
+        const blob = new Blob(audioChunksRef.current, { type: "audio/webm;codecs=opus" });
+        if (blob.size < 1000) return;
+        setSendState("sending");
+        const path = `${user.id}/watch-live-audio/${crypto.randomUUID()}.webm`;
+        const { error } = await supabase.storage.from("media").upload(path, blob, { contentType: "audio/webm" });
+        if (error) { setSendState("error"); toast.error("Vocal live impossible"); return; }
+        const { data } = supabase.storage.from("media").getPublicUrl(path);
+        const { error: insertError } = await supabase.from("live_messages").insert({ live_id: liveId, user_id: user.id, content: "🎤 Vocal live", media_url: data.publicUrl, media_type: "audio/webm" } as any);
+        setSendState(insertError ? "error" : "delivered");
+        setTimeout(() => setSendState("idle"), 1200);
+      };
+      audioRecorderRef.current = mr;
+      mr.start();
+      setIsRecordingAudio(true);
+    } catch { toast.error("Autorise le micro pour envoyer un vocal live"); }
   };
 
   const sendHeart = () => {
@@ -74,6 +110,8 @@ export default function WatchLivePage() {
       <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: "linear" }} className="h-8 w-8 border-2 border-primary border-t-transparent rounded-full" />
     </div>
   );
+
+  const statusIcon = sendState === "sending" ? <Check className="h-3 w-3 text-muted-foreground" /> : sendState === "delivered" ? <CheckCheck className="h-3 w-3 text-accent" /> : null;
 
   return (
     <div className="fixed inset-0 z-50 bg-background flex flex-col">
@@ -114,11 +152,16 @@ export default function WatchLivePage() {
               {msg.mediaUrl && msg.mediaType?.startsWith("audio") && <div className="mt-1"><AudioBubble src={msg.mediaUrl} compact /></div>}
             </motion.div>
           ))}
+          {(typing || isRecordingAudio || sendState !== "idle") && <p className="px-2 text-[11px] text-muted-foreground">{isRecordingAudio ? "Vocal en cours…" : sendState === "sending" ? "Envoi…" : typing ? "En train d'écrire…" : "Livré"}</p>}
           <div ref={chatEndRef} />
         </div>
         <div className="flex items-center gap-2 px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
           <div className="flex-1 glass rounded-full flex items-center px-4 py-2">
-            <input value={newMsg} onChange={e => setNewMsg(e.target.value)} onKeyDown={e => e.key === "Enter" && sendMessage()} placeholder="Commenter..." className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none" />
+            <input value={newMsg} onFocus={() => setTyping(true)} onBlur={() => setTyping(false)} onChange={e => { setNewMsg(e.target.value); setTyping(e.target.value.length > 0); }} onKeyDown={e => e.key === "Enter" && sendMessage()} placeholder="Commenter..." className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none" />
+            <motion.button whileTap={{ scale: 0.9 }} onClick={toggleAudioMessage} className="mr-2">
+              {isRecordingAudio ? <Square className="h-4 w-4 text-destructive" /> : <Mic className="h-4 w-4 text-accent" />}
+            </motion.button>
+            {statusIcon}
             <motion.button whileTap={{ scale: 0.9 }} onClick={sendMessage}>
               <Send className="h-4 w-4 text-primary" />
             </motion.button>
