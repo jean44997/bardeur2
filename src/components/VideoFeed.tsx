@@ -8,7 +8,8 @@ import { VideoData } from "@/data/mockVideos";
 import { motion } from "framer-motion";
 import { RefreshCw, Film, Radio, Clock, Flame } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Skeleton } from "@/components/ui/skeleton";
+import LivesRail from "./LivesRail";
+import { extractLiveTags } from "@/lib/live";
 
 interface LiveStream {
   id: string;
@@ -17,6 +18,9 @@ interface LiveStream {
   displayName: string;
   avatar: string;
   viewers: number;
+  tags: string[];
+  startedAt?: string;
+  isActive: boolean;
 }
 
 export default function VideoFeed() {
@@ -94,6 +98,9 @@ export default function VideoFeed() {
         displayName: l.profiles?.display_name || "Utilisateur",
         avatar: l.profiles?.avatar_url || "",
         viewers: l.viewers_count || 0,
+        tags: extractLiveTags(l.title),
+        startedAt: l.started_at || l.created_at,
+        isActive: l.is_active !== false,
       })));
     }
     setLivesLoading(false);
@@ -155,40 +162,14 @@ export default function VideoFeed() {
         <RefreshCw className="h-4 w-4 text-foreground" />
       </motion.button>
 
-      {/* Active Lives Section */}
       {(activeLives.length > 0 || livesLoading) && (
-        <div className="fixed top-4 left-4 right-16 z-40 md:left-[calc(var(--sidebar-width,260px)+1rem)] md:right-24">
-          <div className="mb-2 flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2 text-xs font-bold text-foreground"><Radio className="h-3.5 w-3.5 text-destructive" /> Lives</div>
-            <div className="flex rounded-full glass p-0.5">
-              <button onClick={() => setLiveSort("now")} className={`flex items-center gap-1 rounded-full px-2 py-1 text-[10px] font-bold ${liveSort === "now" ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}><Flame className="h-3 w-3" /> En direct</button>
-              <button onClick={() => setLiveSort("recent")} className={`flex items-center gap-1 rounded-full px-2 py-1 text-[10px] font-bold ${liveSort === "recent" ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}><Clock className="h-3 w-3" /> Récents</button>
-            </div>
-          </div>
-          <div className="flex gap-3 overflow-x-auto no-scrollbar pb-1">
-            {livesLoading ? Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-44 w-36 flex-shrink-0 rounded-2xl" />) : activeLives.map(live => (
-              <motion.button
-                key={live.id}
-                whileTap={{ scale: 0.95 }}
-                onClick={() => navigate(`/live/${live.id}`)}
-                className="flex w-36 flex-shrink-0 flex-col overflow-hidden rounded-2xl glass text-left"
-              >
-                <div className="relative aspect-[4/5] bg-card">
-                  <div className="absolute inset-0 grid place-items-center bg-primary/10">
-                    <div className="h-14 w-14 rounded-full gradient-primary flex items-center justify-center text-sm font-bold text-primary-foreground overflow-hidden ring-2 ring-destructive">
-                      {live.avatar ? <img src={live.avatar} alt="" className="h-full w-full object-cover" /> : live.displayName[0]}
-                    </div>
-                  </div>
-                  <span className="absolute left-2 top-2 rounded-full bg-destructive px-2 py-0.5 text-[9px] font-bold text-destructive-foreground">LIVE</span>
-                </div>
-                <div className="p-2">
-                  <p className="truncate text-xs font-bold text-foreground">{live.displayName}</p>
-                  <p className="truncate text-[10px] text-muted-foreground">{live.viewers} spectateurs</p>
-                </div>
-              </motion.button>
-            ))}
-          </div>
-        </div>
+        <LivesRail
+          lives={activeLives}
+          loading={livesLoading}
+          sort={liveSort}
+          onSortChange={setLiveSort}
+          onOpenLive={(liveId) => navigate(`/live/${liveId}`)}
+        />
       )}
 
       <div aria-hidden className="fixed -left-[9999px] top-0 h-1 w-1 overflow-hidden">

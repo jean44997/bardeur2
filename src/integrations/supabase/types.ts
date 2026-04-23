@@ -201,6 +201,39 @@ export type Database = {
         }
         Relationships: []
       }
+      direct_shares: {
+        Row: {
+          created_at: string
+          id: string
+          media_type: string | null
+          media_url: string | null
+          message: string | null
+          recipient_id: string
+          sender_id: string
+          video_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          media_type?: string | null
+          media_url?: string | null
+          message?: string | null
+          recipient_id: string
+          sender_id: string
+          video_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          media_type?: string | null
+          media_url?: string | null
+          message?: string | null
+          recipient_id?: string
+          sender_id?: string
+          video_id?: string | null
+        }
+        Relationships: []
+      }
       follows: {
         Row: {
           created_at: string | null
@@ -277,28 +310,34 @@ export type Database = {
         Row: {
           content: string
           created_at: string | null
+          delivery_status: string
           id: string
           live_id: string
           media_type: string | null
           media_url: string | null
+          seen_by: string[]
           user_id: string
         }
         Insert: {
           content: string
           created_at?: string | null
+          delivery_status?: string
           id?: string
           live_id: string
           media_type?: string | null
           media_url?: string | null
+          seen_by?: string[]
           user_id: string
         }
         Update: {
           content?: string
           created_at?: string | null
+          delivery_status?: string
           id?: string
           live_id?: string
           media_type?: string | null
           media_url?: string | null
+          seen_by?: string[]
           user_id?: string
         }
         Relationships: [
@@ -495,6 +534,9 @@ export type Database = {
           updated_at: string | null
           username: string
           website: string | null
+          xp_daily: number
+          xp_daily_refreshed_at: string
+          xp_total: number
         }
         Insert: {
           avatar_url?: string | null
@@ -511,6 +553,9 @@ export type Database = {
           updated_at?: string | null
           username: string
           website?: string | null
+          xp_daily?: number
+          xp_daily_refreshed_at?: string
+          xp_total?: number
         }
         Update: {
           avatar_url?: string | null
@@ -527,6 +572,9 @@ export type Database = {
           updated_at?: string | null
           username?: string
           website?: string | null
+          xp_daily?: number
+          xp_daily_refreshed_at?: string
+          xp_total?: number
         }
         Relationships: []
       }
@@ -761,6 +809,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      add_profile_xp: {
+        Args: { _profile_id: string; _xp: number }
+        Returns: undefined
+      }
       can_view_profile_content: {
         Args: { _owner_id: string; _viewer_id: string }
         Returns: boolean
@@ -781,6 +833,15 @@ export type Database = {
         Args: { _conversation_id: string; _user_id: string }
         Returns: boolean
       }
+      mark_live_chat_seen: {
+        Args: { _live_id: string; _viewer_id: string }
+        Returns: undefined
+      }
+      mark_live_message_read: {
+        Args: { _live_id: string; _user_id: string }
+        Returns: undefined
+      }
+      refresh_daily_xp: { Args: { _profile_id: string }; Returns: undefined }
     }
     Enums: {
       app_role: "super_admin" | "admin" | "user"
