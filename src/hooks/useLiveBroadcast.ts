@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 
 interface UseLiveBroadcastOptions {
@@ -10,11 +10,14 @@ interface UseLiveBroadcastOptions {
   audioChunkMs?: number;
 }
 
+export type BroadcastStatus = "idle" | "starting" | "live" | "paused" | "reconnecting" | "ended";
+
 /**
  * Captures periodic video frames (jpeg) and audio chunks (opus webm) from the
  * streamer's camera and broadcasts them to viewers via Supabase storage + a
- * realtime broadcast channel. This is a lightweight pseudo-stream that works
- * without WebRTC infrastructure.
+ * realtime broadcast channel. Includes safeguards: detects camera/mic loss,
+ * pauses uploads when tracks die, resumes when the stream comes back, and
+ * surfaces a clear status to the UI.
  */
 export function useLiveBroadcast({
   liveId,
@@ -28,21 +31,67 @@ export function useLiveBroadcast({
   const recorderRef = useRef<MediaRecorder | null>(null);
   const seqRef = useRef(0);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const pausedRef = useRef(false);
+  const consecutiveErrorsRef = useRef(0);
+  const [status, setStatus] = useState<BroadcastStatus>("idle");
 
   useEffect(() => {
-    if (!enabled || !liveId || !stream || !videoElement) return;
+    if (!enabled || !liveId || !stream || !videoElement) {
+      setStatus("idle");
+      return;
+    }
 
+    setStatus("starting");
     const channel = supabase.channel(`live-stream-${liveId}`, {
       config: { broadcast: { ack: false, self: false } },
     });
-    channel.subscribe();
+    channel.subscribe((s) => {
+      if (s === "SUBSCRIBED") setStatus("live");
+    });
     channelRef.current = channel;
+
+    const announce = (state: BroadcastStatus) => {
+      try { channel.send({ type: "broadcast", event: "status", payload: { state, ts: Date.now() } }); } catch { /* noop */ }
+    };
 
     if (!canvasRef.current) canvasRef.current = document.createElement("canvas");
     const canvas = canvasRef.current;
     const ctx = canvas.getContext("2d");
 
+    const checkTracks = () => {
+      const video = stream.getVideoTracks();
+      const audio = stream.getAudioTracks();
+      const videoLive = video.some((t) => t.readyState === "live" && t.enabled);
+      const audioLive = audio.some((t) => t.readyState === "live" && t.enabled);
+      const shouldPause = !videoLive && !audioLive;
+      if (shouldPause && !pausedRef.current) {
+        pausedRef.current = true;
+        setStatus("paused");
+        announce("paused");
+      } else if (!shouldPause && pausedRef.current) {
+        pausedRef.current = false;
+        setStatus("live");
+        announce("live");
+      }
+    };
+
+    const trackHandlers: Array<() => void> = [];
+    [...stream.getTracks()].forEach((track) => {
+      const onEnded = () => checkTracks();
+      const onMute = () => checkTracks();
+      const onUnmute = () => checkTracks();
+      track.addEventListener("ended", onEnded);
+      track.addEventListener("mute", onMute);
+      track.addEventListener("unmute", onUnmute);
+      trackHandlers.push(() => {
+        track.removeEventListener("ended", onEnded);
+        track.removeEventListener("mute", onMute);
+        track.removeEventListener("unmute", onUnmute);
+      });
+    });
+
     const captureFrame = async () => {
+      if (pausedRef.current) return;
       if (!videoElement.videoWidth || !ctx) return;
       canvas.width = Math.min(720, videoElement.videoWidth);
       canvas.height = Math.round((canvas.width / videoElement.videoWidth) * videoElement.videoHeight);
@@ -53,14 +102,22 @@ export function useLiveBroadcast({
         await supabase.storage
           .from("media")
           .upload(`live-stream/${liveId}/frame.jpg`, blob, { contentType: "image/jpeg", upsert: true, cacheControl: "0" });
+        consecutiveErrorsRef.current = 0;
+        if (status === "reconnecting") setStatus("live");
+        // Event-driven: tell viewers a fresh frame is up so they can refresh immediately.
         channel.send({ type: "broadcast", event: "frame", payload: { ts: Date.now() } });
       } catch {
-        // ignore upload errors and try again on next tick
+        consecutiveErrorsRef.current += 1;
+        if (consecutiveErrorsRef.current >= 2) {
+          setStatus("reconnecting");
+          announce("reconnecting");
+        }
       }
     };
 
     const frameTimer = window.setInterval(captureFrame, frameIntervalMs);
     captureFrame();
+    const trackTimer = window.setInterval(checkTracks, 1500);
 
     // Audio chunked recording
     const audioTracks = stream.getAudioTracks();
@@ -75,13 +132,14 @@ export function useLiveBroadcast({
       recorderRef.current = mr;
 
       mr.ondataavailable = async (event) => {
+        if (pausedRef.current) return;
         if (!event.data || event.data.size < 800) return;
         const seq = seqRef.current++;
         const path = `live-stream/${liveId}/audio-${seq % 6}.webm`;
         try {
           await supabase.storage.from("media").upload(path, event.data, { contentType: "audio/webm", upsert: true, cacheControl: "0" });
           const { data } = supabase.storage.from("media").getPublicUrl(path);
-          channel.send({ type: "broadcast", event: "audio", payload: { url: `${data.publicUrl}?t=${Date.now()}`, seq } });
+          channel.send({ type: "broadcast", event: "audio", payload: { url: `${data.publicUrl}?t=${Date.now()}`, seq, ts: Date.now() } });
         } catch {
           // ignore
         }
@@ -92,10 +150,17 @@ export function useLiveBroadcast({
 
     return () => {
       window.clearInterval(frameTimer);
+      window.clearInterval(trackTimer);
+      trackHandlers.forEach((off) => off());
       try { recorderRef.current?.stop(); } catch { /* noop */ }
       recorderRef.current = null;
+      announce("ended");
+      setStatus("ended");
       supabase.removeChannel(channel);
       channelRef.current = null;
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabled, liveId, stream, videoElement, frameIntervalMs, audioChunkMs]);
+
+  return { status };
 }
