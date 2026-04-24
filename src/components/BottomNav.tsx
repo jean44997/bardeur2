@@ -1,4 +1,4 @@
-import { Home, Search, Plus, MessageCircle, User } from "lucide-react";
+import { Home, Search, Plus, Radio, User } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { useAuth } from "@/hooks/useAuth";
@@ -12,7 +12,7 @@ export default function BottomNav() {
     { path: "/", icon: Home, label: "Accueil" },
     { path: "/explore", icon: Search, label: "Explorer" },
     { path: "/create", icon: Plus, label: "", isCreate: true },
-    { path: "/inbox", icon: MessageCircle, label: "Messages" },
+    { path: "/lives", icon: Radio, label: "Lives" },
     { path: "/profile", icon: User, label: "Profil" },
   ];
 

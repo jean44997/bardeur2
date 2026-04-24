@@ -20,6 +20,7 @@ import NotificationsPage from "./pages/NotificationsPage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
 import LivePage from "./pages/LivePage";
 import WatchLivePage from "./pages/WatchLivePage";
+import LivesListPage from "./pages/LivesListPage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -45,7 +46,8 @@ const App = () => (
                   <main>
                     <Routes>
                       <Route path="/" element={<Index />} />
-                      <Route path="/explore" element={<AuthGuard><ExplorePage /></AuthGuard>} />
+                      <Route path="/explore" element={<ExplorePage />} />
+                      <Route path="/lives" element={<LivesListPage />} />
                       <Route path="/profile" element={<AuthGuard><ProfilePage /></AuthGuard>} />
                       <Route path="/profile/:username" element={<ProfilePage />} />
                       <Route path="/inbox" element={<AuthGuard><InboxPage /></AuthGuard>} />

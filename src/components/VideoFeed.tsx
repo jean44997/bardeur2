@@ -6,26 +6,12 @@ import CommentsDrawer from "./CommentsDrawer";
 import GamificationPanel from "./GamificationPanel";
 import { VideoData } from "@/data/mockVideos";
 import { motion } from "framer-motion";
-import { RefreshCw, Film, Radio, Clock, Flame } from "lucide-react";
+import { RefreshCw, Film, Radio } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import LivesRail from "./LivesRail";
-import { extractLiveTags } from "@/lib/live";
-
-interface LiveStream {
-  id: string;
-  title: string;
-  username: string;
-  displayName: string;
-  avatar: string;
-  viewers: number;
-  tags: string[];
-  startedAt?: string;
-  isActive: boolean;
-}
 
 export default function VideoFeed() {
   const [videos, setVideos] = useState<VideoData[]>([]);
-  const [activeLives, setActiveLives] = useState<LiveStream[]>([]);
+  const [activeLivesCount, setActiveLivesCount] = useState(0);
   const [activeIndex, setActiveIndex] = useState(0);
   const [isMuted, setIsMuted] = useState(false);
   const [commentsOpen, setCommentsOpen] = useState(false);
@@ -33,8 +19,6 @@ export default function VideoFeed() {
   const [commentCount, setCommentCount] = useState(0);
   const [gamificationOpen, setGamificationOpen] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [livesLoading, setLivesLoading] = useState(true);
-  const [liveSort, setLiveSort] = useState<"now" | "recent">("now");
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollTimerRef = useRef<number | null>(null);
   const { user } = useAuth();
@@ -81,35 +65,23 @@ export default function VideoFeed() {
     setLoading(false);
   }, [searchParams]);
 
-  const fetchLives = useCallback(async () => {
-    setLivesLoading(true);
-    const { data } = await supabase
+  const fetchLivesCount = useCallback(async () => {
+    const { count } = await supabase
       .from("lives")
-      .select("*, profiles:user_id(username, display_name, avatar_url)")
-      .eq("is_active", true)
-      .order(liveSort === "now" ? "viewers_count" : "created_at", { ascending: false })
-      .limit(10);
-
-    if (data) {
-      setActiveLives(data.map((l: any) => ({
-        id: l.id,
-        title: l.title || "Live",
-        username: l.profiles?.username || "",
-        displayName: l.profiles?.display_name || "Utilisateur",
-        avatar: l.profiles?.avatar_url || "",
-        viewers: l.viewers_count || 0,
-        tags: extractLiveTags(l.title),
-        startedAt: l.started_at || l.created_at,
-        isActive: l.is_active !== false,
-      })));
-    }
-    setLivesLoading(false);
-  }, [liveSort]);
+      .select("id", { count: "exact", head: true })
+      .eq("is_active", true);
+    setActiveLivesCount(count || 0);
+  }, []);
 
   useEffect(() => {
     fetchVideos();
-    fetchLives();
-  }, [fetchVideos, fetchLives]);
+    fetchLivesCount();
+    const channel = supabase
+      .channel("home-lives-count")
+      .on("postgres_changes", { event: "*", schema: "public", table: "lives" }, fetchLivesCount)
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [fetchVideos, fetchLivesCount]);
 
   const preloadVideos = videos.filter((_, i) => Math.abs(i - activeIndex) <= 2 && i !== activeIndex);
 
@@ -139,7 +111,7 @@ export default function VideoFeed() {
     );
   }
 
-  if (videos.length === 0 && activeLives.length === 0) {
+  if (videos.length === 0 && activeLivesCount === 0) {
     return (
       <div className="h-[100svh] w-full flex items-center justify-center bg-background px-4">
         <div className="text-center">
@@ -158,19 +130,22 @@ export default function VideoFeed() {
 
   return (
     <>
-      <motion.button whileTap={{ scale: 0.9 }} onClick={() => { fetchVideos(); fetchLives(); }} className="fixed top-4 right-4 z-40 glass rounded-full p-2 md:right-8">
-        <RefreshCw className="h-4 w-4 text-foreground" />
-      </motion.button>
-
-      {(activeLives.length > 0 || livesLoading) && (
-        <LivesRail
-          lives={activeLives}
-          loading={livesLoading}
-          sort={liveSort}
-          onSortChange={setLiveSort}
-          onOpenLive={(liveId) => navigate(`/live/${liveId}`)}
-        />
-      )}
+      <div className="fixed top-[max(1rem,env(safe-area-inset-top))] right-4 z-40 flex items-center gap-2 md:right-8">
+        {activeLivesCount > 0 && (
+          <motion.button
+            whileTap={{ scale: 0.9 }}
+            onClick={() => navigate("/lives")}
+            className="flex items-center gap-1.5 rounded-full bg-destructive/95 px-3 py-1.5 text-[11px] font-bold text-destructive-foreground shadow-lg backdrop-blur"
+            aria-label="Voir les lives"
+          >
+            <span className="h-2 w-2 animate-pulse rounded-full bg-destructive-foreground" />
+            <Radio className="h-3 w-3" /> {activeLivesCount} LIVE{activeLivesCount > 1 ? "S" : ""}
+          </motion.button>
+        )}
+        <motion.button whileTap={{ scale: 0.9 }} onClick={() => { fetchVideos(); fetchLivesCount(); }} className="glass rounded-full p-2" aria-label="Actualiser">
+          <RefreshCw className="h-4 w-4 text-foreground" />
+        </motion.button>
+      </div>
 
       <div aria-hidden className="fixed -left-[9999px] top-0 h-1 w-1 overflow-hidden">
         {preloadVideos.map((video) => <video key={video.id} src={video.url} poster={video.poster} preload="auto" muted playsInline />)}

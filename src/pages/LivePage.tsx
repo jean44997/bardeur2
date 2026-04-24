@@ -6,6 +6,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
 import AudioBubble from "@/components/AudioBubble";
+import { useLiveBroadcast } from "@/hooks/useLiveBroadcast";
 
 interface LiveMessage {
   id: string;
@@ -41,6 +42,13 @@ export default function LivePage() {
   const [isCamOn, setIsCamOn] = useState(true);
   const [duration, setDuration] = useState(0);
   const [facingMode, setFacingMode] = useState<"user" | "environment">("user");
+
+  useLiveBroadcast({
+    liveId,
+    stream,
+    videoElement: videoRef.current,
+    enabled: phase === "live",
+  });
 
   const startPreview = useCallback(async () => {
     try {
