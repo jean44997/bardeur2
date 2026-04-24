@@ -9,18 +9,6 @@ import { motion } from "framer-motion";
 import { RefreshCw, Film, Radio } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
-interface LiveStream {
-  id: string;
-  title: string;
-  username: string;
-  displayName: string;
-  avatar: string;
-  viewers: number;
-  tags: string[];
-  startedAt?: string;
-  isActive: boolean;
-}
-
 export default function VideoFeed() {
   const [videos, setVideos] = useState<VideoData[]>([]);
   const [activeLivesCount, setActiveLivesCount] = useState(0);
