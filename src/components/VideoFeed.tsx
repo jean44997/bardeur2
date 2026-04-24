@@ -123,7 +123,7 @@ export default function VideoFeed() {
     );
   }
 
-  if (videos.length === 0 && activeLives.length === 0) {
+  if (videos.length === 0 && activeLivesCount === 0) {
     return (
       <div className="h-[100svh] w-full flex items-center justify-center bg-background px-4">
         <div className="text-center">
@@ -142,19 +142,22 @@ export default function VideoFeed() {
 
   return (
     <>
-      <motion.button whileTap={{ scale: 0.9 }} onClick={() => { fetchVideos(); fetchLives(); }} className="fixed top-4 right-4 z-40 glass rounded-full p-2 md:right-8">
-        <RefreshCw className="h-4 w-4 text-foreground" />
-      </motion.button>
-
-      {(activeLives.length > 0 || livesLoading) && (
-        <LivesRail
-          lives={activeLives}
-          loading={livesLoading}
-          sort={liveSort}
-          onSortChange={setLiveSort}
-          onOpenLive={(liveId) => navigate(`/live/${liveId}`)}
-        />
-      )}
+      <div className="fixed top-[max(1rem,env(safe-area-inset-top))] right-4 z-40 flex items-center gap-2 md:right-8">
+        {activeLivesCount > 0 && (
+          <motion.button
+            whileTap={{ scale: 0.9 }}
+            onClick={() => navigate("/lives")}
+            className="flex items-center gap-1.5 rounded-full bg-destructive/95 px-3 py-1.5 text-[11px] font-bold text-destructive-foreground shadow-lg backdrop-blur"
+            aria-label="Voir les lives"
+          >
+            <span className="h-2 w-2 animate-pulse rounded-full bg-destructive-foreground" />
+            <Radio className="h-3 w-3" /> {activeLivesCount} LIVE{activeLivesCount > 1 ? "S" : ""}
+          </motion.button>
+        )}
+        <motion.button whileTap={{ scale: 0.9 }} onClick={() => { fetchVideos(); fetchLivesCount(); }} className="glass rounded-full p-2" aria-label="Actualiser">
+          <RefreshCw className="h-4 w-4 text-foreground" />
+        </motion.button>
+      </div>
 
       <div aria-hidden className="fixed -left-[9999px] top-0 h-1 w-1 overflow-hidden">
         {preloadVideos.map((video) => <video key={video.id} src={video.url} poster={video.poster} preload="auto" muted playsInline />)}
