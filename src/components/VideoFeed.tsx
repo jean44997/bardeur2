@@ -23,7 +23,7 @@ interface LiveStream {
 
 export default function VideoFeed() {
   const [videos, setVideos] = useState<VideoData[]>([]);
-  const [activeLives, setActiveLives] = useState<LiveStream[]>([]);
+  const [activeLivesCount, setActiveLivesCount] = useState(0);
   const [activeIndex, setActiveIndex] = useState(0);
   const [isMuted, setIsMuted] = useState(false);
   const [commentsOpen, setCommentsOpen] = useState(false);
@@ -31,8 +31,6 @@ export default function VideoFeed() {
   const [commentCount, setCommentCount] = useState(0);
   const [gamificationOpen, setGamificationOpen] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [livesLoading, setLivesLoading] = useState(true);
-  const [liveSort, setLiveSort] = useState<"now" | "recent">("now");
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollTimerRef = useRef<number | null>(null);
   const { user } = useAuth();
@@ -79,35 +77,23 @@ export default function VideoFeed() {
     setLoading(false);
   }, [searchParams]);
 
-  const fetchLives = useCallback(async () => {
-    setLivesLoading(true);
-    const { data } = await supabase
+  const fetchLivesCount = useCallback(async () => {
+    const { count } = await supabase
       .from("lives")
-      .select("*, profiles:user_id(username, display_name, avatar_url)")
-      .eq("is_active", true)
-      .order(liveSort === "now" ? "viewers_count" : "created_at", { ascending: false })
-      .limit(10);
-
-    if (data) {
-      setActiveLives(data.map((l: any) => ({
-        id: l.id,
-        title: l.title || "Live",
-        username: l.profiles?.username || "",
-        displayName: l.profiles?.display_name || "Utilisateur",
-        avatar: l.profiles?.avatar_url || "",
-        viewers: l.viewers_count || 0,
-        tags: extractLiveTags(l.title),
-        startedAt: l.started_at || l.created_at,
-        isActive: l.is_active !== false,
-      })));
-    }
-    setLivesLoading(false);
-  }, [liveSort]);
+      .select("id", { count: "exact", head: true })
+      .eq("is_active", true);
+    setActiveLivesCount(count || 0);
+  }, []);
 
   useEffect(() => {
     fetchVideos();
-    fetchLives();
-  }, [fetchVideos, fetchLives]);
+    fetchLivesCount();
+    const channel = supabase
+      .channel("home-lives-count")
+      .on("postgres_changes", { event: "*", schema: "public", table: "lives" }, fetchLivesCount)
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [fetchVideos, fetchLivesCount]);
 
   const preloadVideos = videos.filter((_, i) => Math.abs(i - activeIndex) <= 2 && i !== activeIndex);
 
