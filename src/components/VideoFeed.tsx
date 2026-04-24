@@ -6,10 +6,8 @@ import CommentsDrawer from "./CommentsDrawer";
 import GamificationPanel from "./GamificationPanel";
 import { VideoData } from "@/data/mockVideos";
 import { motion } from "framer-motion";
-import { RefreshCw, Film, Radio, Clock, Flame } from "lucide-react";
+import { RefreshCw, Film, Radio } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import LivesRail from "./LivesRail";
-import { extractLiveTags } from "@/lib/live";
 
 interface LiveStream {
   id: string;
