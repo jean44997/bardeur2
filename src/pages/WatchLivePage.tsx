@@ -56,8 +56,33 @@ export default function WatchLivePage() {
   const [liked, setLiked] = useState(false);
   const [sharesCount, setSharesCount] = useState(0);
 
+  const allowAction = (key: string, cooldown = 450) => {
+    const now = Date.now();
+    if (now - (cooldownsRef.current[key] || 0) < cooldown) return false;
+    cooldownsRef.current[key] = now;
+    return true;
+  };
+
   // Mute updates the queue too
-  useEffect(() => { audioQueueRef.current.setMuted(audioMuted); }, [audioMuted]);
+  useEffect(() => { audioQueueRef.current.setMuted(audioMuted || paused); }, [audioMuted, paused]);
+
+  useEffect(() => { pausedRef.current = paused; }, [paused]);
+
+  useEffect(() => {
+    const configureBuffer = () => {
+      const nextNetwork = getConnectionInfo();
+      const size = getAdaptiveLiveBufferSize();
+      setNetworkInfo(nextNetwork);
+      prebufferRef.current.configure(size);
+      audioQueueRef.current.setBacklog(size.audio);
+      emitLiveDebugEvent({ type: "network", message: `${nextNetwork.effectiveType} · ${nextNetwork.downlink || "?"} Mbps`, data: { ...nextNetwork, ...size } });
+    };
+    audioQueueRef.current.setStatsListener((stats) => { setAudioStats(stats); emitLiveDebugEvent({ type: "buffer", message: `${stats.queued} chunks audio en file`, data: stats }); });
+    configureBuffer();
+    const connection = (navigator as any)?.connection || (navigator as any)?.mozConnection || (navigator as any)?.webkitConnection;
+    connection?.addEventListener?.("change", configureBuffer);
+    return () => connection?.removeEventListener?.("change", configureBuffer);
+  }, []);
 
   // Pause when tab hidden, auto-resume when visible (iOS-friendly)
   useEffect(() => {
