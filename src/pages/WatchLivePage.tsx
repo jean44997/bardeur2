@@ -369,6 +369,7 @@ export default function WatchLivePage() {
   };
 
   const sendHeart = async () => {
+    if (!allowAction("heart", 550)) return;
     const id = crypto.randomUUID();
     setHearts(prev => [...prev, id]);
     setTimeout(() => setHearts(prev => prev.filter(h => h !== id)), 1500);
@@ -393,6 +394,7 @@ export default function WatchLivePage() {
   };
 
   const shareLive = async () => {
+    if (!allowAction("share", 900)) return;
     const url = `${window.location.origin}/live/${liveId}`;
     const shareData = { title: streamerName ? `Live de ${streamerName}` : "Live BARDEUR YK", url };
     try {
