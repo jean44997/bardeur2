@@ -21,6 +21,7 @@ import ResetPasswordPage from "./pages/ResetPasswordPage";
 import LivePage from "./pages/LivePage";
 import WatchLivePage from "./pages/WatchLivePage";
 import LivesListPage from "./pages/LivesListPage";
+import LiveDebugPage from "./pages/LiveDebugPage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -53,6 +54,7 @@ const App = () => (
                       <Route path="/inbox" element={<AuthGuard><InboxPage /></AuthGuard>} />
                       <Route path="/create" element={<AuthGuard><CreatePage /></AuthGuard>} />
                       <Route path="/settings" element={<AuthGuard><SettingsPage /></AuthGuard>} />
+                      <Route path="/settings/live-debug" element={<AuthGuard><LiveDebugPage /></AuthGuard>} />
                       <Route path="/admin" element={<AuthGuard><AdminPage /></AuthGuard>} />
                       <Route path="/notifications" element={<AuthGuard><NotificationsPage /></AuthGuard>} />
                       <Route path="*" element={<NotFound />} />

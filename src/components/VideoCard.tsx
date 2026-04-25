@@ -55,7 +55,16 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
   const [buffered, setBuffered] = useState(0);
   const [saveCount, setSaveCount] = useState(video.stats.saves);
   const lastTapRef = useRef(0);
+  const singleTapTimer = useRef<number | null>(null);
+  const actionCooldowns = useRef<Record<string, number>>({});
   const longPressTimer = useRef<NodeJS.Timeout | null>(null);
+
+  const allowAction = (key: string, cooldown = 450) => {
+    const now = Date.now();
+    if (now - (actionCooldowns.current[key] || 0) < cooldown) return false;
+    actionCooldowns.current[key] = now;
+    return true;
+  };
 
   // Check initial like/save status
   useEffect(() => {
@@ -122,6 +131,8 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
       lastTapRef.current = now;
 
       if (isDouble) {
+        if (singleTapTimer.current) { window.clearTimeout(singleTapTimer.current); singleTapTimer.current = null; }
+        if (!allowAction("double-like", 650)) return;
         // Double tap → like + heart anim, do NOT toggle pause
         const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
         const x = e.clientX - rect.left;
@@ -135,8 +146,10 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
       }
 
       // Single tap → wait briefly to confirm it's not part of a double tap
-      window.setTimeout(() => {
+      singleTapTimer.current = window.setTimeout(() => {
+        singleTapTimer.current = null;
         if (Date.now() - lastTapRef.current < 350) return; // a second tap arrived → handled above
+        if (!allowAction("pause", 500)) return;
         const v = videoRef.current;
         if (!v || !isActive) return;
         if (v.paused) { setPausedByUser(false); v.play().catch(() => {}); }
@@ -152,6 +165,7 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
   }, []);
 
   const toggleLike = async () => {
+    if (!allowAction("like", 450)) return;
     if (!user) { toast.error("Connecte-toi pour aimer"); return; }
     const newLiked = !liked;
     setLiked(newLiked);
@@ -164,6 +178,7 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
   };
 
   const toggleSave = async () => {
+    if (!allowAction("save", 550)) return;
     if (!user) { toast.error("Connecte-toi pour sauvegarder"); return; }
     const newSaved = !saved;
     setSaved(newSaved);
@@ -243,15 +258,18 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
   };
 
   return (
-    <div className="relative h-[100svh] w-full snap-start overflow-hidden bg-background">
+    <div className="relative h-[100svh] w-full snap-start overflow-hidden bg-background touch-manipulation select-none">
       <video
         ref={videoRef}
         src={video.url}
-        className="absolute inset-0 h-full w-full object-contain bg-background"
+        className="absolute inset-0 h-full w-full object-cover bg-background"
         loop
         muted={isMuted}
         playsInline
         preload="auto"
+        disablePictureInPicture
+        controlsList="nodownload noplaybackrate"
+        onContextMenu={(e) => e.preventDefault()}
         onPointerUp={handleTap}
         onProgress={(e) => {
           const v = e.currentTarget;

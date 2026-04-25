@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowLeft, Users, Send, Heart, Mic, Square, Check, CheckCheck, Volume2, VolumeX, MessageCircle, Share2, WifiOff, Loader2 } from "lucide-react";
+import { ArrowLeft, Users, Send, Heart, Mic, Square, Check, CheckCheck, Volume2, VolumeX, MessageCircle, Share2, WifiOff, Loader2, Play, Pause } from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -9,6 +9,7 @@ import AudioBubble from "@/components/AudioBubble";
 import { LiveAudioQueue } from "@/lib/liveAudioQueue";
 import { LivePrebuffer } from "@/lib/livePrebuffer";
 import type { BroadcastStatus } from "@/hooks/useLiveBroadcast";
+import { emitLiveDebugEvent, getAdaptiveLiveBufferSize, getBestAudioRecorderOptions, getConnectionInfo } from "@/lib/mediaCapabilities";
 
 interface LiveMsg { id: string; username: string; content: string; mediaUrl?: string; mediaType?: string; }
 
@@ -25,6 +26,9 @@ export default function WatchLivePage() {
   const prebufferRef = useRef<LivePrebuffer>(new LivePrebuffer());
   const recordingTimeoutRef = useRef<number | null>(null);
   const lastStatusRef = useRef<BroadcastStatus>("starting");
+  const pausedRef = useRef(false);
+  const lastTapRef = useRef(0);
+  const cooldownsRef = useRef<Record<string, number>>({});
 
   const [live, setLive] = useState<any>(null);
   const [streamerName, setStreamerName] = useState("");
@@ -40,6 +44,10 @@ export default function WatchLivePage() {
   const [audioMuted, setAudioMuted] = useState(false);
   const [hasFrame, setHasFrame] = useState(false);
   const [streamerStatus, setStreamerStatus] = useState<BroadcastStatus>("starting");
+  const [viewerStatus, setViewerStatus] = useState<"connecting" | "connected" | "buffering" | "reconnecting" | "ended">("connecting");
+  const [reconnectAttempts, setReconnectAttempts] = useState(0);
+  const [audioStats, setAudioStats] = useState({ queued: 0, playing: false, lastSeq: -1, dropped: 0 });
+  const [networkInfo, setNetworkInfo] = useState(getConnectionInfo());
   const [paused, setPaused] = useState(false);
   const [chatOpen, setChatOpen] = useState(true);
 
@@ -48,8 +56,33 @@ export default function WatchLivePage() {
   const [liked, setLiked] = useState(false);
   const [sharesCount, setSharesCount] = useState(0);
 
+  const allowAction = (key: string, cooldown = 450) => {
+    const now = Date.now();
+    if (now - (cooldownsRef.current[key] || 0) < cooldown) return false;
+    cooldownsRef.current[key] = now;
+    return true;
+  };
+
   // Mute updates the queue too
-  useEffect(() => { audioQueueRef.current.setMuted(audioMuted); }, [audioMuted]);
+  useEffect(() => { audioQueueRef.current.setMuted(audioMuted || paused); }, [audioMuted, paused]);
+
+  useEffect(() => { pausedRef.current = paused; }, [paused]);
+
+  useEffect(() => {
+    const configureBuffer = () => {
+      const nextNetwork = getConnectionInfo();
+      const size = getAdaptiveLiveBufferSize();
+      setNetworkInfo(nextNetwork);
+      prebufferRef.current.configure(size);
+      audioQueueRef.current.setBacklog(size.audio);
+      emitLiveDebugEvent({ type: "network", message: `${nextNetwork.effectiveType} · ${nextNetwork.downlink || "?"} Mbps`, data: { ...nextNetwork, ...size } });
+    };
+    audioQueueRef.current.setStatsListener((stats) => { setAudioStats(stats); emitLiveDebugEvent({ type: "buffer", message: `${stats.queued} chunks audio en file`, data: stats }); });
+    configureBuffer();
+    const connection = (navigator as any)?.connection || (navigator as any)?.mozConnection || (navigator as any)?.webkitConnection;
+    connection?.addEventListener?.("change", configureBuffer);
+    return () => connection?.removeEventListener?.("change", configureBuffer);
+  }, []);
 
   // Pause when tab hidden, auto-resume when visible (iOS-friendly)
   useEffect(() => {
@@ -77,9 +110,41 @@ export default function WatchLivePage() {
   }, [audioMuted, liveId]);
 
   const resumeStream = () => {
+    if (!allowAction("resume", 700)) return;
     setPaused(false);
+    setViewerStatus("buffering");
     audioQueueRef.current.setMuted(audioMuted);
-    setFrameSrc(`${FRAME_BASE}/${liveId}/frame.jpg?t=${Date.now()}`);
+    const url = `${FRAME_BASE}/${liveId}/frame.jpg?t=${Date.now()}`;
+    prebufferRef.current.prefetchFrame(url);
+    setFrameSrc(url);
+    emitLiveDebugEvent({ type: "stream", message: "Reprise du live", data: { liveId } });
+  };
+
+  const toggleViewerPause = () => {
+    if (!allowAction("pause", 520)) return;
+    setPaused((value) => {
+      const next = !value;
+      audioQueueRef.current.setMuted(next || audioMuted);
+      setViewerStatus(next ? "buffering" : "connected");
+      emitLiveDebugEvent({ type: "stream", message: next ? "Pause viewer" : "Lecture viewer" });
+      return next;
+    });
+  };
+
+  const handleStreamTap = (e: React.PointerEvent<HTMLDivElement>) => {
+    const target = e.target as HTMLElement;
+    if (target.closest("button") || target.closest("input")) return;
+    const now = Date.now();
+    const isDouble = now - lastTapRef.current < 320;
+    lastTapRef.current = now;
+    if (isDouble) {
+      if (allowAction("double-like", 650)) sendHeart();
+      return;
+    }
+    window.setTimeout(() => {
+      if (Date.now() - lastTapRef.current < 320) return;
+      toggleViewerPause();
+    }, 260);
   };
 
   useEffect(() => {
@@ -88,6 +153,7 @@ export default function WatchLivePage() {
       const { data } = await supabase.from("lives").select("*").eq("id", liveId).single();
       if (data) {
         setLive(data);
+        if (!(data as any).is_active) { lastStatusRef.current = "ended"; setStreamerStatus("ended"); setViewerStatus("ended"); }
         setStreamerId((data as any).user_id);
         const { data: prof } = await supabase.from("profiles").select("display_name, avatar_url").eq("id", (data as any).user_id).single();
         setStreamerName(prof?.display_name || "Live");
@@ -111,7 +177,7 @@ export default function WatchLivePage() {
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "lives", filter: `id=eq.${liveId}` }, (payload) => {
         const updated = payload.new as any;
         setLive(updated);
-        if (!updated.is_active) toast.info("Le live est terminé");
+        if (!updated.is_active) { lastStatusRef.current = "ended"; setStreamerStatus("ended"); setViewerStatus("ended"); toast.info("Le live est terminé"); }
       })
       .subscribe();
 
@@ -122,21 +188,25 @@ export default function WatchLivePage() {
     const streamChannel = supabase.channel(`live-stream-${liveId}`, { config: { broadcast: { self: false } } });
     const subscribeStream = () => streamChannel
       .on("broadcast", { event: "frame" }, () => {
-        if (paused) return;
+        if (pausedRef.current) return;
         const url = `${FRAME_BASE}/${liveId}/frame.jpg?t=${Date.now()}`;
         prebufferRef.current.prefetchFrame(url);
         setFrameSrc(url);
+        setViewerStatus("connected");
       })
       .on("broadcast", { event: "audio" }, ({ payload }: any) => {
-        if (!payload?.url || paused) return;
+        if (!payload?.url || pausedRef.current) return;
         // Prefetch into mini-buffer so playback is instant even on jitter.
         prebufferRef.current.prefetchAudio(payload.url);
         audioQueueRef.current.enqueue(payload.seq ?? Date.now(), payload.url);
+        setViewerStatus("connected");
       })
       .on("broadcast", { event: "status" }, ({ payload }: any) => {
         if (payload?.state) {
           const next = payload.state as BroadcastStatus;
           setStreamerStatus(next);
+          setViewerStatus(next === "live" ? "connected" : next === "reconnecting" ? "reconnecting" : next === "ended" ? "ended" : "buffering");
+          emitLiveDebugEvent({ type: "stream", message: `Streamer: ${next}`, data: { liveId } });
           if (lastStatusRef.current !== next) {
             if (next === "reconnecting") toast.loading("Reconnexion au live…", { id: "live-status" });
             else if (next === "live") toast.success("Connecté au live", { id: "live-status" });
@@ -149,12 +219,18 @@ export default function WatchLivePage() {
       .subscribe((s) => {
         if (s === "SUBSCRIBED") {
           reconnectAttempt = 0;
+          setReconnectAttempts(0);
+          setViewerStatus("connected");
+          emitLiveDebugEvent({ type: "reconnect", message: "Canal live connecté", data: { attempts: 0 } });
           setStreamerStatus((prev) => (prev === "ended" ? prev : "live"));
         } else if (s === "CHANNEL_ERROR" || s === "TIMED_OUT" || s === "CLOSED") {
           setStreamerStatus("reconnecting");
+          setViewerStatus("reconnecting");
           toast.loading("Reconnexion au live…", { id: "live-status" });
           const delay = Math.min(15000, 1000 * Math.pow(2, reconnectAttempt));
           reconnectAttempt += 1;
+          setReconnectAttempts(reconnectAttempt);
+          emitLiveDebugEvent({ type: "reconnect", message: `Tentative ${reconnectAttempt} dans ${delay}ms`, data: { delay, status: s } });
           reconnectTimer = window.setTimeout(() => { try { subscribeStream(); } catch { /* noop */ } }, delay);
         }
       });
@@ -167,7 +243,7 @@ export default function WatchLivePage() {
 
     // Lightweight safety-net poll only every 8s in case a broadcast event was missed.
     const safetyTimer = window.setInterval(() => {
-      if (!paused) {
+      if (!pausedRef.current && lastStatusRef.current !== "ended") {
         const url = `${FRAME_BASE}/${liveId}/frame.jpg?t=${Date.now()}`;
         prebufferRef.current.prefetchFrame(url);
         setFrameSrc(url);
@@ -183,7 +259,7 @@ export default function WatchLivePage() {
       prebufferRef.current.reset();
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [liveId, paused]);
+  }, [liveId]);
 
   // Realtime live counters: likes + shares (uses notifications table aggregate)
   useEffect(() => {
@@ -232,6 +308,7 @@ export default function WatchLivePage() {
   };
 
   const toggleAudioMessage = async () => {
+    if (!allowAction("voice", 650)) return;
     if (sendState === "sending") return; // anti-doublon
     if (isRecordingAudio) {
       if (recordingTimeoutRef.current) { window.clearTimeout(recordingTimeoutRef.current); recordingTimeoutRef.current = null; }
@@ -241,29 +318,31 @@ export default function WatchLivePage() {
     }
     if (!liveId || !user) return;
     try {
-      const s = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, sampleRate: 48000, channelCount: 2 } });
+      const recorderOptions = getBestAudioRecorderOptions(160000);
+      const s = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, sampleRate: 48000, channelCount: 1 } });
       audioChunksRef.current = [];
-      const mr = new MediaRecorder(s, { mimeType: "audio/webm;codecs=opus", audioBitsPerSecond: 192000 });
+      const mr = new MediaRecorder(s, recorderOptions.options);
       let alreadySent = false;
       mr.ondataavailable = e => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
       mr.onstop = async () => {
         s.getTracks().forEach(t => t.stop());
         if (alreadySent) return; // garde-fou anti-doublon
         alreadySent = true;
-        const blob = new Blob(audioChunksRef.current, { type: "audio/webm;codecs=opus" });
+        const blob = new Blob(audioChunksRef.current, { type: recorderOptions.contentType });
         if (blob.size < 1000) { setSendState("idle"); return; }
         setSendState("sending");
-        const path = `${user.id}/watch-live-audio/${crypto.randomUUID()}.webm`;
-        const { error } = await supabase.storage.from("media").upload(path, blob, { contentType: "audio/webm" });
+        const path = `${user.id}/watch-live-audio/${crypto.randomUUID()}.${recorderOptions.extension}`;
+        const { error } = await supabase.storage.from("media").upload(path, blob, { contentType: recorderOptions.contentType });
         if (error) { setSendState("error"); toast.error("Vocal live impossible"); return; }
         const { data } = supabase.storage.from("media").getPublicUrl(path);
-        const { error: insertError } = await supabase.from("live_messages").insert({ live_id: liveId, user_id: user.id, content: "🎤 Vocal live", media_url: data.publicUrl, media_type: "audio/webm" } as any);
+        const { error: insertError } = await supabase.from("live_messages").insert({ live_id: liveId, user_id: user.id, content: "🎤 Vocal live", media_url: data.publicUrl, media_type: recorderOptions.contentType } as any);
         setSendState(insertError ? "error" : "delivered");
         setTimeout(() => setSendState("idle"), 1200);
       };
       audioRecorderRef.current = mr;
-      mr.start();
+      mr.start(250);
       setIsRecordingAudio(true);
+      emitLiveDebugEvent({ type: "audio", message: `Enregistrement vocal ${recorderOptions.contentType}`, data: { liveId } });
       // Timeout de sécurité : 60s max d'enregistrement
       recordingTimeoutRef.current = window.setTimeout(() => {
         if (audioRecorderRef.current?.state === "recording") {
@@ -272,7 +351,7 @@ export default function WatchLivePage() {
           setIsRecordingAudio(false);
         }
       }, 60000);
-    } catch { toast.error("Autorise le micro pour envoyer un vocal live"); }
+    } catch (error) { emitLiveDebugEvent({ type: "error", message: "Micro live refusé ou codec non supporté", data: { error: String(error) } }); toast.error("Autorise le micro pour envoyer un vocal live"); }
   };
 
   const cancelAudioMessage = () => {
@@ -291,6 +370,7 @@ export default function WatchLivePage() {
   };
 
   const sendHeart = async () => {
+    if (!allowAction("heart", 550)) return;
     const id = crypto.randomUUID();
     setHearts(prev => [...prev, id]);
     setTimeout(() => setHearts(prev => prev.filter(h => h !== id)), 1500);
@@ -315,6 +395,7 @@ export default function WatchLivePage() {
   };
 
   const shareLive = async () => {
+    if (!allowAction("share", 900)) return;
     const url = `${window.location.origin}/live/${liveId}`;
     const shareData = { title: streamerName ? `Live de ${streamerName}` : "Live BARDEUR YK", url };
     try {
@@ -349,10 +430,11 @@ export default function WatchLivePage() {
     reconnecting: "Reconnexion…",
     ended: "Live terminé",
   };
+  const viewerLabel = viewerStatus === "connected" ? "Connecté au live" : viewerStatus === "buffering" ? "Buffering" : viewerStatus === "reconnecting" ? `Reconnect ${reconnectAttempts}` : viewerStatus === "ended" ? "Stream terminé" : "Connexion…";
   const showOverlay = streamerStatus === "paused" || streamerStatus === "reconnecting" || streamerStatus === "starting" || !hasFrame;
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-background">
+    <div className="fixed inset-0 z-50 flex flex-col bg-background touch-manipulation select-none" onPointerUp={handleStreamTap}>
       {/* Live frame */}
       {frameSrc && !paused && (
         <img
@@ -377,6 +459,14 @@ export default function WatchLivePage() {
               Reprendre
             </motion.button>
           </div>
+        </div>
+      )}
+
+      {!paused && (
+        <div className="pointer-events-none absolute inset-0 z-10 grid place-items-center">
+          <AnimatePresence>
+            {viewerStatus === "buffering" && <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }} className="glass rounded-full px-4 py-2 text-xs font-bold text-foreground"><Loader2 className="mr-2 inline h-3.5 w-3.5 animate-spin" />Buffering</motion.div>}
+          </AnimatePresence>
         </div>
       )}
 
@@ -418,12 +508,18 @@ export default function WatchLivePage() {
             <div className={`h-2.5 w-2.5 rounded-full ${streamerStatus === "live" ? "bg-destructive animate-pulse" : "bg-muted-foreground"}`} />
             <span className="text-xs font-bold text-foreground">{streamerStatus === "live" ? "LIVE" : statusLabel[streamerStatus]}</span>
           </div>
+          <div className="hidden sm:flex items-center gap-1 glass rounded-full px-3 py-1">
+            <span className="text-xs font-bold text-foreground">{viewerLabel}</span>
+          </div>
           <div className="flex items-center gap-1 glass rounded-full px-3 py-1">
             <Users className="h-3.5 w-3.5 text-foreground" />
             <span className="text-xs font-bold text-foreground">{live.viewers_count || 0}</span>
           </div>
           <motion.button whileTap={{ scale: 0.9 }} onClick={() => setAudioMuted((m) => !m)} className="glass rounded-full p-2" aria-label="Couper le son">
             {audioMuted ? <VolumeX className="h-4 w-4 text-foreground" /> : <Volume2 className="h-4 w-4 text-foreground" />}
+          </motion.button>
+          <motion.button whileTap={{ scale: 0.9 }} onClick={toggleViewerPause} className="glass rounded-full p-2" aria-label="Pause live">
+            {paused ? <Play className="h-4 w-4 text-foreground" /> : <Pause className="h-4 w-4 text-foreground" />}
           </motion.button>
         </div>
       </div>

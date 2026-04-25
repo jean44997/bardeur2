@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { getBestAudioRecorderOptions } from "@/lib/mediaCapabilities";
 
 interface UseLiveBroadcastOptions {
   liveId: string | null;
@@ -24,8 +25,8 @@ export function useLiveBroadcast({
   stream,
   videoElement,
   enabled,
-  frameIntervalMs = 1200,
-  audioChunkMs = 4000,
+  frameIntervalMs = 1000,
+  audioChunkMs = 3000,
 }: UseLiveBroadcastOptions) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -102,10 +103,10 @@ export function useLiveBroadcast({
     const captureFrame = async () => {
       if (pausedRef.current) return;
       if (!videoElement.videoWidth || !ctx) return;
-      canvas.width = Math.min(720, videoElement.videoWidth);
+      canvas.width = Math.min(840, videoElement.videoWidth);
       canvas.height = Math.round((canvas.width / videoElement.videoWidth) * videoElement.videoHeight);
       ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
-      const blob: Blob | null = await new Promise((resolve) => canvas.toBlob((b) => resolve(b), "image/jpeg", 0.7));
+      const blob: Blob | null = await new Promise((resolve) => canvas.toBlob((b) => resolve(b), "image/jpeg", 0.78));
       if (!blob) return;
       try {
         await supabase.storage
@@ -133,22 +134,19 @@ export function useLiveBroadcast({
     if (audioTracks.length) {
       const audioStream = new MediaStream(audioTracks);
       let mr: MediaRecorder;
-      try {
-        mr = new MediaRecorder(audioStream, { mimeType: "audio/webm;codecs=opus", audioBitsPerSecond: 96000 });
-      } catch {
-        mr = new MediaRecorder(audioStream);
-      }
+      const recorderOptions = getBestAudioRecorderOptions(128000);
+      try { mr = new MediaRecorder(audioStream, recorderOptions.options); } catch { mr = new MediaRecorder(audioStream); }
       recorderRef.current = mr;
 
       mr.ondataavailable = async (event) => {
         if (pausedRef.current) return;
         if (!event.data || event.data.size < 800) return;
         const seq = seqRef.current++;
-        const path = `live-stream/${liveId}/audio-${seq % 6}.webm`;
+        const path = `live-stream/${liveId}/audio-${seq % 8}.${recorderOptions.extension}`;
         try {
-          await supabase.storage.from("media").upload(path, event.data, { contentType: "audio/webm", upsert: true, cacheControl: "0" });
+          await supabase.storage.from("media").upload(path, event.data, { contentType: recorderOptions.contentType, upsert: true, cacheControl: "0" });
           const { data } = supabase.storage.from("media").getPublicUrl(path);
-          channel.send({ type: "broadcast", event: "audio", payload: { url: `${data.publicUrl}?t=${Date.now()}`, seq, ts: Date.now() } });
+          channel.send({ type: "broadcast", event: "audio", payload: { url: `${data.publicUrl}?t=${Date.now()}`, seq, ts: Date.now(), contentType: recorderOptions.contentType } });
         } catch {
           // ignore
         }

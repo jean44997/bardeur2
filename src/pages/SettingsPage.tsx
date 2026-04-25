@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { ArrowLeft, User, Bell, Database, Info, Lock, Eye, EyeOff, Globe, Trash2, Download, ChevronRight, Camera, Mic, Shield, Mail, Smartphone, CheckCircle2, AlertCircle } from "lucide-react";
+import { ArrowLeft, User, Bell, Database, Info, Lock, Eye, EyeOff, Globe, Trash2, Download, ChevronRight, Camera, Mic, Shield, Mail, Smartphone, CheckCircle2, AlertCircle, Activity } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
@@ -119,8 +119,8 @@ export default function SettingsPage() {
     if (error) {
       setMfaStatus("error");
       const msg = (error.message || "").toLowerCase();
-      if (mfaMethod === "phone" && (msg.includes("provider") || msg.includes("sms") || msg.includes("not enabled") || msg.includes("phone"))) {
-        setMfaMessage("La 2FA par SMS n'est pas activée pour le moment. Utilise « Email/app » avec une appli comme Google Authenticator — ça fonctionne sans configuration.");
+      if (mfaMethod === "phone" && (msg.includes("provider") || msg.includes("sms") || msg.includes("not enabled") || msg.includes("phone") || msg.includes("twilio"))) {
+        setMfaMessage("SMS 2FA indisponible sur ce backend : opérateur/SMS non configuré ou refusé. Solution immédiate : choisis « Email/app » puis scanne le QR code avec Google Authenticator/Authy. Tu peux réessayer le numéro plus tard sans bloquer ton compte.");
       } else {
         setMfaMessage(error.message || "Double authentification indisponible.");
       }
@@ -299,6 +299,7 @@ export default function SettingsPage() {
           <div className="glass rounded-2xl overflow-hidden">
             <SettingItem icon={<Camera className="h-4 w-4 text-primary" />} label={`Caméra : ${mediaPermission === "granted" ? "autorisée" : mediaPermission === "denied" ? "refusée" : "à demander"}`} description="Nécessaire pour photo, vidéo et live" onClick={requestMediaPermissions} />
             <SettingItem icon={<Mic className="h-4 w-4 text-accent" />} label="Micro" description="Utilisé pour vocaux, vidéos et lives" onClick={requestMediaPermissions} />
+            <SettingItem icon={<Activity className="h-4 w-4 text-primary" />} label="Debug live" description="Réseau, reconnect, buffer audio et erreurs mobile/iOS" onClick={() => navigate("/settings/live-debug")} />
           </div>
         </div>
 

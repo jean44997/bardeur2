@@ -6,6 +6,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
 import AudioBubble from "@/components/AudioBubble";
+import { getBestAudioRecorderOptions } from "@/lib/mediaCapabilities";
 
 interface Message {
   id: string;
@@ -36,6 +37,7 @@ export default function ChatPage() {
   const audioRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const audioStreamRef = useRef<MediaStream | null>(null);
+  const cancelledAudioRef = useRef(false);
 
   useEffect(() => {
     if (conversationId && user) {
@@ -121,18 +123,21 @@ export default function ChatPage() {
 
   const startAudioRecording = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, sampleRate: 48000, channelCount: 2 } });
+      const recorderOptions = getBestAudioRecorderOptions(160000);
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, sampleRate: 48000, channelCount: 1 } });
       audioStreamRef.current = stream;
       audioChunksRef.current = [];
-      const mr = new MediaRecorder(stream, { mimeType: "audio/webm;codecs=opus", audioBitsPerSecond: 192000 });
+      cancelledAudioRef.current = false;
+      const mr = new MediaRecorder(stream, recorderOptions.options);
       mr.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
       mr.onstop = async () => {
         stream.getTracks().forEach(t => t.stop());
-        const blob = new Blob(audioChunksRef.current, { type: "audio/webm;codecs=opus" });
+        if (cancelledAudioRef.current) { audioChunksRef.current = []; cancelledAudioRef.current = false; return; }
+        const blob = new Blob(audioChunksRef.current, { type: recorderOptions.contentType });
         if (blob.size < 1000) { toast.info("Audio trop court"); return; }
-        await sendAudioBlob(blob);
+        await sendAudioBlob(blob, recorderOptions.extension, recorderOptions.contentType);
       };
-      mr.start();
+      mr.start(250);
       audioRecorderRef.current = mr;
       setIsRecordingAudio(true);
     } catch {
@@ -146,20 +151,21 @@ export default function ChatPage() {
   };
 
   const cancelAudioRecording = () => {
+    cancelledAudioRef.current = true;
     audioRecorderRef.current?.stop();
     audioStreamRef.current?.getTracks().forEach(t => t.stop());
     audioChunksRef.current = [];
     setIsRecordingAudio(false);
   };
 
-  const sendAudioBlob = async (blob: Blob) => {
+  const sendAudioBlob = async (blob: Blob, extension = "webm", contentType = "audio/webm") => {
     if (!user || !conversationId) return;
     try {
-      const path = `${user.id}/audio/${crypto.randomUUID()}.webm`;
-      const { error: uploadError } = await supabase.storage.from("media").upload(path, blob, { contentType: "audio/webm" });
+      const path = `${user.id}/audio/${crypto.randomUUID()}.${extension}`;
+      const { error: uploadError } = await supabase.storage.from("media").upload(path, blob, { contentType });
       if (uploadError) throw uploadError;
       const { data } = supabase.storage.from("media").getPublicUrl(path);
-      await supabase.from("messages").insert({ conversation_id: conversationId, sender_id: user.id, content: "🎤 Message vocal", media_url: data.publicUrl, media_type: "audio/webm" });
+      await supabase.from("messages").insert({ conversation_id: conversationId, sender_id: user.id, content: "🎤 Message vocal", media_url: data.publicUrl, media_type: contentType });
       toast.success("Vocal envoyé 🎤");
     } catch { toast.error("Erreur envoi vocal"); }
   };
