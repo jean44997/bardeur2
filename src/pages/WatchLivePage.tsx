@@ -110,9 +110,41 @@ export default function WatchLivePage() {
   }, [audioMuted, liveId]);
 
   const resumeStream = () => {
+    if (!allowAction("resume", 700)) return;
     setPaused(false);
+    setViewerStatus("buffering");
     audioQueueRef.current.setMuted(audioMuted);
-    setFrameSrc(`${FRAME_BASE}/${liveId}/frame.jpg?t=${Date.now()}`);
+    const url = `${FRAME_BASE}/${liveId}/frame.jpg?t=${Date.now()}`;
+    prebufferRef.current.prefetchFrame(url);
+    setFrameSrc(url);
+    emitLiveDebugEvent({ type: "stream", message: "Reprise du live", data: { liveId } });
+  };
+
+  const toggleViewerPause = () => {
+    if (!allowAction("pause", 520)) return;
+    setPaused((value) => {
+      const next = !value;
+      audioQueueRef.current.setMuted(next || audioMuted);
+      setViewerStatus(next ? "buffering" : "connected");
+      emitLiveDebugEvent({ type: "stream", message: next ? "Pause viewer" : "Lecture viewer" });
+      return next;
+    });
+  };
+
+  const handleStreamTap = (e: React.PointerEvent<HTMLDivElement>) => {
+    const target = e.target as HTMLElement;
+    if (target.closest("button") || target.closest("input")) return;
+    const now = Date.now();
+    const isDouble = now - lastTapRef.current < 320;
+    lastTapRef.current = now;
+    if (isDouble) {
+      if (allowAction("double-like", 650)) sendHeart();
+      return;
+    }
+    window.setTimeout(() => {
+      if (Date.now() - lastTapRef.current < 320) return;
+      toggleViewerPause();
+    }, 260);
   };
 
   useEffect(() => {
