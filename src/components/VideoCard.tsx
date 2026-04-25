@@ -115,37 +115,37 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
     return () => v.removeEventListener("timeupdate", update);
   }, [isActive]);
 
-  const handleDoubleTap = useCallback(
-    (e: React.MouseEvent | React.TouchEvent) => {
+  const handleTap = useCallback(
+    (e: React.PointerEvent<HTMLVideoElement>) => {
       const now = Date.now();
-      if (now - lastTapRef.current < 350) {
+      const isDouble = now - lastTapRef.current < 350;
+      lastTapRef.current = now;
+
+      if (isDouble) {
+        // Double tap → like + heart anim, do NOT toggle pause
         const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-        const clientX = "touches" in e ? e.changedTouches[0].clientX : e.clientX;
-        const clientY = "touches" in e ? e.changedTouches[0].clientY : e.clientY;
-        const x = clientX - rect.left;
-        const y = clientY - rect.top;
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
         setHearts((prev) => [...prev, { id: crypto.randomUUID(), x, y }]);
         if (!liked) toggleLike();
+        // Restore play if it was paused by the previous single tap
+        const v = videoRef.current;
+        if (v && v.paused) { setPausedByUser(false); v.play().catch(() => {}); }
+        return;
       }
-      lastTapRef.current = now;
-    },
-    [liked]
-  );
 
-  const handleVideoClick = (e: React.MouseEvent<HTMLVideoElement>) => {
-    const previousTap = lastTapRef.current;
-    handleDoubleTap(e);
-    if (Date.now() - previousTap < 350) return;
-    const v = videoRef.current;
-    if (!v || !isActive) return;
-    if (v.paused) {
-      setPausedByUser(false);
-      v.play().catch(() => {});
-    } else {
-      setPausedByUser(true);
-      v.pause();
-    }
-  };
+      // Single tap → wait briefly to confirm it's not part of a double tap
+      window.setTimeout(() => {
+        if (Date.now() - lastTapRef.current < 350) return; // a second tap arrived → handled above
+        const v = videoRef.current;
+        if (!v || !isActive) return;
+        if (v.paused) { setPausedByUser(false); v.play().catch(() => {}); }
+        else { setPausedByUser(true); v.pause(); }
+      }, 320);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [liked, isActive]
+  );
 
   const removeHeart = useCallback((id: string) => {
     setHearts((prev) => prev.filter((h) => h.id !== id));
