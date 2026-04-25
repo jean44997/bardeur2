@@ -11,6 +11,22 @@ export class LiveAudioQueue {
   private muted = false;
   private maxBacklog = 3;
   private current: HTMLAudioElement | null = null;
+  private onStats?: (stats: { queued: number; playing: boolean; lastSeq: number; dropped: number }) => void;
+  private dropped = 0;
+
+  setStatsListener(listener?: (stats: { queued: number; playing: boolean; lastSeq: number; dropped: number }) => void) {
+    this.onStats = listener;
+    this.emitStats();
+  }
+
+  setBacklog(value: number) {
+    this.maxBacklog = Math.max(2, Math.min(8, value));
+    if (this.queue.length > this.maxBacklog) {
+      this.dropped += this.queue.length - this.maxBacklog;
+      this.queue = this.queue.slice(-this.maxBacklog);
+    }
+    this.emitStats();
+  }
 
   setMuted(value: boolean) {
     this.muted = value;
@@ -26,9 +42,11 @@ export class LiveAudioQueue {
     this.queue.push({ seq, url });
     // Keep only the freshest items if we are falling behind
     if (this.queue.length > this.maxBacklog) {
+      this.dropped += this.queue.length - this.maxBacklog;
       this.queue = this.queue.slice(-this.maxBacklog);
     }
     this.queue.sort((a, b) => a.seq - b.seq);
+    this.emitStats();
     this.tick();
   }
 
@@ -48,6 +66,7 @@ export class LiveAudioQueue {
       this.current = null;
       // Drop everything older than what we just played
       this.queue = this.queue.filter((q) => q.seq > this.lastSeq);
+      this.emitStats();
       this.tick();
     };
     audio.onended = cleanup;
@@ -59,12 +78,18 @@ export class LiveAudioQueue {
     }
   }
 
+  private emitStats() {
+    this.onStats?.({ queued: this.queue.length, playing: this.playing, lastSeq: this.lastSeq, dropped: this.dropped });
+  }
+
   reset() {
     this.queue = [];
     this.playing = false;
+    this.dropped = 0;
     if (this.current) {
       try { this.current.pause(); } catch { /* noop */ }
     }
     this.current = null;
+    this.emitStats();
   }
 }
