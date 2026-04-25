@@ -116,36 +116,71 @@ export default function WatchLivePage() {
       .subscribe();
 
     // Live stream broadcast channel (frames + audio chunks + streamer status)
+    // With progressive backoff to avoid reconnect loops on flaky networks.
+    let reconnectAttempt = 0;
+    let reconnectTimer: number | null = null;
     const streamChannel = supabase.channel(`live-stream-${liveId}`, { config: { broadcast: { self: false } } });
-    streamChannel
+    const subscribeStream = () => streamChannel
       .on("broadcast", { event: "frame" }, () => {
         if (paused) return;
-        setFrameSrc(`${FRAME_BASE}/${liveId}/frame.jpg?t=${Date.now()}`);
+        const url = `${FRAME_BASE}/${liveId}/frame.jpg?t=${Date.now()}`;
+        prebufferRef.current.prefetchFrame(url);
+        setFrameSrc(url);
       })
       .on("broadcast", { event: "audio" }, ({ payload }: any) => {
         if (!payload?.url || paused) return;
+        // Prefetch into mini-buffer so playback is instant even on jitter.
+        prebufferRef.current.prefetchAudio(payload.url);
         audioQueueRef.current.enqueue(payload.seq ?? Date.now(), payload.url);
       })
       .on("broadcast", { event: "status" }, ({ payload }: any) => {
-        if (payload?.state) setStreamerStatus(payload.state as BroadcastStatus);
+        if (payload?.state) {
+          const next = payload.state as BroadcastStatus;
+          setStreamerStatus(next);
+          if (lastStatusRef.current !== next) {
+            if (next === "reconnecting") toast.loading("Reconnexion au live…", { id: "live-status" });
+            else if (next === "live") toast.success("Connecté au live", { id: "live-status" });
+            else if (next === "paused") toast.message("Streamer en pause", { id: "live-status" });
+            else if (next === "ended") toast.info("Stream terminé", { id: "live-status" });
+            lastStatusRef.current = next;
+          }
+        }
       })
       .subscribe((s) => {
-        if (s === "SUBSCRIBED") setStreamerStatus((prev) => (prev === "ended" ? prev : "live"));
+        if (s === "SUBSCRIBED") {
+          reconnectAttempt = 0;
+          setStreamerStatus((prev) => (prev === "ended" ? prev : "live"));
+        } else if (s === "CHANNEL_ERROR" || s === "TIMED_OUT" || s === "CLOSED") {
+          setStreamerStatus("reconnecting");
+          toast.loading("Reconnexion au live…", { id: "live-status" });
+          const delay = Math.min(15000, 1000 * Math.pow(2, reconnectAttempt));
+          reconnectAttempt += 1;
+          reconnectTimer = window.setTimeout(() => { try { subscribeStream(); } catch { /* noop */ } }, delay);
+        }
       });
+    subscribeStream();
 
     // Initial frame fetch (in case streamer already broadcasting before we joined).
-    setFrameSrc(`${FRAME_BASE}/${liveId}/frame.jpg?t=${Date.now()}`);
+    const initialFrame = `${FRAME_BASE}/${liveId}/frame.jpg?t=${Date.now()}`;
+    setFrameSrc(initialFrame);
+    prebufferRef.current.prefetchFrame(initialFrame);
 
     // Lightweight safety-net poll only every 8s in case a broadcast event was missed.
     const safetyTimer = window.setInterval(() => {
-      if (!paused) setFrameSrc(`${FRAME_BASE}/${liveId}/frame.jpg?t=${Date.now()}`);
+      if (!paused) {
+        const url = `${FRAME_BASE}/${liveId}/frame.jpg?t=${Date.now()}`;
+        prebufferRef.current.prefetchFrame(url);
+        setFrameSrc(url);
+      }
     }, 8000);
 
     return () => {
       supabase.removeChannel(channel);
       supabase.removeChannel(streamChannel);
       window.clearInterval(safetyTimer);
+      if (reconnectTimer) window.clearTimeout(reconnectTimer);
       audioQueueRef.current.reset();
+      prebufferRef.current.reset();
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [liveId, paused]);
