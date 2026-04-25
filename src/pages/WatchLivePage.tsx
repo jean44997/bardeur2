@@ -307,6 +307,7 @@ export default function WatchLivePage() {
   };
 
   const toggleAudioMessage = async () => {
+    if (!allowAction("voice", 650)) return;
     if (sendState === "sending") return; // anti-doublon
     if (isRecordingAudio) {
       if (recordingTimeoutRef.current) { window.clearTimeout(recordingTimeoutRef.current); recordingTimeoutRef.current = null; }
@@ -316,29 +317,31 @@ export default function WatchLivePage() {
     }
     if (!liveId || !user) return;
     try {
-      const s = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, sampleRate: 48000, channelCount: 2 } });
+      const recorderOptions = getBestAudioRecorderOptions(160000);
+      const s = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, sampleRate: 48000, channelCount: 1 } });
       audioChunksRef.current = [];
-      const mr = new MediaRecorder(s, { mimeType: "audio/webm;codecs=opus", audioBitsPerSecond: 192000 });
+      const mr = new MediaRecorder(s, recorderOptions.options);
       let alreadySent = false;
       mr.ondataavailable = e => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
       mr.onstop = async () => {
         s.getTracks().forEach(t => t.stop());
         if (alreadySent) return; // garde-fou anti-doublon
         alreadySent = true;
-        const blob = new Blob(audioChunksRef.current, { type: "audio/webm;codecs=opus" });
+        const blob = new Blob(audioChunksRef.current, { type: recorderOptions.contentType });
         if (blob.size < 1000) { setSendState("idle"); return; }
         setSendState("sending");
-        const path = `${user.id}/watch-live-audio/${crypto.randomUUID()}.webm`;
-        const { error } = await supabase.storage.from("media").upload(path, blob, { contentType: "audio/webm" });
+        const path = `${user.id}/watch-live-audio/${crypto.randomUUID()}.${recorderOptions.extension}`;
+        const { error } = await supabase.storage.from("media").upload(path, blob, { contentType: recorderOptions.contentType });
         if (error) { setSendState("error"); toast.error("Vocal live impossible"); return; }
         const { data } = supabase.storage.from("media").getPublicUrl(path);
-        const { error: insertError } = await supabase.from("live_messages").insert({ live_id: liveId, user_id: user.id, content: "🎤 Vocal live", media_url: data.publicUrl, media_type: "audio/webm" } as any);
+        const { error: insertError } = await supabase.from("live_messages").insert({ live_id: liveId, user_id: user.id, content: "🎤 Vocal live", media_url: data.publicUrl, media_type: recorderOptions.contentType } as any);
         setSendState(insertError ? "error" : "delivered");
         setTimeout(() => setSendState("idle"), 1200);
       };
       audioRecorderRef.current = mr;
-      mr.start();
+      mr.start(250);
       setIsRecordingAudio(true);
+      emitLiveDebugEvent({ type: "audio", message: `Enregistrement vocal ${recorderOptions.contentType}`, data: { liveId } });
       // Timeout de sécurité : 60s max d'enregistrement
       recordingTimeoutRef.current = window.setTimeout(() => {
         if (audioRecorderRef.current?.state === "recording") {
@@ -347,7 +350,7 @@ export default function WatchLivePage() {
           setIsRecordingAudio(false);
         }
       }, 60000);
-    } catch { toast.error("Autorise le micro pour envoyer un vocal live"); }
+    } catch (error) { emitLiveDebugEvent({ type: "error", message: "Micro live refusé ou codec non supporté", data: { error: String(error) } }); toast.error("Autorise le micro pour envoyer un vocal live"); }
   };
 
   const cancelAudioMessage = () => {
