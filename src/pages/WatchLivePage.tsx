@@ -7,6 +7,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
 import AudioBubble from "@/components/AudioBubble";
 import { LiveAudioQueue } from "@/lib/liveAudioQueue";
+import { LivePrebuffer } from "@/lib/livePrebuffer";
 import type { BroadcastStatus } from "@/hooks/useLiveBroadcast";
 
 interface LiveMsg { id: string; username: string; content: string; mediaUrl?: string; mediaType?: string; }
@@ -21,6 +22,9 @@ export default function WatchLivePage() {
   const audioRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const audioQueueRef = useRef<LiveAudioQueue>(new LiveAudioQueue());
+  const prebufferRef = useRef<LivePrebuffer>(new LivePrebuffer());
+  const recordingTimeoutRef = useRef<number | null>(null);
+  const lastStatusRef = useRef<BroadcastStatus>("starting");
 
   const [live, setLive] = useState<any>(null);
   const [streamerName, setStreamerName] = useState("");
@@ -47,17 +51,30 @@ export default function WatchLivePage() {
   // Mute updates the queue too
   useEffect(() => { audioQueueRef.current.setMuted(audioMuted); }, [audioMuted]);
 
-  // Pause when tab hidden, resume when visible
+  // Pause when tab hidden, auto-resume when visible (iOS-friendly)
   useEffect(() => {
     const onVisibility = () => {
       if (document.hidden) {
         setPaused(true);
         audioQueueRef.current.setMuted(true);
+      } else {
+        // Auto-resume on iOS: re-arm queue and refresh frame without reload
+        setPaused(false);
+        audioQueueRef.current.setMuted(audioMuted);
+        if (liveId) {
+          const fresh = `${FRAME_BASE}/${liveId}/frame.jpg?t=${Date.now()}`;
+          setFrameSrc(fresh);
+          prebufferRef.current.prefetchFrame(fresh);
+        }
       }
     };
     document.addEventListener("visibilitychange", onVisibility);
-    return () => document.removeEventListener("visibilitychange", onVisibility);
-  }, []);
+    window.addEventListener("pageshow", onVisibility);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("pageshow", onVisibility);
+    };
+  }, [audioMuted, liveId]);
 
   const resumeStream = () => {
     setPaused(false);
@@ -99,36 +116,71 @@ export default function WatchLivePage() {
       .subscribe();
 
     // Live stream broadcast channel (frames + audio chunks + streamer status)
+    // With progressive backoff to avoid reconnect loops on flaky networks.
+    let reconnectAttempt = 0;
+    let reconnectTimer: number | null = null;
     const streamChannel = supabase.channel(`live-stream-${liveId}`, { config: { broadcast: { self: false } } });
-    streamChannel
+    const subscribeStream = () => streamChannel
       .on("broadcast", { event: "frame" }, () => {
         if (paused) return;
-        setFrameSrc(`${FRAME_BASE}/${liveId}/frame.jpg?t=${Date.now()}`);
+        const url = `${FRAME_BASE}/${liveId}/frame.jpg?t=${Date.now()}`;
+        prebufferRef.current.prefetchFrame(url);
+        setFrameSrc(url);
       })
       .on("broadcast", { event: "audio" }, ({ payload }: any) => {
         if (!payload?.url || paused) return;
+        // Prefetch into mini-buffer so playback is instant even on jitter.
+        prebufferRef.current.prefetchAudio(payload.url);
         audioQueueRef.current.enqueue(payload.seq ?? Date.now(), payload.url);
       })
       .on("broadcast", { event: "status" }, ({ payload }: any) => {
-        if (payload?.state) setStreamerStatus(payload.state as BroadcastStatus);
+        if (payload?.state) {
+          const next = payload.state as BroadcastStatus;
+          setStreamerStatus(next);
+          if (lastStatusRef.current !== next) {
+            if (next === "reconnecting") toast.loading("Reconnexion au live…", { id: "live-status" });
+            else if (next === "live") toast.success("Connecté au live", { id: "live-status" });
+            else if (next === "paused") toast.message("Streamer en pause", { id: "live-status" });
+            else if (next === "ended") toast.info("Stream terminé", { id: "live-status" });
+            lastStatusRef.current = next;
+          }
+        }
       })
       .subscribe((s) => {
-        if (s === "SUBSCRIBED") setStreamerStatus((prev) => (prev === "ended" ? prev : "live"));
+        if (s === "SUBSCRIBED") {
+          reconnectAttempt = 0;
+          setStreamerStatus((prev) => (prev === "ended" ? prev : "live"));
+        } else if (s === "CHANNEL_ERROR" || s === "TIMED_OUT" || s === "CLOSED") {
+          setStreamerStatus("reconnecting");
+          toast.loading("Reconnexion au live…", { id: "live-status" });
+          const delay = Math.min(15000, 1000 * Math.pow(2, reconnectAttempt));
+          reconnectAttempt += 1;
+          reconnectTimer = window.setTimeout(() => { try { subscribeStream(); } catch { /* noop */ } }, delay);
+        }
       });
+    subscribeStream();
 
     // Initial frame fetch (in case streamer already broadcasting before we joined).
-    setFrameSrc(`${FRAME_BASE}/${liveId}/frame.jpg?t=${Date.now()}`);
+    const initialFrame = `${FRAME_BASE}/${liveId}/frame.jpg?t=${Date.now()}`;
+    setFrameSrc(initialFrame);
+    prebufferRef.current.prefetchFrame(initialFrame);
 
     // Lightweight safety-net poll only every 8s in case a broadcast event was missed.
     const safetyTimer = window.setInterval(() => {
-      if (!paused) setFrameSrc(`${FRAME_BASE}/${liveId}/frame.jpg?t=${Date.now()}`);
+      if (!paused) {
+        const url = `${FRAME_BASE}/${liveId}/frame.jpg?t=${Date.now()}`;
+        prebufferRef.current.prefetchFrame(url);
+        setFrameSrc(url);
+      }
     }, 8000);
 
     return () => {
       supabase.removeChannel(channel);
       supabase.removeChannel(streamChannel);
       window.clearInterval(safetyTimer);
+      if (reconnectTimer) window.clearTimeout(reconnectTimer);
       audioQueueRef.current.reset();
+      prebufferRef.current.reset();
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [liveId, paused]);
@@ -180,17 +232,26 @@ export default function WatchLivePage() {
   };
 
   const toggleAudioMessage = async () => {
-    if (isRecordingAudio) { audioRecorderRef.current?.stop(); setIsRecordingAudio(false); return; }
+    if (sendState === "sending") return; // anti-doublon
+    if (isRecordingAudio) {
+      if (recordingTimeoutRef.current) { window.clearTimeout(recordingTimeoutRef.current); recordingTimeoutRef.current = null; }
+      audioRecorderRef.current?.stop();
+      setIsRecordingAudio(false);
+      return;
+    }
     if (!liveId || !user) return;
     try {
       const s = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, sampleRate: 48000, channelCount: 2 } });
       audioChunksRef.current = [];
       const mr = new MediaRecorder(s, { mimeType: "audio/webm;codecs=opus", audioBitsPerSecond: 192000 });
+      let alreadySent = false;
       mr.ondataavailable = e => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
       mr.onstop = async () => {
         s.getTracks().forEach(t => t.stop());
+        if (alreadySent) return; // garde-fou anti-doublon
+        alreadySent = true;
         const blob = new Blob(audioChunksRef.current, { type: "audio/webm;codecs=opus" });
-        if (blob.size < 1000) return;
+        if (blob.size < 1000) { setSendState("idle"); return; }
         setSendState("sending");
         const path = `${user.id}/watch-live-audio/${crypto.randomUUID()}.webm`;
         const { error } = await supabase.storage.from("media").upload(path, blob, { contentType: "audio/webm" });
@@ -203,11 +264,20 @@ export default function WatchLivePage() {
       audioRecorderRef.current = mr;
       mr.start();
       setIsRecordingAudio(true);
+      // Timeout de sécurité : 60s max d'enregistrement
+      recordingTimeoutRef.current = window.setTimeout(() => {
+        if (audioRecorderRef.current?.state === "recording") {
+          toast.info("Vocal limité à 60 secondes");
+          audioRecorderRef.current.stop();
+          setIsRecordingAudio(false);
+        }
+      }, 60000);
     } catch { toast.error("Autorise le micro pour envoyer un vocal live"); }
   };
 
   const cancelAudioMessage = () => {
     if (!isRecordingAudio) return;
+    if (recordingTimeoutRef.current) { window.clearTimeout(recordingTimeoutRef.current); recordingTimeoutRef.current = null; }
     const mr = audioRecorderRef.current;
     if (mr) {
       mr.ondataavailable = null;
