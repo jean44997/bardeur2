@@ -25,8 +25,8 @@ export function useLiveBroadcast({
   stream,
   videoElement,
   enabled,
-  frameIntervalMs = 1200,
-  audioChunkMs = 4000,
+  frameIntervalMs = 1000,
+  audioChunkMs = 3000,
 }: UseLiveBroadcastOptions) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -103,10 +103,10 @@ export function useLiveBroadcast({
     const captureFrame = async () => {
       if (pausedRef.current) return;
       if (!videoElement.videoWidth || !ctx) return;
-      canvas.width = Math.min(720, videoElement.videoWidth);
+      canvas.width = Math.min(840, videoElement.videoWidth);
       canvas.height = Math.round((canvas.width / videoElement.videoWidth) * videoElement.videoHeight);
       ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
-      const blob: Blob | null = await new Promise((resolve) => canvas.toBlob((b) => resolve(b), "image/jpeg", 0.7));
+      const blob: Blob | null = await new Promise((resolve) => canvas.toBlob((b) => resolve(b), "image/jpeg", 0.78));
       if (!blob) return;
       try {
         await supabase.storage
