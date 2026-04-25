@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowLeft, Users, Send, Heart, Mic, Square, Check, CheckCheck, Volume2, VolumeX, MessageCircle, Share2, WifiOff, Loader2 } from "lucide-react";
+import { ArrowLeft, Users, Send, Heart, Mic, Square, Check, CheckCheck, Volume2, VolumeX, MessageCircle, Share2, WifiOff, Loader2, Play, Pause } from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -9,6 +9,7 @@ import AudioBubble from "@/components/AudioBubble";
 import { LiveAudioQueue } from "@/lib/liveAudioQueue";
 import { LivePrebuffer } from "@/lib/livePrebuffer";
 import type { BroadcastStatus } from "@/hooks/useLiveBroadcast";
+import { emitLiveDebugEvent, getAdaptiveLiveBufferSize, getBestAudioRecorderOptions, getConnectionInfo } from "@/lib/mediaCapabilities";
 
 interface LiveMsg { id: string; username: string; content: string; mediaUrl?: string; mediaType?: string; }
 
@@ -25,6 +26,9 @@ export default function WatchLivePage() {
   const prebufferRef = useRef<LivePrebuffer>(new LivePrebuffer());
   const recordingTimeoutRef = useRef<number | null>(null);
   const lastStatusRef = useRef<BroadcastStatus>("starting");
+  const pausedRef = useRef(false);
+  const lastTapRef = useRef(0);
+  const cooldownsRef = useRef<Record<string, number>>({});
 
   const [live, setLive] = useState<any>(null);
   const [streamerName, setStreamerName] = useState("");
@@ -40,6 +44,10 @@ export default function WatchLivePage() {
   const [audioMuted, setAudioMuted] = useState(false);
   const [hasFrame, setHasFrame] = useState(false);
   const [streamerStatus, setStreamerStatus] = useState<BroadcastStatus>("starting");
+  const [viewerStatus, setViewerStatus] = useState<"connecting" | "connected" | "buffering" | "reconnecting" | "ended">("connecting");
+  const [reconnectAttempts, setReconnectAttempts] = useState(0);
+  const [audioStats, setAudioStats] = useState({ queued: 0, playing: false, lastSeq: -1, dropped: 0 });
+  const [networkInfo, setNetworkInfo] = useState(getConnectionInfo());
   const [paused, setPaused] = useState(false);
   const [chatOpen, setChatOpen] = useState(true);
 
