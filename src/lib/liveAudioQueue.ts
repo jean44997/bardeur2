@@ -61,6 +61,7 @@ export class LiveAudioQueue {
     audio.src = item.url;
     audio.crossOrigin = "anonymous";
     this.current = audio;
+    audio.volume = 0;
     const cleanup = () => {
       this.playing = false;
       this.current = null;
@@ -73,6 +74,12 @@ export class LiveAudioQueue {
     audio.onerror = cleanup;
     try {
       await audio.play();
+      let step = 0;
+      const fade = window.setInterval(() => {
+        step += 1;
+        audio.volume = Math.min(0.92, step / 10);
+        if (step >= 10) window.clearInterval(fade);
+      }, 35);
     } catch {
       cleanup();
     }
