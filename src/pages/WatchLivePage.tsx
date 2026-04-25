@@ -176,7 +176,7 @@ export default function WatchLivePage() {
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "lives", filter: `id=eq.${liveId}` }, (payload) => {
         const updated = payload.new as any;
         setLive(updated);
-        if (!updated.is_active) toast.info("Le live est terminé");
+        if (!updated.is_active) { setStreamerStatus("ended"); setViewerStatus("ended"); toast.info("Le live est terminé"); }
       })
       .subscribe();
 
@@ -187,21 +187,25 @@ export default function WatchLivePage() {
     const streamChannel = supabase.channel(`live-stream-${liveId}`, { config: { broadcast: { self: false } } });
     const subscribeStream = () => streamChannel
       .on("broadcast", { event: "frame" }, () => {
-        if (paused) return;
+        if (pausedRef.current) return;
         const url = `${FRAME_BASE}/${liveId}/frame.jpg?t=${Date.now()}`;
         prebufferRef.current.prefetchFrame(url);
         setFrameSrc(url);
+        setViewerStatus("connected");
       })
       .on("broadcast", { event: "audio" }, ({ payload }: any) => {
-        if (!payload?.url || paused) return;
+        if (!payload?.url || pausedRef.current) return;
         // Prefetch into mini-buffer so playback is instant even on jitter.
         prebufferRef.current.prefetchAudio(payload.url);
         audioQueueRef.current.enqueue(payload.seq ?? Date.now(), payload.url);
+        setViewerStatus("connected");
       })
       .on("broadcast", { event: "status" }, ({ payload }: any) => {
         if (payload?.state) {
           const next = payload.state as BroadcastStatus;
           setStreamerStatus(next);
+          setViewerStatus(next === "live" ? "connected" : next === "reconnecting" ? "reconnecting" : next === "ended" ? "ended" : "buffering");
+          emitLiveDebugEvent({ type: "stream", message: `Streamer: ${next}`, data: { liveId } });
           if (lastStatusRef.current !== next) {
             if (next === "reconnecting") toast.loading("Reconnexion au live…", { id: "live-status" });
             else if (next === "live") toast.success("Connecté au live", { id: "live-status" });
@@ -214,12 +218,18 @@ export default function WatchLivePage() {
       .subscribe((s) => {
         if (s === "SUBSCRIBED") {
           reconnectAttempt = 0;
+          setReconnectAttempts(0);
+          setViewerStatus("connected");
+          emitLiveDebugEvent({ type: "reconnect", message: "Canal live connecté", data: { attempts: 0 } });
           setStreamerStatus((prev) => (prev === "ended" ? prev : "live"));
         } else if (s === "CHANNEL_ERROR" || s === "TIMED_OUT" || s === "CLOSED") {
           setStreamerStatus("reconnecting");
+          setViewerStatus("reconnecting");
           toast.loading("Reconnexion au live…", { id: "live-status" });
           const delay = Math.min(15000, 1000 * Math.pow(2, reconnectAttempt));
           reconnectAttempt += 1;
+          setReconnectAttempts(reconnectAttempt);
+          emitLiveDebugEvent({ type: "reconnect", message: `Tentative ${reconnectAttempt} dans ${delay}ms`, data: { delay, status: s } });
           reconnectTimer = window.setTimeout(() => { try { subscribeStream(); } catch { /* noop */ } }, delay);
         }
       });
@@ -232,7 +242,7 @@ export default function WatchLivePage() {
 
     // Lightweight safety-net poll only every 8s in case a broadcast event was missed.
     const safetyTimer = window.setInterval(() => {
-      if (!paused) {
+      if (!pausedRef.current && streamerStatus !== "ended") {
         const url = `${FRAME_BASE}/${liveId}/frame.jpg?t=${Date.now()}`;
         prebufferRef.current.prefetchFrame(url);
         setFrameSrc(url);
