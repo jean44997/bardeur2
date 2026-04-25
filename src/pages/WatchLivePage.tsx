@@ -7,6 +7,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
 import AudioBubble from "@/components/AudioBubble";
 import { LiveAudioQueue } from "@/lib/liveAudioQueue";
+import { LivePrebuffer } from "@/lib/livePrebuffer";
 import type { BroadcastStatus } from "@/hooks/useLiveBroadcast";
 
 interface LiveMsg { id: string; username: string; content: string; mediaUrl?: string; mediaType?: string; }
@@ -21,6 +22,9 @@ export default function WatchLivePage() {
   const audioRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const audioQueueRef = useRef<LiveAudioQueue>(new LiveAudioQueue());
+  const prebufferRef = useRef<LivePrebuffer>(new LivePrebuffer());
+  const recordingTimeoutRef = useRef<number | null>(null);
+  const lastStatusRef = useRef<BroadcastStatus>("starting");
 
   const [live, setLive] = useState<any>(null);
   const [streamerName, setStreamerName] = useState("");
