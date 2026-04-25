@@ -176,7 +176,7 @@ export default function WatchLivePage() {
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "lives", filter: `id=eq.${liveId}` }, (payload) => {
         const updated = payload.new as any;
         setLive(updated);
-        if (!updated.is_active) { setStreamerStatus("ended"); setViewerStatus("ended"); toast.info("Le live est terminé"); }
+        if (!updated.is_active) { lastStatusRef.current = "ended"; setStreamerStatus("ended"); setViewerStatus("ended"); toast.info("Le live est terminé"); }
       })
       .subscribe();
 
@@ -242,7 +242,7 @@ export default function WatchLivePage() {
 
     // Lightweight safety-net poll only every 8s in case a broadcast event was missed.
     const safetyTimer = window.setInterval(() => {
-      if (!pausedRef.current && streamerStatus !== "ended") {
+      if (!pausedRef.current && lastStatusRef.current !== "ended") {
         const url = `${FRAME_BASE}/${liveId}/frame.jpg?t=${Date.now()}`;
         prebufferRef.current.prefetchFrame(url);
         setFrameSrc(url);
