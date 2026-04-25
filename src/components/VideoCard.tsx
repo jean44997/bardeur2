@@ -55,7 +55,16 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
   const [buffered, setBuffered] = useState(0);
   const [saveCount, setSaveCount] = useState(video.stats.saves);
   const lastTapRef = useRef(0);
+  const singleTapTimer = useRef<number | null>(null);
+  const actionCooldowns = useRef<Record<string, number>>({});
   const longPressTimer = useRef<NodeJS.Timeout | null>(null);
+
+  const allowAction = (key: string, cooldown = 450) => {
+    const now = Date.now();
+    if (now - (actionCooldowns.current[key] || 0) < cooldown) return false;
+    actionCooldowns.current[key] = now;
+    return true;
+  };
 
   // Check initial like/save status
   useEffect(() => {
