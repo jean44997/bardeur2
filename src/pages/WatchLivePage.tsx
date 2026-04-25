@@ -429,10 +429,11 @@ export default function WatchLivePage() {
     reconnecting: "Reconnexion…",
     ended: "Live terminé",
   };
+  const viewerLabel = viewerStatus === "connected" ? "Connecté au live" : viewerStatus === "buffering" ? "Buffering" : viewerStatus === "reconnecting" ? `Reconnect ${reconnectAttempts}` : viewerStatus === "ended" ? "Stream terminé" : "Connexion…";
   const showOverlay = streamerStatus === "paused" || streamerStatus === "reconnecting" || streamerStatus === "starting" || !hasFrame;
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-background">
+    <div className="fixed inset-0 z-50 flex flex-col bg-background touch-manipulation select-none" onPointerUp={handleStreamTap}>
       {/* Live frame */}
       {frameSrc && !paused && (
         <img
@@ -457,6 +458,14 @@ export default function WatchLivePage() {
               Reprendre
             </motion.button>
           </div>
+        </div>
+      )}
+
+      {!paused && (
+        <div className="pointer-events-none absolute inset-0 z-10 grid place-items-center">
+          <AnimatePresence>
+            {viewerStatus === "buffering" && <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }} className="glass rounded-full px-4 py-2 text-xs font-bold text-foreground"><Loader2 className="mr-2 inline h-3.5 w-3.5 animate-spin" />Buffering</motion.div>}
+          </AnimatePresence>
         </div>
       )}
 
@@ -498,12 +507,18 @@ export default function WatchLivePage() {
             <div className={`h-2.5 w-2.5 rounded-full ${streamerStatus === "live" ? "bg-destructive animate-pulse" : "bg-muted-foreground"}`} />
             <span className="text-xs font-bold text-foreground">{streamerStatus === "live" ? "LIVE" : statusLabel[streamerStatus]}</span>
           </div>
+          <div className="hidden sm:flex items-center gap-1 glass rounded-full px-3 py-1">
+            <span className="text-xs font-bold text-foreground">{viewerLabel}</span>
+          </div>
           <div className="flex items-center gap-1 glass rounded-full px-3 py-1">
             <Users className="h-3.5 w-3.5 text-foreground" />
             <span className="text-xs font-bold text-foreground">{live.viewers_count || 0}</span>
           </div>
           <motion.button whileTap={{ scale: 0.9 }} onClick={() => setAudioMuted((m) => !m)} className="glass rounded-full p-2" aria-label="Couper le son">
             {audioMuted ? <VolumeX className="h-4 w-4 text-foreground" /> : <Volume2 className="h-4 w-4 text-foreground" />}
+          </motion.button>
+          <motion.button whileTap={{ scale: 0.9 }} onClick={toggleViewerPause} className="glass rounded-full p-2" aria-label="Pause live">
+            {paused ? <Play className="h-4 w-4 text-foreground" /> : <Pause className="h-4 w-4 text-foreground" />}
           </motion.button>
         </div>
       </div>
