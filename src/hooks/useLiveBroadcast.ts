@@ -42,12 +42,21 @@ export function useLiveBroadcast({
     }
 
     setStatus("starting");
+    let reconnectAttempt = 0;
+    let reconnectTimer: number | undefined;
     const channel = supabase.channel(`live-stream-${liveId}`, {
       config: { broadcast: { ack: false, self: false } },
     });
-    channel.subscribe((s) => {
-      if (s === "SUBSCRIBED") setStatus("live");
+    const subscribe = () => channel.subscribe((s) => {
+      if (s === "SUBSCRIBED") { reconnectAttempt = 0; setStatus("live"); }
+      else if (s === "CHANNEL_ERROR" || s === "TIMED_OUT" || s === "CLOSED") {
+        setStatus("reconnecting");
+        const delay = Math.min(15000, 1000 * Math.pow(2, reconnectAttempt));
+        reconnectAttempt += 1;
+        reconnectTimer = window.setTimeout(() => { try { subscribe(); } catch { /* noop */ } }, delay);
+      }
     });
+    subscribe();
     channelRef.current = channel;
 
     const announce = (state: BroadcastStatus) => {
@@ -151,6 +160,7 @@ export function useLiveBroadcast({
     return () => {
       window.clearInterval(frameTimer);
       window.clearInterval(trackTimer);
+      if (reconnectTimer) window.clearTimeout(reconnectTimer);
       trackHandlers.forEach((off) => off());
       try { recorderRef.current?.stop(); } catch { /* noop */ }
       recorderRef.current = null;
