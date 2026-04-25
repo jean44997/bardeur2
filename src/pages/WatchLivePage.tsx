@@ -258,7 +258,7 @@ export default function WatchLivePage() {
       prebufferRef.current.reset();
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [liveId, paused]);
+  }, [liveId]);
 
   // Realtime live counters: likes + shares (uses notifications table aggregate)
   useEffect(() => {
