@@ -107,20 +107,30 @@ export default function SettingsPage() {
   const startMfaSetup = async () => {
     setMfaStatus("sending");
     setMfaMessage("Préparation du code sécurisé...");
+    if (mfaMethod === "phone" && mfaPhone.trim().length < 8) {
+      setMfaStatus("error");
+      setMfaMessage("Ajoute un numéro complet avec indicatif pays (ex : +2250102030405).");
+      return;
+    }
     const enrollOptions = mfaMethod === "phone"
       ? ({ factorType: "phone", phone: mfaPhone.trim() } as any)
       : ({ factorType: "totp" } as const);
-    if (mfaMethod === "phone" && mfaPhone.trim().length < 8) {
+    const { data, error } = await supabase.auth.mfa.enroll(enrollOptions);
+    if (error) {
       setMfaStatus("error");
-      setMfaMessage("Ajoute un numéro complet avec indicatif pays.");
+      const msg = (error.message || "").toLowerCase();
+      if (mfaMethod === "phone" && (msg.includes("provider") || msg.includes("sms") || msg.includes("not enabled") || msg.includes("phone"))) {
+        setMfaMessage("La 2FA par SMS n'est pas activée pour le moment. Utilise « Email/app » avec une appli comme Google Authenticator — ça fonctionne sans configuration.");
+      } else {
+        setMfaMessage(error.message || "Double authentification indisponible.");
+      }
+      toast.error("Double authentification indisponible");
       return;
     }
-    const { data, error } = await supabase.auth.mfa.enroll(enrollOptions);
-    if (error) { setMfaStatus("error"); setMfaMessage(error.message || "Double authentification indisponible"); toast.error("Double authentification indisponible"); return; }
     setMfaFactorId(data.id);
     setMfaQr((data as any).totp?.qr_code || "");
     setMfaStatus("waiting");
-    setMfaMessage(mfaMethod === "phone" ? "Code envoyé. Entre-le pour activer la 2FA." : "Scanne le QR code ou utilise ton email sécurisé, puis entre le code à 6 chiffres.");
+    setMfaMessage(mfaMethod === "phone" ? "Code envoyé par SMS. Entre-le ci-dessous pour activer la 2FA." : "Scanne le QR code avec Google Authenticator (ou Authy), puis entre le code à 6 chiffres affiché.");
   };
 
   const verifyMfaSetup = async () => {
