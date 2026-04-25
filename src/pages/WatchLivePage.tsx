@@ -153,6 +153,7 @@ export default function WatchLivePage() {
       const { data } = await supabase.from("lives").select("*").eq("id", liveId).single();
       if (data) {
         setLive(data);
+        if (!(data as any).is_active) { lastStatusRef.current = "ended"; setStreamerStatus("ended"); setViewerStatus("ended"); }
         setStreamerId((data as any).user_id);
         const { data: prof } = await supabase.from("profiles").select("display_name, avatar_url").eq("id", (data as any).user_id).single();
         setStreamerName(prof?.display_name || "Live");
