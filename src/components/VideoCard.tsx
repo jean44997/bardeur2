@@ -258,15 +258,18 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
   };
 
   return (
-    <div className="relative h-[100svh] w-full snap-start overflow-hidden bg-background">
+    <div className="relative h-[100svh] w-full snap-start overflow-hidden bg-background touch-manipulation select-none">
       <video
         ref={videoRef}
         src={video.url}
-        className="absolute inset-0 h-full w-full object-contain bg-background"
+        className="absolute inset-0 h-full w-full object-cover bg-background"
         loop
         muted={isMuted}
         playsInline
         preload="auto"
+        disablePictureInPicture
+        controlsList="nodownload noplaybackrate"
+        onContextMenu={(e) => e.preventDefault()}
         onPointerUp={handleTap}
         onProgress={(e) => {
           const v = e.currentTarget;
