@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { getBestAudioRecorderOptions } from "@/lib/mediaCapabilities";
 
 interface UseLiveBroadcastOptions {
   liveId: string | null;
@@ -133,22 +134,19 @@ export function useLiveBroadcast({
     if (audioTracks.length) {
       const audioStream = new MediaStream(audioTracks);
       let mr: MediaRecorder;
-      try {
-        mr = new MediaRecorder(audioStream, { mimeType: "audio/webm;codecs=opus", audioBitsPerSecond: 96000 });
-      } catch {
-        mr = new MediaRecorder(audioStream);
-      }
+      const recorderOptions = getBestAudioRecorderOptions(128000);
+      try { mr = new MediaRecorder(audioStream, recorderOptions.options); } catch { mr = new MediaRecorder(audioStream); }
       recorderRef.current = mr;
 
       mr.ondataavailable = async (event) => {
         if (pausedRef.current) return;
         if (!event.data || event.data.size < 800) return;
         const seq = seqRef.current++;
-        const path = `live-stream/${liveId}/audio-${seq % 6}.webm`;
+        const path = `live-stream/${liveId}/audio-${seq % 8}.${recorderOptions.extension}`;
         try {
-          await supabase.storage.from("media").upload(path, event.data, { contentType: "audio/webm", upsert: true, cacheControl: "0" });
+          await supabase.storage.from("media").upload(path, event.data, { contentType: recorderOptions.contentType, upsert: true, cacheControl: "0" });
           const { data } = supabase.storage.from("media").getPublicUrl(path);
-          channel.send({ type: "broadcast", event: "audio", payload: { url: `${data.publicUrl}?t=${Date.now()}`, seq, ts: Date.now() } });
+          channel.send({ type: "broadcast", event: "audio", payload: { url: `${data.publicUrl}?t=${Date.now()}`, seq, ts: Date.now(), contentType: recorderOptions.contentType } });
         } catch {
           // ignore
         }
