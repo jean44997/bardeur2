@@ -51,17 +51,30 @@ export default function WatchLivePage() {
   // Mute updates the queue too
   useEffect(() => { audioQueueRef.current.setMuted(audioMuted); }, [audioMuted]);
 
-  // Pause when tab hidden, resume when visible
+  // Pause when tab hidden, auto-resume when visible (iOS-friendly)
   useEffect(() => {
     const onVisibility = () => {
       if (document.hidden) {
         setPaused(true);
         audioQueueRef.current.setMuted(true);
+      } else {
+        // Auto-resume on iOS: re-arm queue and refresh frame without reload
+        setPaused(false);
+        audioQueueRef.current.setMuted(audioMuted);
+        if (liveId) {
+          const fresh = `${FRAME_BASE}/${liveId}/frame.jpg?t=${Date.now()}`;
+          setFrameSrc(fresh);
+          prebufferRef.current.prefetchFrame(fresh);
+        }
       }
     };
     document.addEventListener("visibilitychange", onVisibility);
-    return () => document.removeEventListener("visibilitychange", onVisibility);
-  }, []);
+    window.addEventListener("pageshow", onVisibility);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("pageshow", onVisibility);
+    };
+  }, [audioMuted, liveId]);
 
   const resumeStream = () => {
     setPaused(false);
