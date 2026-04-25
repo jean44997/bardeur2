@@ -252,12 +252,12 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
         muted={isMuted}
         playsInline
         preload="auto"
-        onClick={handleVideoClick}
+        onPointerUp={handleTap}
         onProgress={(e) => {
           const v = e.currentTarget;
           if (v.duration && v.buffered.length) setBuffered((v.buffered.end(v.buffered.length - 1) / v.duration) * 100);
         }}
-        onTouchEnd={(e) => { handleLongPressEnd(); handleDoubleTap(e); }}
+        onTouchEnd={handleLongPressEnd}
         onMouseDown={handleLongPressStart}
         onMouseUp={handleLongPressEnd}
         onTouchStart={handleLongPressStart}
