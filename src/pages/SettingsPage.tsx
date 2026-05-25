@@ -5,6 +5,7 @@ import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
+import { probeAudioCodecs, isIOSDevice } from "@/lib/mediaCapabilities";
 
 interface SettingItemProps {
   icon: React.ReactNode;
