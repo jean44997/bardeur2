@@ -277,10 +277,22 @@ export default function WatchLivePage() {
       }
     }, 8000);
 
+    // Audio mute auto-detection: if no chunk received for 9s and queue is empty
+    // while the stream is live, flag the audio as stale and surface a resync UI.
+    lastAudioChunkRef.current = Date.now();
+    const audioWatchTimer = window.setInterval(() => {
+      if (pausedRef.current || lastStatusRef.current === "ended") { setAudioStale(false); return; }
+      const since = Date.now() - lastAudioChunkRef.current;
+      const stale = since > 9000 && !audioQueueRef.current.getStats?.().playing;
+      setAudioStale(stale);
+      if (stale) emitLiveDebugEvent({ type: "audio", message: "Audio inactif (>9s)", data: { since } });
+    }, 2500);
+
     return () => {
       supabase.removeChannel(channel);
       supabase.removeChannel(streamChannel);
       window.clearInterval(safetyTimer);
+      window.clearInterval(audioWatchTimer);
       if (reconnectTimer) window.clearTimeout(reconnectTimer);
       audioQueueRef.current.reset();
       prebufferRef.current.reset();
