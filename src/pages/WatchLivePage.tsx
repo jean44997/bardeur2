@@ -186,7 +186,23 @@ export default function WatchLivePage() {
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "lives", filter: `id=eq.${liveId}` }, (payload) => {
         const updated = payload.new as any;
         setLive(updated);
-        if (!updated.is_active) { lastStatusRef.current = "ended"; setStreamerStatus("ended"); setViewerStatus("ended"); toast.info("Le live est terminé"); }
+        if (!updated.is_active) {
+          lastStatusRef.current = "ended"; setStreamerStatus("ended"); setViewerStatus("ended");
+          toast.info("Le live est terminé");
+          window.setTimeout(() => navigate("/lives"), 2500);
+        } else if (lastStatusRef.current === "ended") {
+          // Resumed: clean re-init without reload
+          lastStatusRef.current = "live"; setStreamerStatus("live"); setViewerStatus("connected");
+          audioQueueRef.current.reset();
+          const url = `${FRAME_BASE}/${liveId}/frame.jpg?t=${Date.now()}`;
+          setFrameSrc(url); prebufferRef.current.prefetchFrame(url);
+          toast.success("Le live a repris");
+        }
+      })
+      .on("postgres_changes", { event: "DELETE", schema: "public", table: "lives", filter: `id=eq.${liveId}` }, () => {
+        lastStatusRef.current = "ended"; setStreamerStatus("ended"); setViewerStatus("ended");
+        toast.info("Le live a été clôturé");
+        window.setTimeout(() => navigate("/lives"), 1500);
       })
       .subscribe();
 
