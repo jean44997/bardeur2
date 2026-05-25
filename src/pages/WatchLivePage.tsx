@@ -9,7 +9,7 @@ import AudioBubble from "@/components/AudioBubble";
 import { LiveAudioQueue } from "@/lib/liveAudioQueue";
 import { LivePrebuffer } from "@/lib/livePrebuffer";
 import type { BroadcastStatus } from "@/hooks/useLiveBroadcast";
-import { emitLiveDebugEvent, getAdaptiveLiveBufferSize, getBestAudioRecorderOptions, getConnectionInfo } from "@/lib/mediaCapabilities";
+import { emitLiveDebugEvent, getAdaptiveCooldown, getAdaptiveLiveBufferSize, getBestAudioRecorderOptions, getConnectionInfo } from "@/lib/mediaCapabilities";
 
 interface LiveMsg { id: string; username: string; content: string; mediaUrl?: string; mediaType?: string; }
 
@@ -56,12 +56,21 @@ export default function WatchLivePage() {
   const [liked, setLiked] = useState(false);
   const [sharesCount, setSharesCount] = useState(0);
 
-  const allowAction = (key: string, cooldown = 450) => {
+  const allowAction = (key: string, baseCooldown = 450) => {
+    const cooldown = getAdaptiveCooldown(baseCooldown);
     const now = Date.now();
-    if (now - (cooldownsRef.current[key] || 0) < cooldown) return false;
+    if (now - (cooldownsRef.current[key] || 0) < cooldown) {
+      // Visual feedback when an action is throttled
+      toast.message("Trop rapide, patiente…", { id: `cooldown-${key}`, duration: 900 });
+      return false;
+    }
     cooldownsRef.current[key] = now;
     return true;
   };
+
+  // Audio-mute auto-detection state
+  const lastAudioChunkRef = useRef<number>(0);
+  const [audioStale, setAudioStale] = useState(false);
 
   // Mute updates the queue too
   useEffect(() => { audioQueueRef.current.setMuted(audioMuted || paused); }, [audioMuted, paused]);
@@ -177,7 +186,23 @@ export default function WatchLivePage() {
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "lives", filter: `id=eq.${liveId}` }, (payload) => {
         const updated = payload.new as any;
         setLive(updated);
-        if (!updated.is_active) { lastStatusRef.current = "ended"; setStreamerStatus("ended"); setViewerStatus("ended"); toast.info("Le live est terminé"); }
+        if (!updated.is_active) {
+          lastStatusRef.current = "ended"; setStreamerStatus("ended"); setViewerStatus("ended");
+          toast.info("Le live est terminé");
+          window.setTimeout(() => navigate("/lives"), 2500);
+        } else if (lastStatusRef.current === "ended") {
+          // Resumed: clean re-init without reload
+          lastStatusRef.current = "live"; setStreamerStatus("live"); setViewerStatus("connected");
+          audioQueueRef.current.reset();
+          const url = `${FRAME_BASE}/${liveId}/frame.jpg?t=${Date.now()}`;
+          setFrameSrc(url); prebufferRef.current.prefetchFrame(url);
+          toast.success("Le live a repris");
+        }
+      })
+      .on("postgres_changes", { event: "DELETE", schema: "public", table: "lives", filter: `id=eq.${liveId}` }, () => {
+        lastStatusRef.current = "ended"; setStreamerStatus("ended"); setViewerStatus("ended");
+        toast.info("Le live a été clôturé");
+        window.setTimeout(() => navigate("/lives"), 1500);
       })
       .subscribe();
 
@@ -196,6 +221,8 @@ export default function WatchLivePage() {
       })
       .on("broadcast", { event: "audio" }, ({ payload }: any) => {
         if (!payload?.url || pausedRef.current) return;
+        lastAudioChunkRef.current = Date.now();
+        setAudioStale(false);
         // Prefetch into mini-buffer so playback is instant even on jitter.
         prebufferRef.current.prefetchAudio(payload.url);
         audioQueueRef.current.enqueue(payload.seq ?? Date.now(), payload.url);
@@ -250,10 +277,22 @@ export default function WatchLivePage() {
       }
     }, 8000);
 
+    // Audio mute auto-detection: if no chunk received for 9s and queue is empty
+    // while the stream is live, flag the audio as stale and surface a resync UI.
+    lastAudioChunkRef.current = Date.now();
+    const audioWatchTimer = window.setInterval(() => {
+      if (pausedRef.current || lastStatusRef.current === "ended") { setAudioStale(false); return; }
+      const since = Date.now() - lastAudioChunkRef.current;
+      const stale = since > 9000 && !audioQueueRef.current.getStats?.().playing;
+      setAudioStale(stale);
+      if (stale) emitLiveDebugEvent({ type: "audio", message: "Audio inactif (>9s)", data: { since } });
+    }, 2500);
+
     return () => {
       supabase.removeChannel(channel);
       supabase.removeChannel(streamChannel);
       window.clearInterval(safetyTimer);
+      window.clearInterval(audioWatchTimer);
       if (reconnectTimer) window.clearTimeout(reconnectTimer);
       audioQueueRef.current.reset();
       prebufferRef.current.reset();
@@ -470,6 +509,34 @@ export default function WatchLivePage() {
         </div>
       )}
 
+      {/* Audio mute auto-detection: no chunks received -> show resync */}
+      {!paused && audioStale && streamerStatus !== "ended" && (
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="absolute left-1/2 top-24 z-30 -translate-x-1/2">
+          <div className="glass rounded-2xl px-4 py-3 text-center max-w-[18rem]">
+            <p className="text-xs font-bold text-foreground">Audio inactif</p>
+            <p className="mb-2 text-[11px] text-muted-foreground">Aucun son reçu depuis plusieurs secondes.</p>
+            <motion.button
+              whileTap={{ scale: 0.94 }}
+              onClick={() => {
+                if (!allowAction("resync", 800)) return;
+                audioQueueRef.current.reset();
+                audioQueueRef.current.setMuted(false);
+                setAudioMuted(false);
+                lastAudioChunkRef.current = Date.now();
+                setAudioStale(false);
+                const url = `${FRAME_BASE}/${liveId}/frame.jpg?t=${Date.now()}`;
+                setFrameSrc(url); prebufferRef.current.prefetchFrame(url);
+                toast.success("Audio resynchronisé");
+                emitLiveDebugEvent({ type: "audio", message: "Resync audio manuel" });
+              }}
+              className="w-full rounded-xl gradient-primary px-3 py-2 text-xs font-bold text-primary-foreground"
+            >
+              Re-synchroniser l'audio
+            </motion.button>
+          </div>
+        </motion.div>
+      )}
+
       {/* Status overlay */}
       {showOverlay && !paused && (
         <div className="absolute inset-0 grid place-items-center bg-gradient-to-br from-background via-card to-background">
@@ -504,10 +571,7 @@ export default function WatchLivePage() {
           <ArrowLeft className="h-5 w-5 text-foreground" />
         </motion.button>
         <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1.5 glass rounded-full px-3 py-1">
-            <div className={`h-2.5 w-2.5 rounded-full ${streamerStatus === "live" ? "bg-destructive animate-pulse" : "bg-muted-foreground"}`} />
-            <span className="text-xs font-bold text-foreground">{streamerStatus === "live" ? "LIVE" : statusLabel[streamerStatus]}</span>
-          </div>
+          {/* Neutral status chip (no red LIVE badge, as requested) */}
           <div className="hidden sm:flex items-center gap-1 glass rounded-full px-3 py-1">
             <span className="text-xs font-bold text-foreground">{viewerLabel}</span>
           </div>

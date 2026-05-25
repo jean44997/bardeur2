@@ -5,6 +5,7 @@ import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
+import { probeAudioCodecs, isIOSDevice } from "@/lib/mediaCapabilities";
 
 interface SettingItemProps {
   icon: React.ReactNode;
@@ -299,6 +300,19 @@ export default function SettingsPage() {
           <div className="glass rounded-2xl overflow-hidden">
             <SettingItem icon={<Camera className="h-4 w-4 text-primary" />} label={`Caméra : ${mediaPermission === "granted" ? "autorisée" : mediaPermission === "denied" ? "refusée" : "à demander"}`} description="Nécessaire pour photo, vidéo et live" onClick={requestMediaPermissions} />
             <SettingItem icon={<Mic className="h-4 w-4 text-accent" />} label="Micro" description="Utilisé pour vocaux, vidéos et lives" onClick={requestMediaPermissions} />
+            <SettingItem
+              icon={<Mic className="h-4 w-4 text-primary" />}
+              label="Mode audio iOS / codecs"
+              description={isIOSDevice() ? "Appareil iOS détecté — teste le fallback compatible" : "Teste les codecs MediaRecorder et active le fallback"}
+              onClick={() => {
+                const probe = probeAudioCodecs();
+                if (!probe.supported.length) {
+                  toast.error("Aucun codec audio compatible détecté");
+                } else {
+                  toast.success(`Codec actif : ${probe.chosen}`, { description: `Compatibles : ${probe.supported.join(", ")}` });
+                }
+              }}
+            />
             <SettingItem icon={<Activity className="h-4 w-4 text-primary" />} label="Debug live" description="Réseau, reconnect, buffer audio et erreurs mobile/iOS" onClick={() => navigate("/settings/live-debug")} />
           </div>
         </div>
