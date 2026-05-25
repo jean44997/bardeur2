@@ -56,12 +56,21 @@ export default function WatchLivePage() {
   const [liked, setLiked] = useState(false);
   const [sharesCount, setSharesCount] = useState(0);
 
-  const allowAction = (key: string, cooldown = 450) => {
+  const allowAction = (key: string, baseCooldown = 450) => {
+    const cooldown = getAdaptiveCooldown(baseCooldown);
     const now = Date.now();
-    if (now - (cooldownsRef.current[key] || 0) < cooldown) return false;
+    if (now - (cooldownsRef.current[key] || 0) < cooldown) {
+      // Visual feedback when an action is throttled
+      toast.message("Trop rapide, patiente…", { id: `cooldown-${key}`, duration: 900 });
+      return false;
+    }
     cooldownsRef.current[key] = now;
     return true;
   };
+
+  // Audio-mute auto-detection state
+  const lastAudioChunkRef = useRef<number>(0);
+  const [audioStale, setAudioStale] = useState(false);
 
   // Mute updates the queue too
   useEffect(() => { audioQueueRef.current.setMuted(audioMuted || paused); }, [audioMuted, paused]);
