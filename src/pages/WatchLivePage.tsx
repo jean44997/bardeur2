@@ -543,10 +543,7 @@ export default function WatchLivePage() {
           <ArrowLeft className="h-5 w-5 text-foreground" />
         </motion.button>
         <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1.5 glass rounded-full px-3 py-1">
-            <div className={`h-2.5 w-2.5 rounded-full ${streamerStatus === "live" ? "bg-destructive animate-pulse" : "bg-muted-foreground"}`} />
-            <span className="text-xs font-bold text-foreground">{streamerStatus === "live" ? "LIVE" : statusLabel[streamerStatus]}</span>
-          </div>
+          {/* Neutral status chip (no red LIVE badge, as requested) */}
           <div className="hidden sm:flex items-center gap-1 glass rounded-full px-3 py-1">
             <span className="text-xs font-bold text-foreground">{viewerLabel}</span>
           </div>
