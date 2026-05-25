@@ -509,6 +509,34 @@ export default function WatchLivePage() {
         </div>
       )}
 
+      {/* Audio mute auto-detection: no chunks received -> show resync */}
+      {!paused && audioStale && streamerStatus !== "ended" && (
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="absolute left-1/2 top-24 z-30 -translate-x-1/2">
+          <div className="glass rounded-2xl px-4 py-3 text-center max-w-[18rem]">
+            <p className="text-xs font-bold text-foreground">Audio inactif</p>
+            <p className="mb-2 text-[11px] text-muted-foreground">Aucun son reçu depuis plusieurs secondes.</p>
+            <motion.button
+              whileTap={{ scale: 0.94 }}
+              onClick={() => {
+                if (!allowAction("resync", 800)) return;
+                audioQueueRef.current.reset();
+                audioQueueRef.current.setMuted(false);
+                setAudioMuted(false);
+                lastAudioChunkRef.current = Date.now();
+                setAudioStale(false);
+                const url = `${FRAME_BASE}/${liveId}/frame.jpg?t=${Date.now()}`;
+                setFrameSrc(url); prebufferRef.current.prefetchFrame(url);
+                toast.success("Audio resynchronisé");
+                emitLiveDebugEvent({ type: "audio", message: "Resync audio manuel" });
+              }}
+              className="w-full rounded-xl gradient-primary px-3 py-2 text-xs font-bold text-primary-foreground"
+            >
+              Re-synchroniser l'audio
+            </motion.button>
+          </div>
+        </motion.div>
+      )}
+
       {/* Status overlay */}
       {showOverlay && !paused && (
         <div className="absolute inset-0 grid place-items-center bg-gradient-to-br from-background via-card to-background">
