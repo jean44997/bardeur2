@@ -143,12 +143,18 @@ export default function LivePage() {
 
   const endLive = async () => {
     if (liveId) {
+      // First mark inactive so viewers are notified to exit
       await supabase.from("lives").update({
         is_active: false,
         ended_at: new Date().toISOString(),
         xp_earned: xpEarned,
         viewers_count: viewerPeak || viewers,
       }).eq("id", liveId);
+      // Delete chat history + the live row itself (RLS permits the live owner)
+      try {
+        await supabase.from("live_messages").delete().eq("live_id", liveId);
+        await supabase.from("lives").delete().eq("id", liveId);
+      } catch { /* noop — viewers already got the "ended" signal */ }
     }
     stream?.getTracks().forEach(t => t.stop());
     setPhase("ended");
