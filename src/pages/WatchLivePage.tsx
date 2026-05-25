@@ -9,7 +9,7 @@ import AudioBubble from "@/components/AudioBubble";
 import { LiveAudioQueue } from "@/lib/liveAudioQueue";
 import { LivePrebuffer } from "@/lib/livePrebuffer";
 import type { BroadcastStatus } from "@/hooks/useLiveBroadcast";
-import { emitLiveDebugEvent, getAdaptiveLiveBufferSize, getBestAudioRecorderOptions, getConnectionInfo } from "@/lib/mediaCapabilities";
+import { emitLiveDebugEvent, getAdaptiveCooldown, getAdaptiveLiveBufferSize, getBestAudioRecorderOptions, getConnectionInfo } from "@/lib/mediaCapabilities";
 
 interface LiveMsg { id: string; username: string; content: string; mediaUrl?: string; mediaType?: string; }
 
