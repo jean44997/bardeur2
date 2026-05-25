@@ -85,8 +85,12 @@ export class LiveAudioQueue {
     }
   }
 
+  getStats() {
+    return { queued: this.queue.length, playing: this.playing, lastSeq: this.lastSeq, dropped: this.dropped };
+  }
+
   private emitStats() {
-    this.onStats?.({ queued: this.queue.length, playing: this.playing, lastSeq: this.lastSeq, dropped: this.dropped });
+    this.onStats?.(this.getStats());
   }
 
   reset() {
