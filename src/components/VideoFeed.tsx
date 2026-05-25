@@ -129,7 +129,7 @@ export default function VideoFeed() {
   }
 
   return (
-    <>
+    <div className="relative min-h-[100svh] bg-background md:min-h-[100dvh] md:pl-[var(--sidebar-width,260px)] md:pr-6">
       <div className="fixed top-[max(1rem,env(safe-area-inset-top))] right-4 z-40 flex items-center gap-2 md:right-8">
         {activeLivesCount > 0 && (
           <motion.button
@@ -151,7 +151,10 @@ export default function VideoFeed() {
         {preloadVideos.map((video) => <video key={video.id} src={video.url} poster={video.poster} preload="auto" muted playsInline />)}
       </div>
 
-      <div ref={containerRef} className="h-[100svh] w-full snap-y snap-mandatory overflow-y-scroll no-scrollbar overscroll-contain">
+      <div
+        ref={containerRef}
+        className="h-[100svh] w-full snap-y snap-mandatory overflow-y-scroll no-scrollbar overscroll-contain md:mx-auto md:my-4 md:h-[calc(100dvh-2rem)] md:w-full md:max-w-[460px] md:rounded-[24px] md:bg-black"
+      >
         {videos.map((video, i) => (
           <VideoCard
             key={video.id}
@@ -172,6 +175,6 @@ export default function VideoFeed() {
       </div>
       <CommentsDrawer isOpen={commentsOpen} onClose={() => setCommentsOpen(false)} commentCount={commentCount} videoId={commentVideoId} />
       <GamificationPanel isOpen={gamificationOpen} onClose={() => setGamificationOpen(false)} />
-    </>
+    </div>
   );
 }

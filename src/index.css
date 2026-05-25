@@ -61,12 +61,27 @@
   * {
     @apply border-border;
   }
+  html {
+    height: 100%;
+    background: hsl(var(--background));
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+  #root {
+    min-height: 100%;
+    isolation: isolate;
+  }
   body {
     @apply bg-background text-foreground;
     font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     scrollbar-width: none;
+    min-height: 100%;
+    margin: 0;
+    overflow-x: hidden;
+    overscroll-behavior-y: contain;
+    touch-action: manipulation;
   }
   body::-webkit-scrollbar {
     display: none;
@@ -107,6 +122,42 @@
   .pulse-glow {
     box-shadow: var(--pulse-glow);
     animation: pulseGlow 1s ease-in-out infinite alternate;
+  }
+  .app-vh {
+    min-height: 100svh;
+    min-height: 100dvh;
+  }
+  .safe-x {
+    padding-left: max(1rem, env(safe-area-inset-left));
+    padding-right: max(1rem, env(safe-area-inset-right));
+  }
+  .safe-bottom {
+    padding-bottom: max(1rem, env(safe-area-inset-bottom));
+  }
+}
+
+@supports (-webkit-touch-callout: none) {
+  input,
+  textarea,
+  select {
+    font-size: 16px;
+  }
+}
+
+@media (display-mode: standalone), (display-mode: fullscreen) {
+  body {
+    overscroll-behavior: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
   }
 }
 

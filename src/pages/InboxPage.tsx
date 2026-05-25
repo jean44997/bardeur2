@@ -4,6 +4,7 @@ import { motion } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
+import { decryptMessageContent, isEncryptedContent } from "@/lib/messageCrypto";
 
 interface Conversation {
   id: string;
@@ -24,6 +25,16 @@ export default function InboxPage() {
 
   useEffect(() => {
     if (user) fetchConversations();
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) return;
+    const channel = supabase
+      .channel(`inbox-${user.id}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "messages" }, () => fetchConversations())
+      .on("postgres_changes", { event: "*", schema: "public", table: "conversation_participants", filter: `user_id=eq.${user.id}` }, () => fetchConversations())
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
   }, [user]);
 
   const fetchConversations = async () => {
@@ -63,6 +74,10 @@ export default function InboxPage() {
         .limit(1);
 
       const lastMsg = msgs?.[0];
+      const lastContent = lastMsg?.content || "";
+      const readableLastMessage = isEncryptedContent(lastContent)
+        ? await decryptMessageContent(lastContent, convId)
+        : lastContent;
 
       // Count unread
       const { count } = await supabase
@@ -76,7 +91,7 @@ export default function InboxPage() {
         id: convId,
         name: (otherUser as any)?.profiles?.display_name || "Utilisateur",
         avatar: (otherUser as any)?.profiles?.display_name?.[0] || "?",
-        lastMessage: lastMsg?.content || "Aucun message",
+        lastMessage: readableLastMessage || "Aucun message",
         time: lastMsg ? getTimeAgo(lastMsg.created_at) : "",
         unread: count || 0,
         online: false,

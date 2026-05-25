@@ -71,7 +71,7 @@ export default function ExplorePage() {
 
   return (
     <div className="min-h-[100svh] bg-background pb-20 md:pb-8 md:pl-[var(--sidebar-width,260px)]">
-      <div className="mx-auto max-w-2xl px-4 pt-6">
+      <div className="mx-auto max-w-3xl px-4 pt-[max(1.5rem,env(safe-area-inset-top))]">
         <div className="glass flex items-center gap-3 rounded-2xl px-4 py-3 mb-4">
           <Search className="h-5 w-5 text-muted-foreground" />
           <input type="text" placeholder="Rechercher utilisateurs, hashtags..." value={query} onChange={e => setQuery(e.target.value)} className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none" />
@@ -139,16 +139,16 @@ export default function ExplorePage() {
             </div>
 
             <h2 className="text-lg font-bold text-foreground mb-3">📹 {activeCategory ? `#${activeCategory}` : "Vidéos populaires"}</h2>
-            <div className="grid grid-cols-3 gap-1">
+            <div className="grid grid-cols-3 gap-1 sm:gap-2">
               {videos.length === 0 ? (
                 <div className="col-span-3 text-center py-8">
                   <p className="text-sm text-muted-foreground">Aucune vidéo {activeCategory ? `avec #${activeCategory}` : ""}</p>
                 </div>
               ) : (
                 videos.map(v => (
-                  <motion.div key={v.id} whileTap={{ scale: 0.97 }} className="aspect-[9/16] rounded-lg bg-card flex items-center justify-center cursor-pointer overflow-hidden">
-                    {v.thumbnail_url ? <img src={v.thumbnail_url} className="h-full w-full object-cover" /> : <span className="text-2xl opacity-20">▶</span>}
-                  </motion.div>
+                  <motion.button key={v.id} whileTap={{ scale: 0.97 }} onClick={() => navigate(`/?video=${v.id}`)} className="aspect-[9/16] rounded-lg bg-card flex items-center justify-center cursor-pointer overflow-hidden text-left">
+                    {v.thumbnail_url ? <img src={v.thumbnail_url} className="h-full w-full object-cover" loading="lazy" alt="" /> : <span className="text-2xl opacity-20">▶</span>}
+                  </motion.button>
                 ))
               )}
             </div>

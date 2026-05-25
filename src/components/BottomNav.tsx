@@ -9,15 +9,15 @@ export default function BottomNav() {
   const { user } = useAuth();
 
   const navItems = [
-    { path: "/", icon: Home, label: "Accueil" },
-    { path: "/explore", icon: Search, label: "Explorer" },
-    { path: "/create", icon: Plus, label: "", isCreate: true },
-    { path: "/lives", icon: Radio, label: "Lives" },
-    { path: "/profile", icon: User, label: "Profil" },
+    { path: "/", icon: Home, label: "Accueil", requiresAuth: false },
+    { path: "/explore", icon: Search, label: "Explorer", requiresAuth: false },
+    { path: "/create", icon: Plus, label: "", isCreate: true, requiresAuth: true },
+    { path: "/lives", icon: Radio, label: "Lives", requiresAuth: false },
+    { path: "/profile", icon: User, label: "Profil", requiresAuth: true },
   ];
 
-  const handleNav = (path: string) => {
-    if (path !== "/" && !user) {
+  const handleNav = (path: string, requiresAuth?: boolean) => {
+    if (requiresAuth && !user) {
       navigate("/auth");
       return;
     }
@@ -31,13 +31,13 @@ export default function BottomNav() {
           const active = location.pathname === item.path;
           if (item.isCreate) {
             return (
-              <motion.button key={item.path} whileTap={{ scale: 0.9 }} onClick={() => handleNav(item.path)} className="relative flex h-10 w-12 items-center justify-center rounded-lg gradient-primary pulse-glow">
+              <motion.button key={item.path} whileTap={{ scale: 0.9 }} onClick={() => handleNav(item.path, item.requiresAuth)} className="relative flex h-10 w-12 items-center justify-center rounded-lg gradient-primary pulse-glow">
                 <Plus className="h-6 w-6 text-primary-foreground" strokeWidth={2.5} />
               </motion.button>
             );
           }
           return (
-            <motion.button key={item.path} whileTap={{ scale: 0.9 }} onClick={() => handleNav(item.path)} className="flex flex-col items-center gap-0.5">
+            <motion.button key={item.path} whileTap={{ scale: 0.9 }} onClick={() => handleNav(item.path, item.requiresAuth)} className="flex flex-col items-center gap-0.5">
               <item.icon className={`h-6 w-6 transition-colors ${active ? "text-foreground" : "text-muted-foreground"}`} strokeWidth={active ? 2.5 : 2} />
               <span className={`text-[10px] font-medium ${active ? "text-foreground" : "text-muted-foreground"}`}>{item.label}</span>
             </motion.button>

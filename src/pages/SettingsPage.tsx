@@ -83,6 +83,11 @@ export default function SettingsPage() {
     await updateProfile({ [key]: value } as any);
   };
 
+  const updateNotificationSound = async (sound: "pop" | "soft" | "none") => {
+    await updateProfile({ notification_sound: sound } as any);
+    toast.success(sound === "none" ? "Sons personnalisés désactivés" : `Son ${sound} activé`);
+  };
+
   const handlePasswordChange = async () => {
     if (newPassword !== confirmNewPassword) {
       toast.error("Les mots de passe ne correspondent pas");
@@ -290,8 +295,21 @@ export default function SettingsPage() {
           <div className="glass rounded-2xl overflow-hidden">
             <SettingItem icon={<Bell className="h-4 w-4 text-primary" />} label="Notifications dans l'app" toggle value={profile?.push_notifications} onToggle={v => handleToggle("push_notifications", v)} />
             <SettingItem icon={<Bell className="h-4 w-4 text-muted-foreground" />} label="Sons et vibrations" toggle value={profile?.sound_notifications} onToggle={v => handleToggle("sound_notifications", v)} />
+            <SettingItem icon={<Bell className="h-4 w-4 text-primary" />} label="Messages" description="Alertes de conversations et vocaux" toggle value={profile?.notify_messages !== false} onToggle={v => handleToggle("notify_messages", v)} />
+            <SettingItem icon={<Bell className="h-4 w-4 text-primary" />} label="J'aime et favoris" toggle value={profile?.notify_likes !== false} onToggle={v => handleToggle("notify_likes", v)} />
+            <SettingItem icon={<Bell className="h-4 w-4 text-primary" />} label="Commentaires" toggle value={profile?.notify_comments !== false} onToggle={v => handleToggle("notify_comments", v)} />
+            <SettingItem icon={<Bell className="h-4 w-4 text-primary" />} label="Abonnements" toggle value={profile?.notify_follows !== false} onToggle={v => handleToggle("notify_follows", v)} />
+            <SettingItem icon={<Bell className="h-4 w-4 text-primary" />} label="Partages et mentions" toggle value={profile?.notify_shares !== false && profile?.notify_mentions !== false} onToggle={v => { handleToggle("notify_shares", v); handleToggle("notify_mentions", v); }} />
+            <SettingItem icon={<Bell className="h-4 w-4 text-muted-foreground" />} label="Ne pas déranger 22h-08h" description="Coupe les sons et notifications navigateur pendant la nuit" toggle value={profile?.notification_quiet_hours_enabled === true} onToggle={v => handleToggle("notification_quiet_hours_enabled", v)} />
             <SettingItem icon={<Bell className="h-4 w-4 text-primary" />} label={`Autorisation navigateur : ${notificationPermission}`} description="Active les permissions système pour recevoir les alertes" onClick={requestNotificationPermission} />
             <SettingItem icon={<Bell className="h-4 w-4 text-accent" />} label="Tester la vibration" onClick={testVibration} />
+          </div>
+          <div className="mt-2 grid grid-cols-3 gap-2">
+            {(["pop", "soft", "none"] as const).map(sound => (
+              <button key={sound} onClick={() => updateNotificationSound(sound)} className={`rounded-xl px-3 py-2 text-xs font-bold ${((profile as any)?.notification_sound || "pop") === sound ? "gradient-primary text-primary-foreground" : "glass text-foreground"}`}>
+                {sound === "none" ? "Silence" : sound === "soft" ? "Doux" : "Pop"}
+              </button>
+            ))}
           </div>
         </div>
 

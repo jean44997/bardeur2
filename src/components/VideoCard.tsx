@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Heart, MessageCircle, Share2, Bookmark, Music, Volume2, VolumeX,
   BadgeCheck, Trophy, Download, Gauge, SkipForward, Flag, Link2,
-  Copy, X
+  Play, Pause, X
 } from "lucide-react";
 import { VideoData, formatCount } from "@/data/mockVideos";
 import { supabase } from "@/integrations/supabase/client";
@@ -58,6 +58,8 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
   const singleTapTimer = useRef<number | null>(null);
   const actionCooldowns = useRef<Record<string, number>>({});
   const longPressTimer = useRef<NodeJS.Timeout | null>(null);
+  const pointerStartRef = useRef<{ x: number; y: number; moved: boolean } | null>(null);
+  const longPressTriggeredRef = useRef(false);
 
   const allowAction = (key: string, cooldown = 450) => {
     const now = Date.now();
@@ -124,8 +126,26 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
     return () => v.removeEventListener("timeupdate", update);
   }, [isActive]);
 
+  const togglePlayback = useCallback(() => {
+    const v = videoRef.current;
+    if (!v || !isActive) return;
+
+    if (v.paused) {
+      setPausedByUser(false);
+      v.play().catch(() => {});
+    } else {
+      setPausedByUser(true);
+      v.pause();
+    }
+  }, [isActive]);
+
   const handleTap = useCallback(
     (e: React.PointerEvent<HTMLVideoElement>) => {
+      if (pointerStartRef.current?.moved || longPressTriggeredRef.current) {
+        longPressTriggeredRef.current = false;
+        return;
+      }
+
       const now = Date.now();
       const isDouble = now - lastTapRef.current < 350;
       lastTapRef.current = now;
@@ -150,14 +170,11 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
         singleTapTimer.current = null;
         if (Date.now() - lastTapRef.current < 350) return; // a second tap arrived → handled above
         if (!allowAction("pause", 500)) return;
-        const v = videoRef.current;
-        if (!v || !isActive) return;
-        if (v.paused) { setPausedByUser(false); v.play().catch(() => {}); }
-        else { setPausedByUser(true); v.pause(); }
+        togglePlayback();
       }, 320);
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [liked, isActive]
+    [liked, isActive, togglePlayback]
   );
 
   const removeHeart = useCallback((id: string) => {
@@ -238,16 +255,49 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
     setShowLongPress(false);
   };
 
-  const handleLongPressStart = () => {
-    if (longPressTimer.current) clearTimeout(longPressTimer.current);
-    longPressTimer.current = setTimeout(() => {
-      if (playedEnough || (videoRef.current?.currentTime || 0) >= 8) setShowLongPress(true);
-      else toast.info("Options disponibles après 8 secondes de lecture");
-    }, 8000);
+  const handleReportVideo = async () => {
+    if (!user) { toast.error("Connecte-toi pour signaler"); return; }
+    const { error } = await supabase.from("reports").insert({
+      reporter_id: user.id,
+      reported_user_id: video.user.id,
+      video_id: video.id,
+      type: "video",
+      reason: "Signalement depuis le feed",
+      status: "pending",
+    });
+    if (error) toast.error("Signalement impossible");
+    else toast.success("Signalement envoyé");
+    setShowLongPress(false);
   };
 
-  const handleLongPressEnd = () => {
+  const handlePointerDown = (e: React.PointerEvent<HTMLVideoElement>) => {
     if (longPressTimer.current) clearTimeout(longPressTimer.current);
+    pointerStartRef.current = { x: e.clientX, y: e.clientY, moved: false };
+    longPressTriggeredRef.current = false;
+    longPressTimer.current = setTimeout(() => {
+      longPressTriggeredRef.current = true;
+      if (videoRef.current && !videoRef.current.paused) {
+        videoRef.current.pause();
+        setPausedByUser(true);
+      }
+      if (navigator.vibrate) navigator.vibrate(18);
+      setShowLongPress(true);
+    }, 650);
+  };
+
+  const handlePointerMove = (e: React.PointerEvent<HTMLVideoElement>) => {
+    const start = pointerStartRef.current;
+    if (!start) return;
+    if (Math.abs(e.clientX - start.x) > 18 || Math.abs(e.clientY - start.y) > 18) {
+      start.moved = true;
+      if (longPressTimer.current) clearTimeout(longPressTimer.current);
+    }
+  };
+
+  const handlePointerEnd = (e: React.PointerEvent<HTMLVideoElement>) => {
+    if (longPressTimer.current) clearTimeout(longPressTimer.current);
+    handleTap(e);
+    pointerStartRef.current = null;
   };
 
   const changeSpeed = (rate: number) => {
@@ -258,7 +308,7 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
   };
 
   return (
-    <div className="relative h-[100svh] w-full snap-start overflow-hidden bg-background touch-manipulation select-none">
+    <div className="relative h-[100svh] w-full snap-start overflow-hidden bg-background touch-manipulation select-none md:h-[calc(100dvh-2rem)] md:max-h-[900px] md:rounded-[24px] md:border md:border-border/60 md:shadow-2xl md:shadow-black/40">
       <video
         ref={videoRef}
         src={video.url}
@@ -270,16 +320,17 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
         disablePictureInPicture
         controlsList="nodownload noplaybackrate"
         onContextMenu={(e) => e.preventDefault()}
-        onPointerUp={handleTap}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerCancel={() => {
+          if (longPressTimer.current) clearTimeout(longPressTimer.current);
+          pointerStartRef.current = null;
+        }}
+        onPointerUp={handlePointerEnd}
         onProgress={(e) => {
           const v = e.currentTarget;
           if (v.duration && v.buffered.length) setBuffered((v.buffered.end(v.buffered.length - 1) / v.duration) * 100);
         }}
-        onTouchEnd={handleLongPressEnd}
-        onMouseDown={handleLongPressStart}
-        onMouseUp={handleLongPressEnd}
-        onTouchStart={handleLongPressStart}
-        onTouchCancel={handleLongPressEnd}
       />
 
       <AnimatePresence>
@@ -291,12 +342,21 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
       <div className="gradient-overlay absolute inset-x-0 bottom-0 h-[45%] pointer-events-none" />
 
       {/* Progress Bar */}
-      <div className="absolute bottom-0 left-0 right-0 h-[3px] bg-foreground/10 z-30">
+      <div className="absolute bottom-[calc(4rem+env(safe-area-inset-bottom))] left-0 right-0 z-30 h-[3px] bg-foreground/10 md:bottom-0">
         <div className="absolute inset-y-0 left-0 bg-foreground/25" style={{ width: `${buffered}%` }} />
         <motion.div className="h-full gradient-primary" style={{ width: `${progress}%` }} transition={{ duration: 0.1 }} />
       </div>
 
-      {pausedByUser && isActive && <div className="absolute inset-0 z-10 grid place-items-center pointer-events-none"><div className="glass rounded-full px-4 py-2 text-xs font-bold text-foreground">Pause</div></div>}
+      {isActive && (
+        <button
+          type="button"
+          onClick={togglePlayback}
+          className={`absolute left-1/2 top-1/2 z-10 grid h-16 w-16 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full bg-background/45 text-foreground backdrop-blur-sm transition-opacity ${pausedByUser ? "opacity-100" : "pointer-events-none opacity-0"}`}
+          aria-label={pausedByUser ? "Reprendre la lecture" : "Mettre en pause"}
+        >
+          {pausedByUser ? <Play className="h-8 w-8 fill-current" /> : <Pause className="h-8 w-8" />}
+        </button>
+      )}
 
       {/* Speed indicator */}
       {playbackRate !== 1 && (
@@ -306,7 +366,7 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
       )}
 
       {/* Bottom Info */}
-      <div className="absolute bottom-4 left-4 right-20 z-20 text-shadow-video">
+      <div className="absolute bottom-[calc(4.8rem+env(safe-area-inset-bottom))] left-4 right-20 z-20 text-shadow-video md:bottom-5">
         <div className="flex items-center gap-2 mb-2">
           <div className="h-10 w-10 rounded-full gradient-primary flex items-center justify-center text-sm font-bold text-primary-foreground overflow-hidden">
             {video.user.avatar ? (
@@ -330,7 +390,7 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
           </motion.button>
         </div>
 
-        <p className="text-sm text-foreground/90 mb-1.5 line-clamp-2">{video.description}</p>
+        <p className="mb-1.5 line-clamp-3 text-[13px] leading-snug text-foreground/90 sm:text-sm">{video.description}</p>
 
         <div className="flex flex-wrap gap-1 mb-2">
           {video.hashtags.map((tag) => (
@@ -345,7 +405,7 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
       </div>
 
       {/* Right Action Bar */}
-      <div className="absolute right-3 bottom-28 z-20 flex flex-col items-center gap-5">
+      <div className="absolute right-3 bottom-[calc(9rem+env(safe-area-inset-bottom))] z-20 flex flex-col items-center gap-4 md:bottom-8 md:gap-5">
         <ActionButton
           icon={<Heart className={`h-7 w-7 ${liked ? "fill-primary text-primary" : "text-foreground"}`} />}
           label={formatCount(likeCount)}
@@ -406,7 +466,7 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
                 <LongPressOption icon={<Gauge className="h-5 w-5" />} label="2x" onClick={() => changeSpeed(2)} />
                 <LongPressOption icon={<SkipForward className="h-5 w-5" />} label="3x" onClick={() => changeSpeed(3)} />
                 <LongPressOption icon={<Link2 className="h-5 w-5" />} label="Copier lien" onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/video/${video.id}`); toast.success("Lien copié"); setShowLongPress(false); }} />
-                <LongPressOption icon={<Flag className="h-5 w-5" />} label="Signaler" onClick={() => { toast.info("Signalement envoyé"); setShowLongPress(false); }} />
+                <LongPressOption icon={<Flag className="h-5 w-5" />} label="Signaler" onClick={handleReportVideo} />
               </div>
             </motion.div>
           </motion.div>

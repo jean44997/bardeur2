@@ -4,6 +4,8 @@ import { X, Heart, Send, Smile, Sticker } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
+import { checkClientRateLimit, formatRetryAfter } from "@/lib/clientRateLimit";
+import { validateUserText } from "@/lib/contentSafety";
 
 interface Comment {
   id: string;
@@ -82,10 +84,14 @@ export default function CommentsDrawer({ isOpen, onClose, commentCount, videoId 
       if (!user) toast.error("Connecte-toi pour commenter");
       return;
     }
+    const rate = checkClientRateLimit({ key: `comment:${videoId}:${user.id}`, limit: 8, windowMs: 60_000, cooldownMs: 1200, blockMs: 45_000 });
+    if (!rate.allowed) { toast.error(`Commentaires ralentis, réessaie dans ${formatRetryAfter(rate.retryAfterMs)}`); return; }
+    const validation = validateUserText(newComment, { maxLength: 280, allowLinks: false });
+    if (!validation.ok) { toast.error(validation.reason || "Commentaire refusé"); return; }
     const { error } = await supabase.from("comments").insert({
       user_id: user.id,
       video_id: videoId,
-      content: newComment.trim(),
+      content: validation.value,
     });
     if (error) { toast.error("Erreur lors de l'envoi"); return; }
     setNewComment("");
@@ -171,6 +177,7 @@ export default function CommentsDrawer({ isOpen, onClose, commentCount, videoId 
                     value={newComment}
                     onChange={e => setNewComment(e.target.value)}
                     onKeyDown={e => e.key === "Enter" && addComment()}
+                    maxLength={280}
                     placeholder={user ? "Ajouter un commentaire..." : "Connecte-toi pour commenter"}
                     disabled={!user}
                     className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none disabled:opacity-50"

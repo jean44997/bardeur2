@@ -1,12 +1,15 @@
 import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowLeft, Send, Smile, Image as ImageIcon, Mic, MicOff, Phone, Video, Check, CheckCheck, Square, Trash2 } from "lucide-react";
+import { ArrowLeft, Send, Smile, Image as ImageIcon, Mic, MicOff, Phone, Video, Check, CheckCheck, Square, Trash2, MoreVertical, Flag, Ban } from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
 import AudioBubble from "@/components/AudioBubble";
 import { getBestAudioRecorderOptions } from "@/lib/mediaCapabilities";
+import { checkClientRateLimit, formatRetryAfter } from "@/lib/clientRateLimit";
+import { looksLikeRepeatedSpam, validateUploadFile, validateUserText } from "@/lib/contentSafety";
+import { decryptMessageContent, encryptMessageContent, isEncryptedContent } from "@/lib/messageCrypto";
 
 interface Message {
   id: string;
@@ -32,12 +35,17 @@ export default function ChatPage() {
   const [uploadingImage, setUploadingImage] = useState(false);
   const [isRecordingAudio, setIsRecordingAudio] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
+  const [otherUserId, setOtherUserId] = useState<string | null>(null);
+  const [isBlocked, setIsBlocked] = useState(false);
+  const [blockedByThem, setBlockedByThem] = useState(false);
+  const [showSafetyMenu, setShowSafetyMenu] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const audioRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const audioStreamRef = useRef<MediaStream | null>(null);
   const cancelledAudioRef = useRef(false);
+  const recentTextRef = useRef<string[]>([]);
 
   useEffect(() => {
     if (conversationId && user) {
@@ -68,28 +76,54 @@ export default function ChatPage() {
     return () => clearInterval(interval);
   }, [isRecordingAudio]);
 
-  const mapMessage = (m: any): Message => ({
-    id: m.id,
-    text: m.content || "",
-    fromMe: m.sender_id === user?.id,
-    time: new Date(m.created_at).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }),
-    status: m.is_read ? "read" : "delivered",
-    mediaUrl: m.media_url || undefined,
-    mediaType: m.media_type || undefined,
-  });
+  useEffect(() => {
+    if (isRecordingAudio && recordingTime >= 60) {
+      stopAudioRecording();
+      toast.info("Vocal limité à 60 secondes");
+    }
+  }, [isRecordingAudio, recordingTime]);
+
+  const mapMessage = async (m: any): Promise<Message> => {
+    const content = m.content || "";
+    return {
+      id: m.id,
+      text: isEncryptedContent(content) && conversationId ? await decryptMessageContent(content, conversationId) : content,
+      fromMe: m.sender_id === user?.id,
+      time: new Date(m.created_at).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }),
+      status: m.is_read ? "read" : "delivered",
+      mediaUrl: m.media_url || undefined,
+      mediaType: m.media_type || undefined,
+    };
+  };
 
   const fetchMessages = async () => {
     if (!conversationId) return;
     setLoading(true);
     const { data } = await supabase.from("messages").select("*").eq("conversation_id", conversationId).order("created_at", { ascending: true });
-    if (data) setMessages(data.map(mapMessage));
+    if (data) setMessages(await Promise.all(data.map(mapMessage)));
     setLoading(false);
   };
 
   const fetchOtherUser = async () => {
     if (!conversationId || !user) return;
-    const { data } = await supabase.from("conversation_participants").select("profiles:user_id(display_name)").eq("conversation_id", conversationId).neq("user_id", user.id);
-    if (data?.[0]) setOtherUserName((data[0] as any).profiles?.display_name || "Utilisateur");
+    const { data } = await supabase.from("conversation_participants").select("user_id, profiles:user_id(display_name)").eq("conversation_id", conversationId).neq("user_id", user.id);
+    if (data?.[0]) {
+      const targetId = (data[0] as any).user_id;
+      setOtherUserId(targetId);
+      setOtherUserName((data[0] as any).profiles?.display_name || "Utilisateur");
+      checkBlockStatus(targetId);
+    }
+  };
+
+  const checkBlockStatus = async (targetId = otherUserId) => {
+    if (!user || !targetId) return;
+    const { data } = await (supabase as any)
+      .from("user_blocks")
+      .select("blocker_id, blocked_id")
+      .or(`and(blocker_id.eq.${user.id},blocked_id.eq.${targetId}),and(blocker_id.eq.${targetId},blocked_id.eq.${user.id})`);
+    const blocks = data || [];
+    setIsBlocked(blocks.some((b: any) => b.blocker_id === user.id));
+    setBlockedByThem(blocks.some((b: any) => b.blocker_id === targetId));
   };
 
   const markAsRead = async () => {
@@ -101,13 +135,53 @@ export default function ChatPage() {
   };
 
   const sendMessage = async () => {
-    if (!newMsg.trim() || !user || !conversationId) return;
-    await supabase.from("messages").insert({ conversation_id: conversationId, sender_id: user.id, content: newMsg.trim() });
+    if (!newMsg.trim() || !user || !conversationId || isBlocked || blockedByThem) return;
+
+    const rate = checkClientRateLimit({
+      key: `chat:${conversationId}:${user.id}`,
+      limit: 12,
+      windowMs: 60_000,
+      cooldownMs: 600,
+      blockMs: 30_000,
+    });
+    if (!rate.allowed) {
+      toast.error(`Trop rapide, réessaie dans ${formatRetryAfter(rate.retryAfterMs)}`);
+      return;
+    }
+
+    const validation = validateUserText(newMsg, { maxLength: 500, allowLinks: false });
+    if (!validation.ok) {
+      toast.error(validation.reason || "Message refusé");
+      return;
+    }
+    if (looksLikeRepeatedSpam(validation.value, recentTextRef.current)) {
+      toast.error("Message répété bloqué");
+      return;
+    }
+
+    const encryptedContent = await encryptMessageContent(validation.value, conversationId);
+    const { error } = await (supabase as any).from("messages").insert({
+      conversation_id: conversationId,
+      sender_id: user.id,
+      content: encryptedContent,
+      encrypted_content: encryptedContent !== validation.value,
+      content_version: encryptedContent !== validation.value ? "bdenc_v1" : "plain",
+    });
+    if (error) {
+      toast.error(error.message?.includes("rate") ? "Rate-limit serveur atteint" : "Message impossible");
+      return;
+    }
+
+    recentTextRef.current = [validation.value, ...recentTextRef.current].slice(0, 6);
     setNewMsg("");
   };
 
   const sendImage = async (file?: File | null) => {
     if (!file || !user || !conversationId) return;
+    const fileCheck = validateUploadFile(file, { maxBytes: 8 * 1024 * 1024, acceptedPrefixes: ["image/"] });
+    if (!fileCheck.ok) { toast.error(fileCheck.reason); return; }
+    const rate = checkClientRateLimit({ key: `chat-media:${conversationId}:${user.id}`, limit: 6, windowMs: 60_000, blockMs: 45_000 });
+    if (!rate.allowed) { toast.error(`Upload ralenti, réessaie dans ${formatRetryAfter(rate.retryAfterMs)}`); return; }
     setUploadingImage(true);
     try {
       const ext = file.name.split(".").pop();
@@ -115,13 +189,16 @@ export default function ChatPage() {
       const { error: uploadError } = await supabase.storage.from("media").upload(path, file, { contentType: file.type });
       if (uploadError) throw uploadError;
       const { data } = supabase.storage.from("media").getPublicUrl(path);
-      await supabase.from("messages").insert({ conversation_id: conversationId, sender_id: user.id, content: "", media_url: data.publicUrl, media_type: file.type || "image/*" });
+      await (supabase as any).from("messages").insert({ conversation_id: conversationId, sender_id: user.id, content: "", media_url: data.publicUrl, media_type: file.type || "image/*", content_version: "plain" });
       toast.success("Image envoyée");
     } catch { toast.error("Impossible d'envoyer l'image"); }
     finally { setUploadingImage(false); if (imageInputRef.current) imageInputRef.current.value = ""; }
   };
 
   const startAudioRecording = async () => {
+    if (!user || !conversationId || isBlocked || blockedByThem) return;
+    const rate = checkClientRateLimit({ key: `chat-audio:${conversationId}:${user.id}`, limit: 5, windowMs: 60_000, blockMs: 45_000 });
+    if (!rate.allowed) { toast.error(`Vocaux ralentis, réessaie dans ${formatRetryAfter(rate.retryAfterMs)}`); return; }
     try {
       const recorderOptions = getBestAudioRecorderOptions(160000);
       const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, sampleRate: 48000, channelCount: 1 } });
@@ -165,15 +242,43 @@ export default function ChatPage() {
       const { error: uploadError } = await supabase.storage.from("media").upload(path, blob, { contentType });
       if (uploadError) throw uploadError;
       const { data } = supabase.storage.from("media").getPublicUrl(path);
-      await supabase.from("messages").insert({ conversation_id: conversationId, sender_id: user.id, content: "🎤 Message vocal", media_url: data.publicUrl, media_type: contentType });
+      await (supabase as any).from("messages").insert({ conversation_id: conversationId, sender_id: user.id, content: "🎤 Message vocal", media_url: data.publicUrl, media_type: contentType, content_version: "plain" });
       toast.success("Vocal envoyé 🎤");
     } catch { toast.error("Erreur envoi vocal"); }
   };
 
   const deleteMessage = async (msgId: string) => {
-    // Can only update own messages content
-    await supabase.from("messages").update({ content: "Message supprimé" }).eq("id", msgId);
+    if (!user) return;
+    await supabase.from("messages").update({ content: "Message supprimé", content_version: "plain" } as any).eq("id", msgId).eq("sender_id", user.id);
     fetchMessages();
+  };
+
+  const toggleBlockUser = async () => {
+    if (!user || !otherUserId) return;
+    if (isBlocked) {
+      await (supabase as any).from("user_blocks").delete().eq("blocker_id", user.id).eq("blocked_id", otherUserId);
+      setIsBlocked(false);
+      toast.success("Utilisateur débloqué");
+    } else {
+      await (supabase as any).from("user_blocks").insert({ blocker_id: user.id, blocked_id: otherUserId, reason: "Bloqué depuis le chat" });
+      setIsBlocked(true);
+      toast.success("Utilisateur bloqué");
+    }
+    setShowSafetyMenu(false);
+  };
+
+  const reportConversation = async () => {
+    if (!user || !otherUserId) return;
+    const { error } = await supabase.from("reports").insert({
+      reporter_id: user.id,
+      reported_user_id: otherUserId,
+      type: "message",
+      reason: "Signalement depuis une conversation privée",
+      status: "pending",
+    });
+    if (error) toast.error("Signalement impossible");
+    else toast.success("Signalement envoyé");
+    setShowSafetyMenu(false);
   };
 
   const StatusIcon = ({ status }: { status: string }) => {
@@ -186,7 +291,7 @@ export default function ChatPage() {
 
   return (
     <div className="flex flex-col h-[100svh] bg-background md:pl-[var(--sidebar-width,260px)]">
-      <div className="glass border-b border-border px-4 py-3 flex items-center gap-3 z-10">
+      <div className="glass border-b border-border px-4 py-3 pt-[max(0.75rem,env(safe-area-inset-top))] flex items-center gap-3 z-10">
         <motion.button whileTap={{ scale: 0.9 }} onClick={() => navigate("/inbox")}>
           <ArrowLeft className="h-5 w-5 text-foreground" />
         </motion.button>
@@ -195,6 +300,9 @@ export default function ChatPage() {
         </div>
         <div className="flex-1">
           <span className="text-sm font-semibold text-foreground">{otherUserName}</span>
+          {(isBlocked || blockedByThem) && (
+            <p className="text-[11px] text-destructive">{isBlocked ? "Bloqué par toi" : "Messages bloqués"}</p>
+          )}
         </div>
         <div className="flex items-center gap-3">
           <motion.button whileTap={{ scale: 0.9 }} onClick={() => toast.info("Appels bientôt disponibles")}>
@@ -203,8 +311,26 @@ export default function ChatPage() {
           <motion.button whileTap={{ scale: 0.9 }} onClick={() => toast.info("Appels vidéo bientôt disponibles")}>
             <Video className="h-5 w-5 text-muted-foreground" />
           </motion.button>
+          <motion.button whileTap={{ scale: 0.9 }} onClick={() => setShowSafetyMenu(p => !p)} aria-label="Options sécurité">
+            <MoreVertical className="h-5 w-5 text-muted-foreground" />
+          </motion.button>
         </div>
       </div>
+
+      <AnimatePresence>
+        {showSafetyMenu && (
+          <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="z-10 overflow-hidden border-b border-border bg-card/95 px-4 py-3">
+            <div className="mx-auto grid max-w-lg grid-cols-2 gap-2">
+              <button onClick={reportConversation} className="flex items-center justify-center gap-2 rounded-xl bg-destructive/15 px-3 py-2 text-xs font-semibold text-destructive">
+                <Flag className="h-4 w-4" /> Signaler
+              </button>
+              <button onClick={toggleBlockUser} className="flex items-center justify-center gap-2 rounded-xl bg-card px-3 py-2 text-xs font-semibold text-foreground">
+                <Ban className="h-4 w-4" /> {isBlocked ? "Débloquer" : "Bloquer"}
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <div className="flex-1 overflow-y-auto no-scrollbar px-4 py-4 space-y-3">
         {loading ? (
@@ -259,6 +385,12 @@ export default function ChatPage() {
       <div className="border-t border-border px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
         <input ref={imageInputRef} type="file" accept="image/*" className="hidden" onChange={e => sendImage(e.target.files?.[0])} />
 
+        {(isBlocked || blockedByThem) && (
+          <div className="mb-3 rounded-xl bg-destructive/10 px-3 py-2 text-center text-xs font-medium text-destructive">
+            {isBlocked ? "Tu as bloqué cette conversation. Débloque pour réécrire." : "Cette conversation ne peut plus recevoir de messages."}
+          </div>
+        )}
+
         {isRecordingAudio ? (
           <div className="flex items-center gap-3">
             <motion.button whileTap={{ scale: 0.9 }} onClick={cancelAudioRecording}>
@@ -278,18 +410,18 @@ export default function ChatPage() {
             <motion.button whileTap={{ scale: 0.9 }} onClick={() => setShowEmojis(p => !p)}>
               <Smile className="h-5 w-5 text-muted-foreground" />
             </motion.button>
-            <motion.button whileTap={{ scale: 0.9 }} onClick={() => imageInputRef.current?.click()} disabled={uploadingImage}>
+            <motion.button whileTap={{ scale: 0.9 }} onClick={() => imageInputRef.current?.click()} disabled={uploadingImage || isBlocked || blockedByThem}>
               <ImageIcon className="h-5 w-5 text-muted-foreground" />
             </motion.button>
             <div className="flex-1 glass rounded-full flex items-center px-4 py-2.5">
-              <input type="text" value={newMsg} onChange={e => setNewMsg(e.target.value)} onKeyDown={e => e.key === "Enter" && sendMessage()} placeholder="Message..." className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none" />
+              <input type="text" value={newMsg} onChange={e => setNewMsg(e.target.value)} onKeyDown={e => e.key === "Enter" && sendMessage()} placeholder={isBlocked || blockedByThem ? "Conversation bloquée" : "Message..."} disabled={isBlocked || blockedByThem} maxLength={500} className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none disabled:opacity-50" />
             </div>
             {newMsg.trim() ? (
-              <motion.button whileTap={{ scale: 0.85 }} onClick={sendMessage} className="rounded-full p-2.5 gradient-primary">
+              <motion.button whileTap={{ scale: 0.85 }} onClick={sendMessage} disabled={isBlocked || blockedByThem} className="rounded-full p-2.5 gradient-primary disabled:opacity-40">
                 <Send className="h-4 w-4 text-primary-foreground" />
               </motion.button>
             ) : (
-              <motion.button whileTap={{ scale: 0.85 }} onClick={startAudioRecording} className="rounded-full p-2.5 bg-secondary">
+              <motion.button whileTap={{ scale: 0.85 }} onClick={startAudioRecording} disabled={isBlocked || blockedByThem} className="rounded-full p-2.5 bg-secondary disabled:opacity-40">
                 <Mic className="h-4 w-4 text-muted-foreground" />
               </motion.button>
             )}

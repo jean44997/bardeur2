@@ -1,7 +1,7 @@
 import { Home, Plus, MessageCircle, User, Compass, Settings, Shield, ChevronLeft, ChevronRight, Bell, Radio } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import logo from "@/assets/logo.png";
 
@@ -20,13 +20,20 @@ export default function DesktopSidebar() {
   const [collapsed, setCollapsed] = useState(false);
   const { user, role } = useAuth();
 
+  useEffect(() => {
+    document.documentElement.style.setProperty("--sidebar-width", collapsed ? "72px" : "260px");
+    return () => {
+      document.documentElement.style.removeProperty("--sidebar-width");
+    };
+  }, [collapsed]);
+
   const bottomItems = [
     { path: "/settings", icon: Settings, label: "Paramètres", show: !!user },
     { path: "/admin", icon: Shield, label: "Admin", show: role === "super_admin" || role === "admin" },
   ].filter(i => i.show);
 
   return (
-    <aside className={`hidden md:flex fixed left-0 top-0 bottom-0 z-50 flex-col border-r border-border bg-sidebar transition-all duration-300 ${collapsed ? "w-[72px]" : "w-[260px]"}`} style={{ "--sidebar-width": collapsed ? "72px" : "260px" } as any}>
+    <aside className={`hidden md:flex fixed left-0 top-0 bottom-0 z-50 flex-col border-r border-border bg-sidebar transition-all duration-300 ${collapsed ? "w-[72px]" : "w-[260px]"}`}>
       <div className="flex items-center justify-between px-3 pt-4 pb-2 mb-2">
         <div className="flex items-center gap-2 overflow-hidden cursor-pointer" onClick={() => navigate("/")}>
           <img src={logo} alt="BARDEUR YK" className="h-9 w-9 rounded-lg object-contain flex-shrink-0" />

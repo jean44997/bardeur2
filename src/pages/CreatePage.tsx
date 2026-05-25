@@ -5,6 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
+import { sanitizeHashtags, validateUploadFile, validateUserText } from "@/lib/contentSafety";
 
 export default function CreatePage() {
   const { user } = useAuth();
@@ -26,6 +27,7 @@ export default function CreatePage() {
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
   const [cameraMode, setCameraMode] = useState<"photo" | "video">("video");
   const [effect, setEffect] = useState<"none" | "pop" | "cinema" | "mono">("none");
+  const [fileMeta, setFileMeta] = useState("");
 
   // 3D Canvas background animation
   useEffect(() => {
@@ -81,12 +83,20 @@ export default function CreatePage() {
     return () => { if (cameraStream) cameraStream.getTracks().forEach(t => t.stop()); };
   }, [cameraStream]);
 
+  useEffect(() => {
+    return () => {
+      if (preview) URL.revokeObjectURL(preview);
+    };
+  }, [preview]);
+
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (file.size > 100 * 1024 * 1024) { toast.error("Fichier trop volumineux (max 100MB)"); return; }
+    const fileCheck = validateUploadFile(file, { maxBytes: 100 * 1024 * 1024, acceptedPrefixes: ["video/", "image/"] });
+    if (!fileCheck.ok) { toast.error(fileCheck.reason); return; }
     setSelectedFile(file);
     setPreview(URL.createObjectURL(file));
+    setFileMeta(`${file.type || "fichier"} · ${(file.size / 1024 / 1024).toFixed(1)}MB`);
   };
 
   const openCamera = async () => {
@@ -116,6 +126,7 @@ export default function CreatePage() {
       const file = new File([blob], `photo_${Date.now()}.jpg`, { type: "image/jpeg" });
       setSelectedFile(file);
       setPreview(URL.createObjectURL(file));
+      setFileMeta("image/jpeg · capture mobile");
       closeCamera();
     }, "image/jpeg", 0.95);
   };
@@ -129,6 +140,7 @@ export default function CreatePage() {
       const blob = new Blob(chunksRef.current, { type: "video/webm" });
       setSelectedFile(new File([blob], `video_${Date.now()}.webm`, { type: "video/webm" }));
       setPreview(URL.createObjectURL(blob));
+      setFileMeta(`video/webm · ${(blob.size / 1024 / 1024).toFixed(1)}MB`);
       closeCamera();
     };
     mr.start();
@@ -147,6 +159,8 @@ export default function CreatePage() {
 
   const handleUpload = async () => {
     if (!selectedFile || !user) return;
+    const desc = validateUserText(description, { maxLength: 2200, minLength: 0, allowLinks: true });
+    if (!desc.ok) { toast.error(desc.reason); return; }
     setUploading(true);
     try {
       const ext = selectedFile.name.split(".").pop();
@@ -154,11 +168,11 @@ export default function CreatePage() {
       const { error: uploadError } = await supabase.storage.from("media").upload(path, selectedFile, { contentType: selectedFile.type });
       if (uploadError) throw uploadError;
       const { data: urlData } = supabase.storage.from("media").getPublicUrl(path);
-      const hashtagArray = hashtags.split(/[#,\s]+/).filter(Boolean).map(h => h.trim().toLowerCase());
+      const hashtagArray = sanitizeHashtags(hashtags);
       const { error: insertError } = await supabase.from("videos").insert({
         user_id: user.id,
         video_url: urlData.publicUrl,
-        description: description.trim(),
+        description: desc.value,
         hashtags: hashtagArray,
         sound_name: "Son original",
         sound_artist: user.user_metadata?.username || "",
@@ -169,6 +183,7 @@ export default function CreatePage() {
       toast.success("Publié ! 🎬");
       setSelectedFile(null);
       setPreview(null);
+      setFileMeta("");
       setDescription("");
       setHashtags("");
       navigate("/");
@@ -259,10 +274,11 @@ export default function CreatePage() {
           <div>
             <div className="glass rounded-2xl p-4 mb-4">
               {selectedFile.type.startsWith("video") ? (
-                <video src={preview!} className={`w-full max-h-60 rounded-xl object-contain bg-background ${effect === "pop" ? "saturate-150 contrast-125" : effect === "cinema" ? "contrast-125 brightness-90" : effect === "mono" ? "grayscale" : ""}`} controls />
+                <video src={preview!} className={`w-full max-h-[52svh] rounded-xl object-contain bg-background md:max-h-[60vh] ${effect === "pop" ? "saturate-150 contrast-125" : effect === "cinema" ? "contrast-125 brightness-90" : effect === "mono" ? "grayscale" : ""}`} controls preload="metadata" playsInline />
               ) : (
-                <img src={preview!} className={`w-full max-h-60 rounded-xl object-contain ${effect === "pop" ? "saturate-150 contrast-125" : effect === "cinema" ? "contrast-125 brightness-90" : effect === "mono" ? "grayscale" : ""}`} alt="Aperçu" />
+                <img src={preview!} className={`w-full max-h-[52svh] rounded-xl object-contain md:max-h-[60vh] ${effect === "pop" ? "saturate-150 contrast-125" : effect === "cinema" ? "contrast-125 brightness-90" : effect === "mono" ? "grayscale" : ""}`} alt="Aperçu" />
               )}
+              {fileMeta && <p className="mt-3 text-center text-[11px] text-muted-foreground">{fileMeta}</p>}
             </div>
             <div className="space-y-3 mb-4">
               <div className="grid grid-cols-4 gap-2">
@@ -272,8 +288,11 @@ export default function CreatePage() {
                   </button>
                 ))}
               </div>
-              <textarea value={description} onChange={e => setDescription(e.target.value)} placeholder="Ajoute une description... 📝" className="w-full glass rounded-xl px-4 py-3 bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none resize-none" rows={3} />
-              <input value={hashtags} onChange={e => setHashtags(e.target.value)} placeholder="#hashtags séparés par des espaces" className="w-full glass rounded-xl px-4 py-3 bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none" />
+              <div>
+                <textarea value={description} onChange={e => setDescription(e.target.value)} placeholder="Ajoute une description... 📝" maxLength={2200} className="w-full glass rounded-xl px-4 py-3 bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none resize-none" rows={3} />
+                <p className="mt-1 text-right text-[10px] text-muted-foreground tabular-nums">{description.length}/2200</p>
+              </div>
+              <input value={hashtags} onChange={e => setHashtags(e.target.value)} maxLength={160} placeholder="#hashtags séparés par des espaces" className="w-full glass rounded-xl px-4 py-3 bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none" />
               <motion.button whileTap={{ scale: 0.95 }} onClick={() => setCommentsEnabled(!commentsEnabled)} className="flex items-center gap-2 w-full glass rounded-xl px-4 py-3">
                 <div className={`h-5 w-5 rounded-full flex items-center justify-center ${commentsEnabled ? "bg-primary" : "bg-muted"}`}>
                   {commentsEnabled ? <span className="text-[10px] text-primary-foreground">✓</span> : <X className="h-3 w-3 text-muted-foreground" />}
@@ -282,7 +301,7 @@ export default function CreatePage() {
               </motion.button>
             </div>
             <div className="flex gap-2">
-              <motion.button whileTap={{ scale: 0.95 }} onClick={() => { setSelectedFile(null); setPreview(null); }} className="flex-1 glass rounded-xl py-3 text-sm font-semibold text-foreground">Annuler</motion.button>
+              <motion.button whileTap={{ scale: 0.95 }} onClick={() => { setSelectedFile(null); setPreview(null); setFileMeta(""); }} className="flex-1 glass rounded-xl py-3 text-sm font-semibold text-foreground">Annuler</motion.button>
               <motion.button whileTap={{ scale: 0.95 }} onClick={handleUpload} disabled={uploading} className="flex-1 rounded-xl gradient-primary py-3 text-sm font-bold text-primary-foreground disabled:opacity-50">
                 {uploading ? "Publication..." : "Publier 🚀"}
               </motion.button>

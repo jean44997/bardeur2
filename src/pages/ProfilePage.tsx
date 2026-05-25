@@ -7,6 +7,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import logo from "@/assets/logo.png";
 import QRCode from "qrcode";
+import { sanitizeHashtags, validateUploadFile, validateUserText } from "@/lib/contentSafety";
 
 export default function ProfilePage() {
   const navigate = useNavigate();
@@ -156,9 +157,13 @@ export default function ProfilePage() {
   };
 
   const handleSaveProfile = async () => {
+    const name = validateUserText(editDisplayName, { maxLength: 40, minLength: 2, allowLinks: false });
+    const bio = validateUserText(editBio, { maxLength: 160, minLength: 0, allowLinks: true });
+    if (!name.ok) { toast.error(name.reason || "Nom invalide"); return; }
+    if (!bio.ok) { toast.error(bio.reason || "Bio invalide"); return; }
     const { error } = await updateProfile({
-      display_name: editDisplayName.trim(),
-      bio: editBio.trim(),
+      display_name: name.value,
+      bio: bio.value,
       website: normalizeWebsite(editWebsite.trim()),
     });
     if (error) { toast.error("Erreur lors de la sauvegarde"); return; }
@@ -169,7 +174,8 @@ export default function ProfilePage() {
   const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !user) return;
-    if (!file.type.startsWith("image/")) { toast.error("Choisis une image valide"); return; }
+    const fileCheck = validateUploadFile(file, { maxBytes: 4 * 1024 * 1024, acceptedPrefixes: ["image/"] });
+    if (!fileCheck.ok) { toast.error(fileCheck.reason); return; }
     const ext = file.name.split(".").pop();
     const path = `${user.id}/avatar_${Date.now()}.${ext}`;
     const { error: uploadError } = await supabase.storage.from("avatars").upload(path, file, { upsert: true, contentType: file.type });
@@ -208,9 +214,11 @@ export default function ProfilePage() {
 
   const saveVideoEdit = async () => {
     if (!editingVideo) return;
-    const hashArr = editHashtags.split(/[#,\s]+/).filter(Boolean).map((h: string) => h.trim().toLowerCase());
+    const desc = validateUserText(editDesc, { maxLength: 2200, minLength: 0, allowLinks: true });
+    if (!desc.ok) { toast.error(desc.reason || "Description invalide"); return; }
+    const hashArr = sanitizeHashtags(editHashtags);
     const { error } = await supabase.from("videos").update({
-      description: editDesc.trim(),
+      description: desc.value,
       hashtags: hashArr,
       comments_enabled: editCommentsEnabled,
     }).eq("id", editingVideo.id);

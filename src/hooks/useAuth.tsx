@@ -15,6 +15,16 @@ interface Profile {
   invisible_mode: boolean;
   push_notifications: boolean;
   sound_notifications: boolean;
+  notify_likes?: boolean;
+  notify_comments?: boolean;
+  notify_follows?: boolean;
+  notify_messages?: boolean;
+  notify_shares?: boolean;
+  notify_mentions?: boolean;
+  notification_sound?: string;
+  notification_quiet_hours_enabled?: boolean;
+  notification_quiet_hours_start?: string;
+  notification_quiet_hours_end?: string;
 }
 
 interface AuthContextType {
