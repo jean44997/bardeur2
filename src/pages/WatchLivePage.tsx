@@ -28,6 +28,7 @@ export default function WatchLivePage() {
   const lastStatusRef = useRef<BroadcastStatus>("starting");
   const pausedRef = useRef(false);
   const lastTapRef = useRef(0);
+  const singleTapTimerRef = useRef<number | null>(null);
   const cooldownsRef = useRef<Record<string, number>>({});
 
   const [live, setLive] = useState<any>(null);
@@ -147,11 +148,15 @@ export default function WatchLivePage() {
     const isDouble = now - lastTapRef.current < 320;
     lastTapRef.current = now;
     if (isDouble) {
+      if (singleTapTimerRef.current) {
+        window.clearTimeout(singleTapTimerRef.current);
+        singleTapTimerRef.current = null;
+      }
       if (allowAction("double-like", 650)) sendHeart();
       return;
     }
-    window.setTimeout(() => {
-      if (Date.now() - lastTapRef.current < 320) return;
+    singleTapTimerRef.current = window.setTimeout(() => {
+      singleTapTimerRef.current = null;
       toggleViewerPause();
     }, 260);
   };

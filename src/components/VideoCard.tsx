@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Heart, MessageCircle, Share2, Bookmark, Music, Volume2, VolumeX,
   BadgeCheck, Trophy, Download, Gauge, SkipForward, Flag, Link2,
-  Play, Pause, X
+  Play, Pause, X, Maximize2, Minimize2
 } from "lucide-react";
 import { VideoData, formatCount } from "@/data/mockVideos";
 import { supabase } from "@/integrations/supabase/client";
@@ -54,6 +54,7 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
   const [pausedByUser, setPausedByUser] = useState(false);
   const [buffered, setBuffered] = useState(0);
   const [saveCount, setSaveCount] = useState(video.stats.saves);
+  const [fitMode, setFitMode] = useState<"contain" | "cover">("contain");
   const lastTapRef = useRef(0);
   const singleTapTimer = useRef<number | null>(null);
   const actionCooldowns = useRef<Record<string, number>>({});
@@ -168,7 +169,6 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
       // Single tap → wait briefly to confirm it's not part of a double tap
       singleTapTimer.current = window.setTimeout(() => {
         singleTapTimer.current = null;
-        if (Date.now() - lastTapRef.current < 350) return; // a second tap arrived → handled above
         if (!allowAction("pause", 500)) return;
         togglePlayback();
       }, 320);
@@ -230,7 +230,9 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
       try {
         await navigator.share({ title: video.description, url: shareUrl });
         if (user) await supabase.from("shares").insert({ user_id: user.id, video_id: video.id });
-      } catch {}
+      } catch {
+        // Native share was cancelled or blocked by the browser.
+      }
     } else {
       await navigator.clipboard.writeText(shareUrl);
       toast.success("Lien copié ! 🔗");
@@ -312,7 +314,7 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
       <video
         ref={videoRef}
         src={video.url}
-        className="absolute inset-0 h-full w-full object-cover bg-background"
+        className={`absolute inset-0 h-full w-full bg-black transition-[object-fit] duration-200 ${fitMode === "cover" ? "object-cover" : "object-contain"}`}
         loop
         muted={isMuted}
         playsInline
@@ -340,6 +342,37 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
       </AnimatePresence>
 
       <div className="gradient-overlay absolute inset-x-0 bottom-0 h-[45%] pointer-events-none" />
+
+      <div className="pointer-events-auto absolute left-3 top-[max(0.85rem,env(safe-area-inset-top))] z-30 flex items-center gap-2 md:left-4">
+        <motion.button
+          type="button"
+          whileTap={{ scale: 0.9 }}
+          onClick={togglePlayback}
+          className="glass grid h-10 w-10 place-items-center rounded-full"
+          aria-label={pausedByUser ? "Reprendre la video" : "Mettre la video en pause"}
+        >
+          {pausedByUser ? <Play className="h-4 w-4 fill-current text-foreground" /> : <Pause className="h-4 w-4 text-foreground" />}
+        </motion.button>
+        <motion.button
+          type="button"
+          whileTap={{ scale: 0.9 }}
+          onClick={onToggleMute}
+          className="glass grid h-10 w-10 place-items-center rounded-full"
+          aria-label={isMuted ? "Activer le son" : "Couper le son"}
+        >
+          {isMuted ? <VolumeX className="h-4 w-4 text-foreground" /> : <Volume2 className="h-4 w-4 text-foreground" />}
+        </motion.button>
+        <motion.button
+          type="button"
+          whileTap={{ scale: 0.9 }}
+          onClick={() => setFitMode((mode) => mode === "contain" ? "cover" : "contain")}
+          className="glass hidden h-10 items-center gap-1 rounded-full px-3 text-[11px] font-semibold text-foreground sm:flex"
+          aria-label={fitMode === "contain" ? "Remplir l'ecran" : "Ajuster sans zoom"}
+        >
+          {fitMode === "contain" ? <Maximize2 className="h-3.5 w-3.5" /> : <Minimize2 className="h-3.5 w-3.5" />}
+          {fitMode === "contain" ? "Remplir" : "Ajuster"}
+        </motion.button>
+      </div>
 
       {/* Progress Bar */}
       <div className="absolute bottom-[calc(4rem+env(safe-area-inset-bottom))] left-0 right-0 z-30 h-[3px] bg-foreground/10 md:bottom-0">
@@ -378,6 +411,7 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
           <span className="font-semibold text-foreground text-[15px]">@{video.user.username}</span>
           {video.user.verified && <BadgeCheck className="h-4 w-4 text-accent" />}
           <motion.button
+            type="button"
             whileTap={{ scale: 0.9 }}
             onClick={handleFollow}
             className={`ml-1 rounded-md px-2.5 py-0.5 text-xs font-semibold ${
@@ -426,10 +460,10 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
           label={formatCount(saveCount)}
           onClick={toggleSave}
         />
-        <motion.button whileTap={{ scale: 0.85 }} onClick={onToggleMute} className="glass rounded-full p-2">
+        <motion.button type="button" whileTap={{ scale: 0.85 }} onClick={onToggleMute} className="glass rounded-full p-2" aria-label={isMuted ? "Activer le son" : "Couper le son"}>
           {isMuted ? <VolumeX className="h-5 w-5 text-foreground/70" /> : <Volume2 className="h-5 w-5 text-foreground/70" />}
         </motion.button>
-        <motion.button whileTap={{ scale: 0.85 }} onClick={onOpenGamification} className="glass rounded-full p-2">
+        <motion.button type="button" whileTap={{ scale: 0.85 }} onClick={onOpenGamification} className="glass rounded-full p-2" aria-label="Ouvrir les trophees">
           <Trophy className="h-5 w-5 text-accent" />
         </motion.button>
       </div>
@@ -465,6 +499,7 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
                 <LongPressOption icon={<Gauge className="h-5 w-5" />} label="1.5x" onClick={() => changeSpeed(1.5)} />
                 <LongPressOption icon={<Gauge className="h-5 w-5" />} label="2x" onClick={() => changeSpeed(2)} />
                 <LongPressOption icon={<SkipForward className="h-5 w-5" />} label="3x" onClick={() => changeSpeed(3)} />
+                <LongPressOption icon={fitMode === "contain" ? <Maximize2 className="h-5 w-5" /> : <Minimize2 className="h-5 w-5" />} label={fitMode === "contain" ? "Remplir" : "Ajuster"} onClick={() => { setFitMode((mode) => mode === "contain" ? "cover" : "contain"); setShowLongPress(false); }} />
                 <LongPressOption icon={<Link2 className="h-5 w-5" />} label="Copier lien" onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/video/${video.id}`); toast.success("Lien copié"); setShowLongPress(false); }} />
                 <LongPressOption icon={<Flag className="h-5 w-5" />} label="Signaler" onClick={handleReportVideo} />
               </div>
@@ -478,7 +513,7 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
 
 function ActionButton({ icon, label, onClick }: { icon: React.ReactNode; label: string; onClick?: () => void }) {
   return (
-    <motion.button whileTap={{ scale: 0.85 }} onClick={onClick} className="flex flex-col items-center gap-1">
+    <motion.button type="button" whileTap={{ scale: 0.85 }} onClick={onClick} className="flex flex-col items-center gap-1" aria-label={label}>
       {icon}
       <span className="text-[11px] font-semibold text-foreground/80 tabular-nums">{label}</span>
     </motion.button>
@@ -488,6 +523,7 @@ function ActionButton({ icon, label, onClick }: { icon: React.ReactNode; label: 
 function LongPressOption({ icon, label, onClick }: { icon: React.ReactNode; label: string; onClick: () => void }) {
   return (
     <motion.button
+      type="button"
       whileTap={{ scale: 0.9 }}
       onClick={onClick}
       className="flex flex-col items-center gap-1.5 rounded-xl bg-card p-3"

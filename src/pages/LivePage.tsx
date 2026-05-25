@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowLeft, Video, Mic, MicOff, Camera, CameraOff, Send, Users, X, Zap, Trophy, RotateCcw, Radio, Square, Check, CheckCheck } from "lucide-react";
+import { ArrowLeft, Video, Mic, MicOff, Camera, CameraOff, Send, Users, X, Zap, Trophy, RotateCcw, Radio, Square, Check, CheckCheck, Sparkles, Gauge } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -37,11 +37,12 @@ export default function LivePage() {
   const [isRecordingAudio, setIsRecordingAudio] = useState(false);
   const [sendState, setSendState] = useState<"idle" | "sending" | "delivered" | "error">("idle");
   const [typing, setTyping] = useState(false);
-  const [activeLives, setActiveLives] = useState<any[]>([]);
   const [isMicOn, setIsMicOn] = useState(true);
   const [isCamOn, setIsCamOn] = useState(true);
   const [duration, setDuration] = useState(0);
   const [facingMode, setFacingMode] = useState<"user" | "environment">("user");
+  const [liveQuality, setLiveQuality] = useState<"eco" | "auto" | "hd">("auto");
+  const [liveEffect, setLiveEffect] = useState<"none" | "pop" | "cinema">("none");
 
   useLiveBroadcast({
     liveId,
@@ -52,8 +53,15 @@ export default function LivePage() {
 
   const startPreview = useCallback(async () => {
     try {
+      const currentStream = videoRef.current?.srcObject as MediaStream | null;
+      currentStream?.getTracks().forEach(t => t.stop());
+      const videoProfile = liveQuality === "eco"
+        ? { width: { ideal: 960 }, height: { ideal: 540 }, frameRate: { ideal: 24, max: 30 } }
+        : liveQuality === "hd"
+          ? { width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 60, max: 60 } }
+          : { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30, max: 60 } };
       const s = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode, width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30, max: 60 } },
+        video: { facingMode, ...videoProfile },
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, sampleRate: 48000, channelCount: 2 },
       });
       setStream(s);
@@ -64,29 +72,15 @@ export default function LivePage() {
     } catch {
       toast.error("Autorise la caméra et le micro pour passer en live");
     }
-  }, [facingMode]);
+  }, [facingMode, liveQuality]);
 
   useEffect(() => {
     startPreview();
-    return () => { stream?.getTracks().forEach(t => t.stop()); };
-  }, [facingMode]);
-
-  useEffect(() => {
-    const fetchActiveLives = async () => {
-      const { data } = await supabase
-        .from("lives")
-        .select("*, profiles:user_id(username, display_name, avatar_url)")
-        .eq("is_active", true)
-        .order("created_at", { ascending: false })
-        .limit(20);
-      setActiveLives(data || []);
+    return () => {
+      const currentStream = videoRef.current?.srcObject as MediaStream | null;
+      currentStream?.getTracks().forEach(t => t.stop());
     };
-    fetchActiveLives();
-    const channel = supabase.channel("live-room-list")
-      .on("postgres_changes", { event: "*", schema: "public", table: "lives" }, fetchActiveLives)
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, []);
+  }, [startPreview]);
 
   useEffect(() => {
     if (phase !== "live") return;
@@ -249,7 +243,7 @@ export default function LivePage() {
 
   return (
     <div className="fixed inset-0 z-50 bg-background flex flex-col">
-      <video ref={videoRef} className="absolute inset-0 w-full h-full object-contain bg-background" muted playsInline autoPlay style={{ transform: facingMode === "user" ? "scaleX(-1)" : "none" }} />
+      <video ref={videoRef} className={`absolute inset-0 w-full h-full object-contain bg-background ${liveEffect === "pop" ? "saturate-150 contrast-125" : liveEffect === "cinema" ? "contrast-125 brightness-90" : ""}`} muted playsInline autoPlay style={{ transform: facingMode === "user" ? "scaleX(-1)" : "none" }} />
 
       {/* Top bar */}
       <div className="relative z-10 flex items-center justify-between px-4 pt-[max(1rem,env(safe-area-inset-top))]">
@@ -283,29 +277,26 @@ export default function LivePage() {
       {phase === "prep" && (
         <div className="relative z-10 flex-1 flex items-end justify-center pb-12 px-4">
           <div className="w-full max-w-sm space-y-4">
-            {activeLives.length > 0 && (
-              <div className="glass rounded-2xl p-3">
-                <p className="mb-2 text-xs font-bold uppercase text-muted-foreground">Lives maintenant</p>
-                <div className="max-h-32 space-y-2 overflow-y-auto no-scrollbar">
-                  {activeLives.map(l => (
-                    <button key={l.id} onClick={() => navigate(`/live/${l.id}`)} className="flex w-full items-center gap-2 rounded-xl bg-card px-3 py-2 text-left">
-                      <span className="relative flex h-8 w-8 items-center justify-center overflow-hidden rounded-full gradient-primary text-xs font-bold text-primary-foreground">
-                        {l.profiles?.avatar_url ? <img src={l.profiles.avatar_url} alt="" className="h-full w-full object-cover" /> : (l.profiles?.display_name || "L")[0]}
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-xs font-bold text-foreground">{l.title || `Live de ${l.profiles?.display_name || "Utilisateur"}`}</span>
-                        <span className="block text-[10px] text-muted-foreground">{l.viewers_count || 0} spectateurs · @{l.profiles?.username}</span>
-                      </span>
-                      <span className="rounded-full bg-destructive px-2 py-0.5 text-[9px] font-bold text-destructive-foreground">LIVE</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
             <div className="glass rounded-2xl px-4 py-3 text-center">
               <Radio className="mx-auto mb-2 h-5 w-5 text-primary" />
               <p className="text-sm font-bold text-foreground">Préparation du live</p>
               <p className="text-xs text-muted-foreground">Caméra, micro, chat et XP temps réel prêts.</p>
+            </div>
+            <div className="glass rounded-2xl p-3">
+              <div className="mb-3 grid grid-cols-3 gap-2">
+                {(["eco", "auto", "hd"] as const).map(q => (
+                  <button key={q} type="button" onClick={() => setLiveQuality(q)} className={`flex items-center justify-center gap-1 rounded-xl px-2 py-2 text-xs font-bold ${liveQuality === q ? "gradient-primary text-primary-foreground" : "bg-card text-foreground"}`}>
+                    <Gauge className="h-3.5 w-3.5" /> {q.toUpperCase()}
+                  </button>
+                ))}
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                {(["none", "pop", "cinema"] as const).map(f => (
+                  <button key={f} type="button" onClick={() => setLiveEffect(f)} className={`flex items-center justify-center gap-1 rounded-xl px-2 py-2 text-xs font-bold ${liveEffect === f ? "bg-primary/20 text-primary" : "bg-card text-foreground"}`}>
+                    <Sparkles className="h-3.5 w-3.5" /> {f === "none" ? "Normal" : f === "cinema" ? "Cine" : "Pop"}
+                  </button>
+                ))}
+              </div>
             </div>
             <input value={title} onChange={e => setTitle(e.target.value)} placeholder="Titre du live... 🎬" className="w-full glass rounded-xl px-4 py-3 bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none text-center" />
             <motion.button whileTap={{ scale: 0.95 }} onClick={goLive} className="w-full rounded-2xl gradient-primary py-4 text-lg font-bold text-primary-foreground pulse-glow flex items-center justify-center gap-2">

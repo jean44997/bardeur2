@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { Upload, Camera, Video, X, Image, Palette, Sparkles, Wand2 } from "lucide-react";
+import { Upload, Camera, Video, X, Image, Palette, Sparkles, Wand2, RotateCcw, Timer, Save, Hash, Gauge } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -15,6 +15,7 @@ export default function CreatePage() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
+  const recordingTimerRef = useRef<number | null>(null);
 
   const [uploading, setUploading] = useState(false);
   const [description, setDescription] = useState("");
@@ -28,6 +29,10 @@ export default function CreatePage() {
   const [cameraMode, setCameraMode] = useState<"photo" | "video">("video");
   const [effect, setEffect] = useState<"none" | "pop" | "cinema" | "mono">("none");
   const [fileMeta, setFileMeta] = useState("");
+  const [recordingDuration, setRecordingDuration] = useState<15 | 60 | 180>(15);
+  const [recordingTime, setRecordingTime] = useState(0);
+  const [countdown, setCountdown] = useState(0);
+  const [facingMode, setFacingMode] = useState<"user" | "environment">("user");
 
   // 3D Canvas background animation
   useEffect(() => {
@@ -56,7 +61,8 @@ export default function CreatePage() {
           const s = 400 / (400 + z * 50);
           const sx = cx + i * 50 * s;
           const sy = cy + (z * 50 - 200) * s * 0.5;
-          z === 1 ? ctx.moveTo(sx, sy) : ctx.lineTo(sx, sy);
+          if (z === 1) ctx.moveTo(sx, sy);
+          else ctx.lineTo(sx, sy);
         }
         ctx.stroke();
       }
@@ -84,10 +90,43 @@ export default function CreatePage() {
   }, [cameraStream]);
 
   useEffect(() => {
+    const draft = localStorage.getItem("create-draft-meta");
+    if (!draft) return;
+    try {
+      const parsed = JSON.parse(draft);
+      setDescription(parsed.description || "");
+      setHashtags(parsed.hashtags || "");
+      setCommentsEnabled(parsed.commentsEnabled !== false);
+      setEffect(parsed.effect || "none");
+    } catch {
+      // Ignore corrupted local drafts and let the user start clean.
+    }
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem("create-draft-meta", JSON.stringify({ description, hashtags, commentsEnabled, effect }));
+  }, [description, hashtags, commentsEnabled, effect]);
+
+  useEffect(() => {
     return () => {
       if (preview) URL.revokeObjectURL(preview);
     };
   }, [preview]);
+
+  useEffect(() => {
+    if (!isRecording) {
+      if (recordingTimerRef.current) window.clearInterval(recordingTimerRef.current);
+      return;
+    }
+    recordingTimerRef.current = window.setInterval(() => {
+      setRecordingTime(t => {
+        const next = t + 1;
+        if (next >= recordingDuration) window.setTimeout(stopRecording, 0);
+        return next;
+      });
+    }, 1000);
+    return () => { if (recordingTimerRef.current) window.clearInterval(recordingTimerRef.current); };
+  }, [isRecording, recordingDuration]);
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -102,7 +141,7 @@ export default function CreatePage() {
   const openCamera = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "user", width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 60 } },
+        video: { facingMode, width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 60 } },
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, sampleRate: 48000, channelCount: 2 },
       });
       setCameraStream(stream);
@@ -134,13 +173,16 @@ export default function CreatePage() {
   const startRecording = () => {
     if (!cameraStream) return;
     chunksRef.current = [];
-      const mr = new MediaRecorder(cameraStream, { mimeType: "video/webm;codecs=vp9,opus", videoBitsPerSecond: 8_000_000, audioBitsPerSecond: 192_000 });
+    setRecordingTime(0);
+    const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp9,opus") ? "video/webm;codecs=vp9,opus" : "video/webm";
+    const mr = new MediaRecorder(cameraStream, { mimeType, videoBitsPerSecond: 8_000_000, audioBitsPerSecond: 192_000 });
     mr.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
     mr.onstop = () => {
       const blob = new Blob(chunksRef.current, { type: "video/webm" });
       setSelectedFile(new File([blob], `video_${Date.now()}.webm`, { type: "video/webm" }));
       setPreview(URL.createObjectURL(blob));
       setFileMeta(`video/webm · ${(blob.size / 1024 / 1024).toFixed(1)}MB`);
+      setRecordingTime(0);
       closeCamera();
     };
     mr.start();
@@ -148,13 +190,63 @@ export default function CreatePage() {
     setIsRecording(true);
   };
 
-  const stopRecording = () => { mediaRecorderRef.current?.stop(); setIsRecording(false); };
+  const startCountdownThenRecord = () => {
+    if (countdown > 0 || isRecording) return;
+    setCountdown(3);
+    let left = 3;
+    const timer = window.setInterval(() => {
+      left -= 1;
+      setCountdown(left);
+      if (left <= 0) {
+        window.clearInterval(timer);
+        startRecording();
+      }
+    }, 1000);
+  };
+
+  const stopRecording = () => {
+    mediaRecorderRef.current?.stop();
+    setIsRecording(false);
+    if (recordingTimerRef.current) window.clearInterval(recordingTimerRef.current);
+  };
+
+  const flipCamera = async () => {
+    const next = facingMode === "user" ? "environment" : "user";
+    cameraStream?.getTracks().forEach(t => t.stop());
+    setFacingMode(next);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: next, width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 60 } },
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, sampleRate: 48000, channelCount: 2 },
+      });
+      setCameraStream(stream);
+      if (cameraRef.current) {
+        cameraRef.current.srcObject = stream;
+        cameraRef.current.play();
+      }
+    } catch {
+      toast.error("Changement de caméra impossible");
+    }
+  };
+
+  const autoHashtags = () => {
+    const words = description
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}\s]/gu, " ")
+      .split(/\s+/)
+      .filter(w => w.length > 3)
+      .slice(0, 6);
+    setHashtags(Array.from(new Set([...sanitizeHashtags(hashtags).map(h => `#${h}`), ...words.map(w => `#${w}`)])).slice(0, 8).join(" "));
+  };
 
   const closeCamera = () => {
     cameraStream?.getTracks().forEach(t => t.stop());
+    if (recordingTimerRef.current) window.clearInterval(recordingTimerRef.current);
     setCameraStream(null);
     setShowCamera(false);
     setIsRecording(false);
+    setRecordingTime(0);
+    setCountdown(0);
   };
 
   const handleUpload = async () => {
@@ -205,7 +297,12 @@ export default function CreatePage() {
         <AnimatePresence>
           {showCamera && (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 bg-background flex flex-col">
-              <video ref={cameraRef} className="flex-1 w-full object-cover" muted playsInline autoPlay style={{ transform: "scaleX(-1)" }} />
+              <video ref={cameraRef} className={`flex-1 w-full object-cover ${effect === "pop" ? "saturate-150 contrast-125" : effect === "cinema" ? "contrast-125 brightness-90" : effect === "mono" ? "grayscale" : ""}`} muted playsInline autoPlay style={{ transform: facingMode === "user" ? "scaleX(-1)" : "none" }} />
+              {countdown > 0 && (
+                <div className="absolute inset-0 z-20 grid place-items-center bg-background/25">
+                  <motion.span key={countdown} initial={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="text-7xl font-black text-foreground drop-shadow-video">{countdown}</motion.span>
+                </div>
+              )}
               <div className="absolute top-4 right-4 z-10">
                 <motion.button whileTap={{ scale: 0.9 }} onClick={closeCamera} className="glass rounded-full p-2">
                   <X className="h-6 w-6 text-foreground" />
@@ -215,18 +312,40 @@ export default function CreatePage() {
                 <button onClick={() => setCameraMode("photo")} className={`px-3 py-1 rounded-full text-xs font-bold ${cameraMode === "photo" ? "gradient-primary text-primary-foreground" : "glass text-foreground"}`}>Photo</button>
                 <button onClick={() => setCameraMode("video")} className={`px-3 py-1 rounded-full text-xs font-bold ${cameraMode === "video" ? "gradient-primary text-primary-foreground" : "glass text-foreground"}`}>Vidéo</button>
               </div>
+              <div className="absolute left-4 top-16 z-10 flex flex-col gap-2">
+                {(["none", "pop", "cinema", "mono"] as const).map(f => (
+                  <button key={f} type="button" onClick={() => setEffect(f)} className={`glass rounded-full px-3 py-1 text-[11px] font-bold ${effect === f ? "text-primary" : "text-foreground"}`}>
+                    {f === "none" ? "Normal" : f === "cinema" ? "Cine" : f === "mono" ? "N&B" : "Pop"}
+                  </button>
+                ))}
+              </div>
+              {cameraMode === "video" && (
+                <div className="absolute bottom-32 left-0 right-0 z-10 flex justify-center gap-2">
+                  {([15, 60, 180] as const).map(d => (
+                    <button key={d} type="button" onClick={() => setRecordingDuration(d)} className={`rounded-full px-3 py-1 text-xs font-bold ${recordingDuration === d ? "gradient-primary text-primary-foreground" : "glass text-foreground"}`}>
+                      {d === 180 ? "3m" : `${d}s`}
+                    </button>
+                  ))}
+                </div>
+              )}
               <div className="absolute bottom-8 left-0 right-0 flex justify-center gap-6 items-center">
+                <motion.button whileTap={{ scale: 0.9 }} onClick={flipCamera} className="glass rounded-full p-3">
+                  <RotateCcw className="h-5 w-5 text-foreground" />
+                </motion.button>
                 {cameraMode === "photo" ? (
                   <motion.button whileTap={{ scale: 0.9 }} onClick={takePhoto} className="h-20 w-20 rounded-full border-4 border-foreground bg-foreground/20" />
                 ) : (
                   <motion.button
                     whileTap={{ scale: 0.9 }}
-                    onClick={isRecording ? stopRecording : startRecording}
+                    onClick={isRecording ? stopRecording : startCountdownThenRecord}
                     className={`h-20 w-20 rounded-full border-4 ${isRecording ? "border-destructive bg-destructive/30" : "border-primary bg-primary/20"} flex items-center justify-center`}
                   >
-                    {isRecording && <div className="h-8 w-8 rounded-md bg-destructive" />}
+                    {isRecording ? <div className="h-8 w-8 rounded-md bg-destructive" /> : <Timer className="h-7 w-7 text-primary" />}
                   </motion.button>
                 )}
+                <div className="glass min-w-14 rounded-full px-3 py-2 text-center text-xs font-bold text-foreground tabular-nums">
+                  {isRecording ? `${recordingTime}/${recordingDuration}s` : "HD"}
+                </div>
               </div>
             </motion.div>
           )}
@@ -293,6 +412,22 @@ export default function CreatePage() {
                 <p className="mt-1 text-right text-[10px] text-muted-foreground tabular-nums">{description.length}/2200</p>
               </div>
               <input value={hashtags} onChange={e => setHashtags(e.target.value)} maxLength={160} placeholder="#hashtags séparés par des espaces" className="w-full glass rounded-xl px-4 py-3 bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none" />
+              <div className="grid grid-cols-3 gap-2">
+                <button type="button" onClick={autoHashtags} className="glass flex items-center justify-center gap-1 rounded-xl px-3 py-2 text-xs font-bold text-foreground">
+                  <Hash className="h-3.5 w-3.5 text-primary" /> Auto
+                </button>
+                <button type="button" onClick={() => toast.success("Brouillon sauvegardé")} className="glass flex items-center justify-center gap-1 rounded-xl px-3 py-2 text-xs font-bold text-foreground">
+                  <Save className="h-3.5 w-3.5 text-primary" /> Draft
+                </button>
+                <button type="button" onClick={() => setEffect(effect === "pop" ? "cinema" : effect === "cinema" ? "mono" : effect === "mono" ? "none" : "pop")} className="glass flex items-center justify-center gap-1 rounded-xl px-3 py-2 text-xs font-bold text-foreground">
+                  <Wand2 className="h-3.5 w-3.5 text-primary" /> Effet
+                </button>
+              </div>
+              <div className="grid grid-cols-3 gap-2 rounded-xl bg-card/60 p-2">
+                <div className="flex items-center justify-center gap-1 text-[11px] font-semibold text-muted-foreground"><Gauge className="h-3.5 w-3.5" /> HD</div>
+                <div className="flex items-center justify-center gap-1 text-[11px] font-semibold text-muted-foreground"><Timer className="h-3.5 w-3.5" /> {recordingDuration === 180 ? "3m" : `${recordingDuration}s`}</div>
+                <div className="flex items-center justify-center gap-1 text-[11px] font-semibold text-muted-foreground"><Sparkles className="h-3.5 w-3.5" /> {effect === "none" ? "Normal" : effect}</div>
+              </div>
               <motion.button whileTap={{ scale: 0.95 }} onClick={() => setCommentsEnabled(!commentsEnabled)} className="flex items-center gap-2 w-full glass rounded-xl px-4 py-3">
                 <div className={`h-5 w-5 rounded-full flex items-center justify-center ${commentsEnabled ? "bg-primary" : "bg-muted"}`}>
                   {commentsEnabled ? <span className="text-[10px] text-primary-foreground">✓</span> : <X className="h-3 w-3 text-muted-foreground" />}

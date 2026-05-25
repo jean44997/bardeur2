@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { ArrowLeft, Shield, Users, Flag, BarChart3, Ban, Eye, Trash2 } from "lucide-react";
+import { ArrowLeft, Shield, Users, Flag, BarChart3, Ban, Search, Download, RefreshCw, ExternalLink, Clock, CheckCircle } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -14,6 +14,8 @@ export default function AdminPage() {
   const [reports, setReports] = useState<any[]>([]);
   const [stats, setStats] = useState({ users: 0, videos: 0, reports: 0, banned: 0 });
   const [loading, setLoading] = useState(true);
+  const [userSearch, setUserSearch] = useState("");
+  const [reportStatus, setReportStatus] = useState<"all" | "pending" | "resolved" | "dismissed">("pending");
 
   useEffect(() => {
     if (role === "super_admin" || role === "admin") {
@@ -55,6 +57,22 @@ export default function AdminPage() {
     fetchAll();
   };
 
+  const exportAdminJson = () => {
+    const payload = {
+      exported_at: new Date().toISOString(),
+      stats,
+      reports: reports.slice(0, 200),
+      users: users.map(({ id, username, display_name, role, created_at }) => ({ id, username, display_name, role, created_at })),
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `bardeur-admin-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   if (role !== "super_admin" && role !== "admin") {
     return (
       <div className="min-h-[100svh] bg-background flex items-center justify-center pb-20 md:pb-8 md:pl-[var(--sidebar-width,260px)]">
@@ -72,7 +90,11 @@ export default function AdminPage() {
     { label: "Vidéos", value: stats.videos.toLocaleString(), icon: BarChart3, color: "text-accent" },
     { label: "Signalements", value: stats.reports.toLocaleString(), icon: Flag, color: "text-destructive" },
     { label: "Bannis", value: stats.banned.toLocaleString(), icon: Ban, color: "text-muted-foreground" },
+    { label: "En attente", value: reports.filter(r => r.status === "pending").length.toLocaleString(), icon: Clock, color: "text-accent" },
+    { label: "Traités", value: reports.filter(r => r.status === "resolved").length.toLocaleString(), icon: CheckCircle, color: "text-primary" },
   ];
+  const filteredUsers = users.filter(u => `${u.username || ""} ${u.display_name || ""}`.toLowerCase().includes(userSearch.toLowerCase()));
+  const filteredReports = reports.filter(r => reportStatus === "all" ? true : r.status === reportStatus);
 
   return (
     <div className="min-h-[100svh] bg-background pb-20 md:pb-8 md:pl-[var(--sidebar-width,260px)]">
@@ -83,7 +105,15 @@ export default function AdminPage() {
           </motion.button>
           <Shield className="h-5 w-5 text-primary" />
           <h1 className="text-xl font-bold text-foreground">Administration</h1>
-          <span className="ml-auto text-xs font-medium text-primary">{role === "super_admin" ? "Super Admin" : "Admin"}</span>
+          <div className="ml-auto flex items-center gap-2">
+            <button type="button" onClick={fetchAll} className="glass rounded-full p-2" aria-label="Actualiser">
+              <RefreshCw className="h-4 w-4 text-foreground" />
+            </button>
+            <button type="button" onClick={exportAdminJson} className="glass rounded-full p-2" aria-label="Exporter">
+              <Download className="h-4 w-4 text-foreground" />
+            </button>
+            <span className="text-xs font-medium text-primary">{role === "super_admin" ? "Super Admin" : "Admin"}</span>
+          </div>
         </div>
 
         <div className="flex gap-1 glass rounded-xl p-1 mb-6">
@@ -124,7 +154,12 @@ export default function AdminPage() {
 
             {activeTab === "users" && (
               <div className="space-y-2">
-                {users.map(u => (
+                <div className="glass mb-3 flex items-center gap-2 rounded-xl px-3 py-2">
+                  <Search className="h-4 w-4 text-muted-foreground" />
+                  <input value={userSearch} onChange={e => setUserSearch(e.target.value)} placeholder="Rechercher un utilisateur..." className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground" />
+                  <span className="text-[11px] font-bold text-muted-foreground">{filteredUsers.length}</span>
+                </div>
+                {filteredUsers.map(u => (
                   <div key={u.id} className="glass rounded-xl p-4 flex items-center gap-3">
                     <div className="h-10 w-10 rounded-full bg-card flex items-center justify-center text-sm font-bold text-foreground overflow-hidden">
                       {u.avatar_url ? <img src={u.avatar_url} className="h-full w-full object-cover" /> : u.display_name?.[0] || "?"}
@@ -133,6 +168,14 @@ export default function AdminPage() {
                       <span className="text-sm font-semibold text-foreground">@{u.username}</span>
                       <p className="text-xs text-muted-foreground">{u.display_name}</p>
                     </div>
+                    <motion.button
+                      whileTap={{ scale: 0.9 }}
+                      onClick={() => navigate(`/profile/${u.username}`)}
+                      className="h-8 w-8 rounded-lg bg-card flex items-center justify-center"
+                      aria-label="Voir profil"
+                    >
+                      <ExternalLink className="h-4 w-4 text-muted-foreground" />
+                    </motion.button>
                     {u.id !== user?.id && (
                       <motion.button
                         whileTap={{ scale: 0.9 }}
@@ -149,10 +192,17 @@ export default function AdminPage() {
 
             {activeTab === "reports" && (
               <div className="space-y-2">
-                {reports.length === 0 ? (
+                <div className="glass mb-3 grid grid-cols-4 gap-1 rounded-xl p-1">
+                  {(["pending", "all", "resolved", "dismissed"] as const).map(status => (
+                    <button key={status} type="button" onClick={() => setReportStatus(status)} className={`rounded-lg py-2 text-[11px] font-bold ${reportStatus === status ? "gradient-primary text-primary-foreground" : "text-muted-foreground"}`}>
+                      {status === "pending" ? "Attente" : status === "all" ? "Tous" : status === "resolved" ? "Traités" : "Ignorés"}
+                    </button>
+                  ))}
+                </div>
+                {filteredReports.length === 0 ? (
                   <p className="text-center text-sm text-muted-foreground py-8">Aucun signalement</p>
                 ) : (
-                  reports.map(r => (
+                  filteredReports.map(r => (
                     <div key={r.id} className="glass rounded-xl p-4">
                       <div className="flex items-center justify-between mb-2">
                         <span className="text-xs font-medium text-muted-foreground uppercase">{r.type}</span>

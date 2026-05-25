@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Settings, Grid3X3, Heart, Bookmark, BadgeCheck, Share2, QrCode, Link2, Camera, Trash2, MessageCircle, Edit3, ToggleLeft, ToggleRight, X } from "lucide-react";
+import { Settings, Grid3X3, Heart, Bookmark, BadgeCheck, Share2, QrCode, Link2, Camera, Trash2, MessageCircle, Edit3, ToggleLeft, ToggleRight, X, Download } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
@@ -202,6 +202,14 @@ export default function ProfilePage() {
   const openQR = () => {
     generateQR();
     setShowQR(true);
+  };
+
+  const downloadQR = () => {
+    if (!qrDataUrl || !currentProfile) return;
+    const a = document.createElement("a");
+    a.href = qrDataUrl;
+    a.download = `bardeur-qr-${currentProfile.username}.png`;
+    a.click();
   };
 
   // Post editing
@@ -444,6 +452,14 @@ export default function ProfilePage() {
                   </div>
                 )}
                 <p className="text-xs text-muted-foreground break-all">{shareUrl}</p>
+                <div className="mt-4 grid grid-cols-2 gap-2">
+                  <button type="button" onClick={() => { navigator.clipboard.writeText(shareUrl); toast.success("Lien copié"); }} className="glass flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-xs font-bold text-foreground">
+                    <Link2 className="h-3.5 w-3.5" /> Copier
+                  </button>
+                  <button type="button" onClick={downloadQR} disabled={!qrDataUrl} className="gradient-primary flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-xs font-bold text-primary-foreground disabled:opacity-50">
+                    <Download className="h-3.5 w-3.5" /> QR PNG
+                  </button>
+                </div>
               </motion.div>
             </motion.div>
           )}

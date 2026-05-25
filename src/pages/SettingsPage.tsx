@@ -88,6 +88,23 @@ export default function SettingsPage() {
     toast.success(sound === "none" ? "Sons personnalisés désactivés" : `Son ${sound} activé`);
   };
 
+  const enableAllNotifications = async () => {
+    await updateProfile({
+      push_notifications: true,
+      sound_notifications: true,
+      notify_messages: true,
+      notify_likes: true,
+      notify_comments: true,
+      notify_follows: true,
+      notify_shares: true,
+      notify_mentions: true,
+      notification_quiet_hours_enabled: false,
+      notification_sound: "pop",
+    } as any);
+    toast.success("Toutes les notifications utiles sont activées");
+    if (notificationPermission !== "granted") requestNotificationPermission();
+  };
+
   const handlePasswordChange = async () => {
     if (newPassword !== confirmNewPassword) {
       toast.error("Les mots de passe ne correspondent pas");
@@ -292,6 +309,9 @@ export default function SettingsPage() {
 
         <div className="mb-6">
           <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-4 mb-2">Notifications</h2>
+          <button type="button" onClick={enableAllNotifications} className="mb-2 w-full rounded-xl gradient-primary px-4 py-3 text-sm font-bold text-primary-foreground">
+            Tout activer proprement
+          </button>
           <div className="glass rounded-2xl overflow-hidden">
             <SettingItem icon={<Bell className="h-4 w-4 text-primary" />} label="Notifications dans l'app" toggle value={profile?.push_notifications} onToggle={v => handleToggle("push_notifications", v)} />
             <SettingItem icon={<Bell className="h-4 w-4 text-muted-foreground" />} label="Sons et vibrations" toggle value={profile?.sound_notifications} onToggle={v => handleToggle("sound_notifications", v)} />

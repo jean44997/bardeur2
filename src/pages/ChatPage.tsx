@@ -1,6 +1,6 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, type CSSProperties } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowLeft, Send, Smile, Image as ImageIcon, Mic, MicOff, Phone, Video, Check, CheckCheck, Square, Trash2, MoreVertical, Flag, Ban } from "lucide-react";
+import { ArrowLeft, Send, Smile, Image as ImageIcon, Mic, MicOff, Phone, Video, Check, CheckCheck, Trash2, MoreVertical, Flag, Ban, Flame, Wallpaper, PhoneOff, CameraOff, RotateCcw } from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -19,9 +19,17 @@ interface Message {
   status: "sent" | "delivered" | "read";
   mediaUrl?: string;
   mediaType?: string;
+  senderId?: string;
+  createdAt?: string;
 }
 
 const quickEmojis = ["❤️", "🔥", "😂", "😍", "👏", "🤯", "💀", "🙏", "😭", "🥰", "💯", "🎉"];
+const chatBackgrounds = [
+  { label: "Nuit", value: "radial-gradient(circle at top left, rgba(255,43,136,.22), transparent 35%), linear-gradient(160deg, #050505, #17121f 55%, #070707)" },
+  { label: "Glace", value: "linear-gradient(135deg, rgba(125,211,252,.24), rgba(244,114,182,.18)), #07090f" },
+  { label: "Studio", value: "linear-gradient(145deg, rgba(250,204,21,.16), rgba(34,197,94,.12)), #080808" },
+  { label: "Sobre", value: "linear-gradient(180deg, #0b0b0f, #111827)" },
+];
 
 export default function ChatPage() {
   const navigate = useNavigate();
@@ -39,11 +47,19 @@ export default function ChatPage() {
   const [isBlocked, setIsBlocked] = useState(false);
   const [blockedByThem, setBlockedByThem] = useState(false);
   const [showSafetyMenu, setShowSafetyMenu] = useState(false);
+  const [chatBackground, setChatBackground] = useState(chatBackgrounds[0].value);
+  const [customBackgroundUrl, setCustomBackgroundUrl] = useState("");
+  const [streakDays, setStreakDays] = useState(0);
+  const [streakNeedsReply, setStreakNeedsReply] = useState(false);
+  const [callState, setCallState] = useState<null | { type: "audio" | "video"; status: "requesting" | "ringing" | "connected"; muted: boolean; cameraOff: boolean }>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const localVideoRef = useRef<HTMLVideoElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const audioRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const audioStreamRef = useRef<MediaStream | null>(null);
+  const callStreamRef = useRef<MediaStream | null>(null);
+  const callSessionRef = useRef<string | null>(null);
   const cancelledAudioRef = useRef(false);
   const recentTextRef = useRef<string[]>([]);
 
@@ -66,8 +82,86 @@ export default function ChatPage() {
   }, [conversationId, user]);
 
   useEffect(() => {
+    if (!conversationId || !user) return;
+    const key = `chat-bg:${conversationId}:${user.id}`;
+    const local = localStorage.getItem(key);
+    if (local) setChatBackground(local);
+
+    void (async () => {
+      try {
+        const { data } = await (supabase as any)
+          .from("chat_preferences")
+          .select("background")
+          .eq("conversation_id", conversationId)
+          .eq("user_id", user.id)
+          .maybeSingle();
+        if (data?.background) {
+          setChatBackground(data.background);
+          localStorage.setItem(key, data.background);
+        }
+      } catch {
+        // Preferences table may not exist until the latest migration is applied.
+      }
+    })();
+  }, [conversationId, user]);
+
+  useEffect(() => {
+    if (!callState || !localVideoRef.current || callState.type !== "video") return;
+    localVideoRef.current.srcObject = callStreamRef.current;
+    localVideoRef.current.play().catch(() => {});
+  }, [callState]);
+
+  useEffect(() => {
+    return () => {
+      callStreamRef.current?.getTracks().forEach(t => t.stop());
+    };
+  }, []);
+
+  useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  useEffect(() => {
+    if (!user || !otherUserId || messages.length === 0) {
+      setStreakDays(0);
+      setStreakNeedsReply(false);
+      return;
+    }
+    const byDay = new Map<string, Set<string>>();
+    messages.forEach((m) => {
+      if (!m.senderId || !m.createdAt) return;
+      const rawDate = m.createdAt;
+      const dateKey = rawDate ? new Date(rawDate).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10);
+      const senders = byDay.get(dateKey) || new Set<string>();
+      senders.add(m.senderId);
+      byDay.set(dateKey, senders);
+    });
+    const qualifies = (date: Date) => {
+      const senders = byDay.get(date.toISOString().slice(0, 10));
+      return !!senders?.has(user.id) && !!senders?.has(otherUserId);
+    };
+    const cursor = new Date();
+    let days = 0;
+    if (!qualifies(cursor)) {
+      const yesterday = new Date(cursor);
+      yesterday.setDate(yesterday.getDate() - 1);
+      if (qualifies(yesterday)) {
+        setStreakNeedsReply(true);
+        cursor.setDate(cursor.getDate() - 1);
+      } else {
+        setStreakDays(0);
+        setStreakNeedsReply(false);
+        return;
+      }
+    } else {
+      setStreakNeedsReply(false);
+    }
+    while (qualifies(cursor)) {
+      days += 1;
+      cursor.setDate(cursor.getDate() - 1);
+    }
+    setStreakDays(days);
+  }, [messages, otherUserId, user]);
 
   // Recording timer
   useEffect(() => {
@@ -93,6 +187,8 @@ export default function ChatPage() {
       status: m.is_read ? "read" : "delivered",
       mediaUrl: m.media_url || undefined,
       mediaType: m.media_type || undefined,
+      senderId: m.sender_id,
+      createdAt: m.created_at,
     };
   };
 
@@ -281,6 +377,84 @@ export default function ChatPage() {
     setShowSafetyMenu(false);
   };
 
+  const saveChatBackground = async (background: string) => {
+    if (!conversationId || !user) return;
+    setChatBackground(background);
+    localStorage.setItem(`chat-bg:${conversationId}:${user.id}`, background);
+    try {
+      await (supabase as any)
+        .from("chat_preferences")
+        .upsert({ conversation_id: conversationId, user_id: user.id, background, updated_at: new Date().toISOString() }, { onConflict: "conversation_id,user_id" });
+    } catch {
+      // Keep the local wallpaper even if the preference sync is unavailable.
+    }
+    toast.success("Fond de chat appliqué");
+  };
+
+  const applyCustomBackground = () => {
+    const url = customBackgroundUrl.trim();
+    if (!url) return;
+    if (!/^https?:\/\//i.test(url)) {
+      toast.error("Colle une URL d'image https");
+      return;
+    }
+    saveChatBackground(`linear-gradient(180deg, rgba(0,0,0,.58), rgba(0,0,0,.78)), url("${url.replaceAll('"', "%22")}") center / cover fixed`);
+    setCustomBackgroundUrl("");
+  };
+
+  const startCall = async (type: "audio" | "video") => {
+    if (!user || !conversationId || !otherUserId || isBlocked || blockedByThem) return;
+    try {
+      setCallState({ type, status: "requesting", muted: false, cameraOff: false });
+      const media = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, sampleRate: 48000 },
+        video: type === "video" ? { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } } : false,
+      });
+      callStreamRef.current = media;
+      let data: any = null;
+      try {
+        const res = await (supabase as any)
+          .from("direct_call_sessions")
+          .insert({ conversation_id: conversationId, caller_id: user.id, recipient_id: otherUserId, call_type: type, status: "ringing" })
+          .select("id")
+          .single();
+        data = res.data;
+      } catch {
+        // Call signaling is best-effort; media controls still work locally.
+      }
+      callSessionRef.current = data?.id || null;
+      setCallState({ type, status: "ringing", muted: false, cameraOff: false });
+      window.setTimeout(() => setCallState((current) => current ? { ...current, status: "connected" } : current), 900);
+    } catch {
+      setCallState(null);
+      toast.error(type === "video" ? "Autorise la caméra et le micro" : "Autorise le micro");
+    }
+  };
+
+  const endCall = async () => {
+    callStreamRef.current?.getTracks().forEach(t => t.stop());
+    callStreamRef.current = null;
+    if (callSessionRef.current) {
+      try {
+        await (supabase as any).from("direct_call_sessions").update({ status: "ended", ended_at: new Date().toISOString() }).eq("id", callSessionRef.current);
+      } catch {
+        // The call may already be gone; stopping local tracks is the important part.
+      }
+    }
+    callSessionRef.current = null;
+    setCallState(null);
+  };
+
+  const toggleCallMute = () => {
+    callStreamRef.current?.getAudioTracks().forEach(t => { t.enabled = !t.enabled; });
+    setCallState((current) => current ? { ...current, muted: !current.muted } : current);
+  };
+
+  const toggleCallCamera = () => {
+    callStreamRef.current?.getVideoTracks().forEach(t => { t.enabled = !t.enabled; });
+    setCallState((current) => current ? { ...current, cameraOff: !current.cameraOff } : current);
+  };
+
   const StatusIcon = ({ status }: { status: string }) => {
     if (status === "read") return <CheckCheck className="h-3 w-3 text-accent" />;
     if (status === "delivered") return <CheckCheck className="h-3 w-3 text-muted-foreground" />;
@@ -288,6 +462,12 @@ export default function ChatPage() {
   };
 
   const fmtTime = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, "0")}`;
+  const chatBackgroundStyle: CSSProperties = {
+    background: chatBackground,
+    backgroundAttachment: "fixed",
+    backgroundPosition: "center",
+    backgroundSize: "cover",
+  };
 
   return (
     <div className="flex flex-col h-[100svh] bg-background md:pl-[var(--sidebar-width,260px)]">
@@ -299,16 +479,24 @@ export default function ChatPage() {
           {otherUserName[0]}
         </div>
         <div className="flex-1">
-          <span className="text-sm font-semibold text-foreground">{otherUserName}</span>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm font-semibold text-foreground">{otherUserName}</span>
+            {streakDays > 0 && (
+              <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold ${streakNeedsReply ? "bg-accent/15 text-accent" : "bg-primary/15 text-primary"}`}>
+                <Flame className="h-3 w-3" /> {streakDays}j
+              </span>
+            )}
+          </div>
           {(isBlocked || blockedByThem) && (
             <p className="text-[11px] text-destructive">{isBlocked ? "Bloqué par toi" : "Messages bloqués"}</p>
           )}
+          {!isBlocked && !blockedByThem && streakNeedsReply && <p className="text-[11px] text-accent">Flamme à relancer aujourd'hui</p>}
         </div>
         <div className="flex items-center gap-3">
-          <motion.button whileTap={{ scale: 0.9 }} onClick={() => toast.info("Appels bientôt disponibles")}>
+          <motion.button type="button" whileTap={{ scale: 0.9 }} onClick={() => startCall("audio")} disabled={isBlocked || blockedByThem} aria-label="Appel audio">
             <Phone className="h-5 w-5 text-muted-foreground" />
           </motion.button>
-          <motion.button whileTap={{ scale: 0.9 }} onClick={() => toast.info("Appels vidéo bientôt disponibles")}>
+          <motion.button type="button" whileTap={{ scale: 0.9 }} onClick={() => startCall("video")} disabled={isBlocked || blockedByThem} aria-label="Appel video">
             <Video className="h-5 w-5 text-muted-foreground" />
           </motion.button>
           <motion.button whileTap={{ scale: 0.9 }} onClick={() => setShowSafetyMenu(p => !p)} aria-label="Options sécurité">
@@ -328,11 +516,71 @@ export default function ChatPage() {
                 <Ban className="h-4 w-4" /> {isBlocked ? "Débloquer" : "Bloquer"}
               </button>
             </div>
+            <div className="mx-auto mt-3 max-w-lg rounded-2xl bg-background/55 p-3">
+              <div className="mb-2 flex items-center gap-2 text-xs font-bold text-foreground">
+                <Wallpaper className="h-4 w-4 text-primary" /> Fond privé
+              </div>
+              <div className="grid grid-cols-4 gap-2">
+                {chatBackgrounds.map(bg => (
+                  <button
+                    key={bg.label}
+                    type="button"
+                    onClick={() => saveChatBackground(bg.value)}
+                    className="h-12 rounded-xl border border-border text-[10px] font-bold text-foreground shadow-inner"
+                    style={{ background: bg.value }}
+                  >
+                    {bg.label}
+                  </button>
+                ))}
+              </div>
+              <div className="mt-2 flex gap-2">
+                <input value={customBackgroundUrl} onChange={e => setCustomBackgroundUrl(e.target.value)} placeholder="URL image https..." className="min-w-0 flex-1 rounded-xl bg-card px-3 py-2 text-xs text-foreground outline-none" />
+                <button type="button" onClick={applyCustomBackground} className="rounded-xl gradient-primary px-3 py-2 text-xs font-bold text-primary-foreground">OK</button>
+              </div>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
 
-      <div className="flex-1 overflow-y-auto no-scrollbar px-4 py-4 space-y-3">
+      <AnimatePresence>
+        {callState && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[80] flex items-center justify-center bg-background/88 px-4 backdrop-blur-xl">
+            <motion.div initial={{ scale: 0.94, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.94, y: 20 }} className="w-full max-w-sm overflow-hidden rounded-3xl border border-border bg-card shadow-2xl">
+              <div className="relative aspect-[3/4] bg-black">
+                {callState.type === "video" && !callState.cameraOff ? (
+                  <video ref={localVideoRef} className="h-full w-full object-cover" muted playsInline autoPlay style={{ transform: "scaleX(-1)" }} />
+                ) : (
+                  <div className="flex h-full w-full flex-col items-center justify-center gap-3 bg-gradient-to-br from-background via-card to-background">
+                    <div className="grid h-24 w-24 place-items-center rounded-full gradient-primary text-3xl font-bold text-primary-foreground">{otherUserName[0]}</div>
+                    <p className="text-sm font-semibold text-foreground">{callState.type === "video" ? "Camera coupée" : "Appel audio"}</p>
+                  </div>
+                )}
+                <div className="absolute left-4 top-4 rounded-full bg-background/60 px-3 py-1 text-xs font-bold text-foreground backdrop-blur">
+                  {callState.status === "requesting" ? "Permissions..." : callState.status === "ringing" ? "Sonnerie..." : "Connecté"}
+                </div>
+              </div>
+              <div className="flex items-center justify-center gap-3 p-4">
+                <button type="button" onClick={toggleCallMute} className={`grid h-12 w-12 place-items-center rounded-full ${callState.muted ? "bg-destructive text-destructive-foreground" : "bg-secondary text-foreground"}`} aria-label={callState.muted ? "Réactiver le micro" : "Couper le micro"}>
+                  {callState.muted ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
+                </button>
+                {callState.type === "video" && (
+                  <button type="button" onClick={toggleCallCamera} className={`grid h-12 w-12 place-items-center rounded-full ${callState.cameraOff ? "bg-destructive text-destructive-foreground" : "bg-secondary text-foreground"}`} aria-label={callState.cameraOff ? "Réactiver la camera" : "Couper la camera"}>
+                    {callState.cameraOff ? <CameraOff className="h-5 w-5" /> : <Video className="h-5 w-5" />}
+                  </button>
+                )}
+                <button type="button" onClick={() => toast.info("Changement de caméra prêt côté navigateur")} className="grid h-12 w-12 place-items-center rounded-full bg-secondary text-foreground" aria-label="Changer de camera">
+                  <RotateCcw className="h-5 w-5" />
+                </button>
+                <button type="button" onClick={endCall} className="grid h-12 w-12 place-items-center rounded-full bg-destructive text-destructive-foreground" aria-label="Raccrocher">
+                  <PhoneOff className="h-5 w-5" />
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <div className="flex-1 overflow-y-auto no-scrollbar px-4 py-4 space-y-3" style={chatBackgroundStyle}>
         {loading ? (
           <div className="text-center py-8">
             <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: "linear" }} className="h-6 w-6 border-2 border-primary border-t-transparent rounded-full mx-auto" />

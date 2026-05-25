@@ -1,19 +1,17 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { useAuth } from "@/hooks/useAuth";
 import VideoCard from "./VideoCard";
 import CommentsDrawer from "./CommentsDrawer";
 import GamificationPanel from "./GamificationPanel";
 import { VideoData } from "@/data/mockVideos";
 import { motion } from "framer-motion";
-import { RefreshCw, Film, Radio } from "lucide-react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { RefreshCw, Film } from "lucide-react";
+import { useSearchParams } from "react-router-dom";
 
 export default function VideoFeed() {
   const [videos, setVideos] = useState<VideoData[]>([]);
-  const [activeLivesCount, setActiveLivesCount] = useState(0);
   const [activeIndex, setActiveIndex] = useState(0);
-  const [isMuted, setIsMuted] = useState(false);
+  const [isMuted, setIsMuted] = useState(true);
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [commentVideoId, setCommentVideoId] = useState<string | null>(null);
   const [commentCount, setCommentCount] = useState(0);
@@ -21,8 +19,6 @@ export default function VideoFeed() {
   const [loading, setLoading] = useState(true);
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollTimerRef = useRef<number | null>(null);
-  const { user } = useAuth();
-  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
   const fetchVideos = useCallback(async () => {
@@ -65,23 +61,9 @@ export default function VideoFeed() {
     setLoading(false);
   }, [searchParams]);
 
-  const fetchLivesCount = useCallback(async () => {
-    const { count } = await supabase
-      .from("lives")
-      .select("id", { count: "exact", head: true })
-      .eq("is_active", true);
-    setActiveLivesCount(count || 0);
-  }, []);
-
   useEffect(() => {
     fetchVideos();
-    fetchLivesCount();
-    const channel = supabase
-      .channel("home-lives-count")
-      .on("postgres_changes", { event: "*", schema: "public", table: "lives" }, fetchLivesCount)
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, [fetchVideos, fetchLivesCount]);
+  }, [fetchVideos]);
 
   const preloadVideos = videos.filter((_, i) => Math.abs(i - activeIndex) <= 2 && i !== activeIndex);
 
@@ -111,7 +93,7 @@ export default function VideoFeed() {
     );
   }
 
-  if (videos.length === 0 && activeLivesCount === 0) {
+  if (videos.length === 0) {
     return (
       <div className="h-[100svh] w-full flex items-center justify-center bg-background px-4">
         <div className="text-center">
@@ -131,18 +113,7 @@ export default function VideoFeed() {
   return (
     <div className="relative min-h-[100svh] bg-background md:min-h-[100dvh] md:pl-[var(--sidebar-width,260px)] md:pr-6">
       <div className="fixed top-[max(1rem,env(safe-area-inset-top))] right-4 z-40 flex items-center gap-2 md:right-8">
-        {activeLivesCount > 0 && (
-          <motion.button
-            whileTap={{ scale: 0.9 }}
-            onClick={() => navigate("/lives")}
-            className="flex items-center gap-1.5 rounded-full bg-destructive/95 px-3 py-1.5 text-[11px] font-bold text-destructive-foreground shadow-lg backdrop-blur"
-            aria-label="Voir les lives"
-          >
-            <span className="h-2 w-2 animate-pulse rounded-full bg-destructive-foreground" />
-            <Radio className="h-3 w-3" /> {activeLivesCount} LIVE{activeLivesCount > 1 ? "S" : ""}
-          </motion.button>
-        )}
-        <motion.button whileTap={{ scale: 0.9 }} onClick={() => { fetchVideos(); fetchLivesCount(); }} className="glass rounded-full p-2" aria-label="Actualiser">
+        <motion.button whileTap={{ scale: 0.9 }} onClick={fetchVideos} className="glass rounded-full p-2" aria-label="Actualiser">
           <RefreshCw className="h-4 w-4 text-foreground" />
         </motion.button>
       </div>
