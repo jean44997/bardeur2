@@ -63,3 +63,27 @@ export const createActionGate = (cooldownMs: number) => {
     return true;
   };
 };
+
+// Dynamic cooldown based on network conditions: slower network -> longer cooldown
+export const getAdaptiveCooldown = (baseMs: number) => {
+  const { effectiveType, rtt, saveData } = getConnectionInfo();
+  if (saveData || effectiveType === "slow-2g" || effectiveType === "2g") return Math.round(baseMs * 2.5);
+  if (effectiveType === "3g" || rtt > 400) return Math.round(baseMs * 1.6);
+  if (effectiveType === "4g" && rtt > 200) return Math.round(baseMs * 1.2);
+  return baseMs;
+};
+
+// Probe which audio codecs the current browser actually supports for MediaRecorder.
+export const probeAudioCodecs = () => {
+  const candidates = [
+    "audio/mp4",
+    "audio/mp4;codecs=mp4a.40.2",
+    "audio/aac",
+    "audio/webm;codecs=opus",
+    "audio/webm",
+    "audio/ogg;codecs=opus",
+  ];
+  const supported = candidates.filter((c) => typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported(c));
+  const best = getBestAudioRecorderOptions();
+  return { supported, chosen: best.contentType, isIOS: isIOSDevice() };
+};
