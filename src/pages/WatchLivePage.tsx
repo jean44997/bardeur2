@@ -205,6 +205,8 @@ export default function WatchLivePage() {
       })
       .on("broadcast", { event: "audio" }, ({ payload }: any) => {
         if (!payload?.url || pausedRef.current) return;
+        lastAudioChunkRef.current = Date.now();
+        setAudioStale(false);
         // Prefetch into mini-buffer so playback is instant even on jitter.
         prebufferRef.current.prefetchAudio(payload.url);
         audioQueueRef.current.enqueue(payload.seq ?? Date.now(), payload.url);
