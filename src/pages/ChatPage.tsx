@@ -224,7 +224,11 @@ export default function ChatPage() {
     if (!conversationId) return;
     setLoading(true);
     const { data } = await supabase.from("messages").select("*").eq("conversation_id", conversationId).order("created_at", { ascending: true });
-    if (data) setMessages(await Promise.all(data.map(mapMessage)));
+    if (data) {
+      const hidden = loadHiddenIds();
+      const mapped = await Promise.all(data.filter((m: any) => !hidden.has(m.id)).map(mapMessage));
+      setMessages(mapped);
+    }
     setLoading(false);
   };
 
