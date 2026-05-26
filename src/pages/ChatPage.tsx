@@ -63,6 +63,7 @@ export default function ChatPage() {
   const [callState, setCallState] = useState<CallState | null>(null);
   const [callSeconds, setCallSeconds] = useState(0);
   const [callAudioLevel, setCallAudioLevel] = useState(0);
+  const [deleteTarget, setDeleteTarget] = useState<Message | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
