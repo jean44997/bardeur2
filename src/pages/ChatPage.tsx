@@ -370,10 +370,35 @@ export default function ChatPage() {
     } catch { toast.error("Erreur envoi vocal"); }
   };
 
-  const deleteMessage = async (msgId: string) => {
+  const hiddenStorageKey = () => (conversationId && user ? `chat-hidden:${conversationId}:${user.id}` : null);
+
+  const loadHiddenIds = (): Set<string> => {
+    const k = hiddenStorageKey();
+    if (!k) return new Set();
+    try { return new Set(JSON.parse(localStorage.getItem(k) || "[]")); } catch { return new Set(); }
+  };
+
+  const persistHidden = (ids: Set<string>) => {
+    const k = hiddenStorageKey();
+    if (k) localStorage.setItem(k, JSON.stringify(Array.from(ids)));
+  };
+
+  const deleteForMe = (msgId: string) => {
+    const ids = loadHiddenIds();
+    ids.add(msgId);
+    persistHidden(ids);
+    setMessages(prev => prev.filter(m => m.id !== msgId));
+    setDeleteTarget(null);
+    toast.success("Supprimé pour toi");
+  };
+
+  const deleteForBoth = async (msgId: string) => {
     if (!user) return;
-    await supabase.from("messages").update({ content: "Message supprimé", content_version: "plain" } as any).eq("id", msgId).eq("sender_id", user.id);
-    fetchMessages();
+    const { error } = await supabase.from("messages").delete().eq("id", msgId).eq("sender_id", user.id);
+    if (error) { toast.error("Suppression impossible"); return; }
+    setMessages(prev => prev.filter(m => m.id !== msgId));
+    setDeleteTarget(null);
+    toast.success("Message supprimé pour tous");
   };
 
   const toggleBlockUser = async () => {
