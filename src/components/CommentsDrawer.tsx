@@ -11,6 +11,7 @@ import AudioBubble from "@/components/AudioBubble";
 
 interface Comment {
   id: string;
+  userId: string;
   user: { name: string; avatar: string; verified: boolean };
   text: string;
   likes: number;
