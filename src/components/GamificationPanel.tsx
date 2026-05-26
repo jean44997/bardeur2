@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Flame, Star, Trophy, Target, Gift, Zap, Award, Crown, ChevronRight, X } from "lucide-react";
+import { Flame, Star, Trophy, Target, Gift, Zap, Award, Crown, X, BadgeDollarSign, Megaphone, ShieldCheck } from "lucide-react";
 import confetti from "canvas-confetti";
 
 interface Badge {
@@ -53,6 +53,9 @@ export default function GamificationPanel({ isOpen, onClose }: GamificationPanel
   const [xp, setXp] = useState(2450);
   const [level, setLevel] = useState(7);
   const [streak, setStreak] = useState(12);
+  const [coins, setCoins] = useState(180);
+  const [diamonds, setDiamonds] = useState(12);
+  const [adWatched, setAdWatched] = useState(false);
   const [showLevelUp, setShowLevelUp] = useState(false);
   const maxXp = 3000;
 
@@ -76,6 +79,14 @@ export default function GamificationPanel({ isOpen, onClose }: GamificationPanel
       triggerConfetti();
       setTimeout(() => setShowLevelUp(false), 3000);
     }
+  };
+
+  const claimAdReward = () => {
+    if (adWatched) return;
+    setAdWatched(true);
+    setCoins((c) => c + 25);
+    setXp((current) => current + 120);
+    triggerConfetti();
   };
 
   return (
@@ -146,6 +157,42 @@ export default function GamificationPanel({ isOpen, onClose }: GamificationPanel
                   </div>
                 </div>
                 <span className="text-3xl font-extrabold text-foreground tabular-nums">{streak}</span>
+              </div>
+
+              <div className="glass rounded-2xl p-4">
+                <div className="mb-3 flex items-center justify-between">
+                  <div>
+                    <h3 className="flex items-center gap-2 text-sm font-bold text-foreground">
+                      <BadgeDollarSign className="h-4 w-4 text-primary" /> Coins, diamants et pubs
+                    </h3>
+                    <p className="mt-1 text-xs text-muted-foreground">Les recompenses restent progressives: interaction reelle, anti-fraude et bonus pub limite.</p>
+                  </div>
+                  <div className="rounded-2xl bg-card px-3 py-2 text-right">
+                    <p className="text-sm font-black text-foreground tabular-nums">{coins}</p>
+                    <p className="text-[10px] text-muted-foreground">coins</p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-3 gap-2 text-center">
+                  <div className="rounded-xl bg-card px-2 py-3">
+                    <Flame className="mx-auto mb-1 h-4 w-4 text-primary" />
+                    <p className="text-[11px] font-bold text-foreground">Flamme DM</p>
+                    <p className="text-[10px] text-muted-foreground">+5/jour</p>
+                  </div>
+                  <div className="rounded-xl bg-card px-2 py-3">
+                    <Gift className="mx-auto mb-1 h-4 w-4 text-accent" />
+                    <p className="text-[11px] font-bold text-foreground">{diamonds} diamants</p>
+                    <p className="text-[10px] text-muted-foreground">cadeaux live</p>
+                  </div>
+                  <button type="button" onClick={claimAdReward} disabled={adWatched} className="rounded-xl bg-card px-2 py-3 text-center disabled:opacity-60">
+                    <Megaphone className="mx-auto mb-1 h-4 w-4 text-primary" />
+                    <p className="text-[11px] font-bold text-foreground">{adWatched ? "Reclame vue" : "+25 coins"}</p>
+                    <p className="text-[10px] text-muted-foreground">bonus controle</p>
+                  </button>
+                </div>
+                <div className="mt-3 flex items-center gap-2 rounded-xl bg-background/60 px-3 py-2 text-[11px] text-muted-foreground">
+                  <ShieldCheck className="h-4 w-4 text-primary" />
+                  Bonus bloques si spam, multi-comptes, partage artificiel ou signalement confirme.
+                </div>
               </div>
 
               {/* Daily Challenges */}

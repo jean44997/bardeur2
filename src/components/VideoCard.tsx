@@ -93,6 +93,7 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
+    v.volume = 1;
     if (isActive) {
       v.playbackRate = playbackRate;
       if (!pausedByUser) v.play().catch(() => {});
@@ -246,6 +247,35 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
     toast.success("Lien video copie");
   };
 
+  const shareToDeviceApps = async () => {
+    const shareUrl = `${window.location.origin}/?video=${video.id}`;
+    try {
+      const nav = navigator as any;
+      if (nav.share) {
+        const title = `Video de @${video.user.username}`;
+        const text = video.description || "Video BARDEUR";
+        try {
+          const response = await fetch(video.url);
+          const blob = await response.blob();
+          const file = new File([blob], `bardeur-${video.id}.mp4`, { type: blob.type || "video/mp4" });
+          if (nav.canShare?.({ files: [file] })) {
+            await nav.share({ title, text, files: [file] });
+          } else {
+            await nav.share({ title, text, url: shareUrl });
+          }
+        } catch {
+          await nav.share({ title, text, url: shareUrl });
+        }
+      } else {
+        await navigator.clipboard.writeText(shareUrl);
+        toast.success("Lien video copie");
+      }
+      if (user) await supabase.from("shares").insert({ user_id: user.id, video_id: video.id });
+    } catch {
+      toast.error("Partage annule ou indisponible");
+    }
+  };
+
   const sendVideoToFriend = async (target: any) => {
     if (!user || !target?.id) { toast.error("Connecte-toi pour envoyer"); return; }
     setShareSending(target.id);
@@ -378,6 +408,9 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
           const v = e.currentTarget;
           if (v.duration && v.buffered.length) setBuffered((v.buffered.end(v.buffered.length - 1) / v.duration) * 100);
         }}
+        onLoadedMetadata={() => {
+          if (isActive && !pausedByUser) videoRef.current?.play().catch(() => {});
+        }}
       />
 
       <AnimatePresence>
@@ -389,15 +422,6 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
       <div className="gradient-overlay absolute inset-x-0 bottom-0 h-[45%] pointer-events-none" />
 
       {isActive && <div className="pointer-events-auto absolute left-3 top-[max(0.85rem,env(safe-area-inset-top))] z-30 flex items-center gap-2 md:left-4">
-        <motion.button
-          type="button"
-          whileTap={{ scale: 0.9 }}
-          onClick={togglePlayback}
-          className="glass grid h-10 w-10 place-items-center rounded-full"
-          aria-label={pausedByUser ? "Reprendre la video" : "Mettre la video en pause"}
-        >
-          {pausedByUser ? <Play className="h-4 w-4 fill-current text-foreground" /> : <Pause className="h-4 w-4 text-foreground" />}
-        </motion.button>
         <motion.button
           type="button"
           whileTap={{ scale: 0.9 }}
@@ -444,7 +468,7 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
       )}
 
       {/* Bottom Info */}
-      <div className="absolute bottom-[calc(4.8rem+env(safe-area-inset-bottom))] left-4 right-20 z-20 text-shadow-video md:bottom-5">
+      <div className="absolute bottom-[calc(5.9rem+env(safe-area-inset-bottom))] left-4 right-20 z-20 text-shadow-video md:bottom-5">
         <div className="flex items-center gap-2 mb-2">
           <button type="button" onClick={() => navigate(`/profile/${video.user.username}`)} className="flex min-w-0 items-center gap-2 rounded-full bg-background/18 pr-2 text-left backdrop-blur-sm">
             <div className="h-10 w-10 rounded-full gradient-primary flex items-center justify-center text-sm font-bold text-primary-foreground overflow-hidden">
@@ -552,9 +576,12 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
                   <X className="h-4 w-4 text-muted-foreground" />
                 </button>
               </div>
-              <div className="mb-3 grid grid-cols-2 gap-2">
+              <div className="mb-3 grid grid-cols-3 gap-2">
                 <button type="button" onClick={copyShareLink} className="rounded-2xl bg-card px-3 py-3 text-xs font-bold text-foreground">
                   <Link2 className="mx-auto mb-1 h-4 w-4 text-primary" /> Copier lien
+                </button>
+                <button type="button" onClick={shareToDeviceApps} className="rounded-2xl bg-card px-3 py-3 text-xs font-bold text-foreground">
+                  <Share2 className="mx-auto mb-1 h-4 w-4 text-primary" /> Apps
                 </button>
                 <button type="button" onClick={() => { onOpenGamification(); setShowShareSheet(false); }} className="rounded-2xl bg-card px-3 py-3 text-xs font-bold text-foreground">
                   <Flame className="mx-auto mb-1 h-4 w-4 text-primary" /> Recompenses

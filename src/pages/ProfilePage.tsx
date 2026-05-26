@@ -5,7 +5,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
-import logo from "@/assets/logo.png";
+import AppLogo from "@/components/AppLogo";
 import QRCode from "qrcode";
 import { sanitizeHashtags, validateUploadFile, validateUserText } from "@/lib/contentSafety";
 import ProfileViewsPanel from "@/components/ProfileViewsPanel";
@@ -561,7 +561,7 @@ export default function ProfilePage() {
           {showQR && (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 bg-background/80 flex items-center justify-center px-8" onClick={() => setShowQR(false)}>
               <motion.div initial={{ scale: 0.8 }} animate={{ scale: 1 }} exit={{ scale: 0.8 }} className="glass rounded-2xl p-8 text-center max-w-xs w-full" onClick={e => e.stopPropagation()}>
-                <img src={logo} alt="BARDEUR YK" className="h-12 w-12 mx-auto mb-3 rounded-xl" />
+                <AppLogo className="mx-auto mb-3 h-12 w-12 rounded-xl" markClassName="text-lg" />
                 <h3 className="text-lg font-bold text-foreground mb-1">@{currentProfile.username}</h3>
                 <p className="text-xs text-muted-foreground mb-4">Scanne pour voir le profil</p>
                 {qrDataUrl ? (

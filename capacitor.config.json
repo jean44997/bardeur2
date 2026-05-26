@@ -8,7 +8,7 @@
   },
   "ios": {
     "contentInset": "automatic",
-    "scrollEnabled": false
+    "scrollEnabled": true
   },
   "android": {
     "allowMixedContent": false,

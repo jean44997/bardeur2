@@ -15,6 +15,7 @@ import CreatePage from "./pages/CreatePage";
 import AuthPage from "./pages/AuthPage";
 import ChatPage from "./pages/ChatPage";
 import SettingsPage from "./pages/SettingsPage";
+import MonetizationPage from "./pages/MonetizationPage";
 import AdminPage from "./pages/AdminPage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
 import LivePage from "./pages/LivePage";
@@ -53,6 +54,7 @@ const App = () => (
                       <Route path="/inbox" element={<AuthGuard><InboxPage /></AuthGuard>} />
                       <Route path="/create" element={<AuthGuard><CreatePage /></AuthGuard>} />
                       <Route path="/settings" element={<AuthGuard><SettingsPage /></AuthGuard>} />
+                      <Route path="/monetization" element={<AuthGuard><MonetizationPage /></AuthGuard>} />
                       <Route path="/settings/live-debug" element={<AuthGuard><LiveDebugPage /></AuthGuard>} />
                       <Route path="/admin" element={<AuthGuard><AdminPage /></AuthGuard>} />
                       <Route path="/notifications" element={<AuthGuard><Navigate to="/inbox?tab=activity" replace /></AuthGuard>} />

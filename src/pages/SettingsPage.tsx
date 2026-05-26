@@ -6,7 +6,6 @@ import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { probeAudioCodecs, isIOSDevice } from "@/lib/mediaCapabilities";
-import MonetizationPanel from "@/components/MonetizationPanel";
 
 interface SettingItemProps {
   icon: React.ReactNode;
@@ -47,7 +46,7 @@ function SettingItem({ icon, label, description, toggle, value, onToggle, onClic
 
 export default function SettingsPage() {
   const navigate = useNavigate();
-  const { user, profile, updateProfile, signOut, deleteAccount, updatePassword } = useAuth();
+  const { profile, updateProfile, signOut, deleteAccount, updatePassword } = useAuth();
   const [showPasswordChange, setShowPasswordChange] = useState(false);
   const [newPassword, setNewPassword] = useState("");
   const [confirmNewPassword, setConfirmNewPassword] = useState("");
@@ -64,7 +63,6 @@ export default function SettingsPage() {
   const [notificationPermission, setNotificationPermission] = useState<string>(typeof Notification !== "undefined" ? Notification.permission : "unsupported");
   const [mediaPermission, setMediaPermission] = useState<"idle" | "granted" | "denied">("idle");
   const [showAboutDetails, setShowAboutDetails] = useState(false);
-  const [creatorStats, setCreatorStats] = useState({ followers: 0, likes: 0, videos: 0, views: 0 });
 
   useEffect(() => {
     if (typeof Notification !== "undefined") {
@@ -72,11 +70,6 @@ export default function SettingsPage() {
     }
     loadMfaStatus();
   }, []);
-
-  useEffect(() => {
-    if (!user) return;
-    fetchCreatorStats();
-  }, [user?.id]);
 
   const loadMfaStatus = async () => {
     const { data } = await supabase.auth.mfa.listFactors();
@@ -91,21 +84,6 @@ export default function SettingsPage() {
     const { error } = await updateProfile({ [key]: value } as any);
     if (error) toast.error("Reglage impossible: applique la derniere migration Supabase");
     else toast.success(value ? "Reglage active" : "Reglage desactive");
-  };
-
-  const fetchCreatorStats = async () => {
-    if (!user) return;
-    const [followers, totalLikes, videoData] = await Promise.all([
-      supabase.from("follows").select("*", { count: "exact", head: true }).eq("following_id", user.id),
-      supabase.from("videos").select("likes_count, views_count").eq("user_id", user.id),
-      supabase.from("videos").select("*", { count: "exact", head: true }).eq("user_id", user.id),
-    ]);
-    setCreatorStats({
-      followers: followers.count || 0,
-      likes: totalLikes.data?.reduce((sum: number, v: any) => sum + (v.likes_count || 0), 0) || 0,
-      videos: videoData.count || 0,
-      views: totalLikes.data?.reduce((sum: number, v: any) => sum + (v.views_count || 0), 0) || 0,
-    });
   };
 
   const updateNotificationSound = async (sound: "pop" | "soft" | "none") => {
@@ -362,13 +340,14 @@ export default function SettingsPage() {
 
         <div className="mb-6">
           <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-4 mb-2">Monetisation et abonnements</h2>
-          <div className="mb-2 glass rounded-2xl px-4 py-3">
-            <div className="flex items-center gap-2 text-sm font-bold text-foreground">
-              <WalletCards className="h-4 w-4 text-primary" /> Centre createur
-            </div>
-            <p className="mt-1 text-xs text-muted-foreground">Retraits, abonnements, publicites, checklist rewards et regles createur restent dans les parametres.</p>
+          <div className="glass rounded-2xl overflow-hidden">
+            <SettingItem
+              icon={<WalletCards className="h-4 w-4 text-primary" />}
+              label="Centre monetisation"
+              description="Rewards, retraits, pubs, abonnements et checklist createur"
+              onClick={() => navigate("/monetization")}
+            />
           </div>
-          <MonetizationPanel stats={creatorStats} username={profile?.username || "createur"} />
         </div>
 
         <div className="mb-6">

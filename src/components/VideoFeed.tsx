@@ -12,14 +12,14 @@ export default function VideoFeed() {
   const [videos, setVideos] = useState<VideoData[]>([]);
   const [activeLivesCount, setActiveLivesCount] = useState(0);
   const [activeIndex, setActiveIndex] = useState(0);
-  const [isMuted, setIsMuted] = useState(true);
+  const [isMuted, setIsMuted] = useState(false);
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [commentVideoId, setCommentVideoId] = useState<string | null>(null);
   const [commentCount, setCommentCount] = useState(0);
   const [gamificationOpen, setGamificationOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const containerRef = useRef<HTMLDivElement>(null);
-  const scrollTimerRef = useRef<number | null>(null);
+  const scrollRafRef = useRef<number | null>(null);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
@@ -89,19 +89,22 @@ export default function VideoFeed() {
   const handleScroll = useCallback(() => {
     const el = containerRef.current;
     if (!el) return;
-    if (scrollTimerRef.current) window.clearTimeout(scrollTimerRef.current);
-    scrollTimerRef.current = window.setTimeout(() => {
+    if (scrollRafRef.current) return;
+    scrollRafRef.current = window.requestAnimationFrame(() => {
       const idx = Math.max(0, Math.min(videos.length - 1, Math.round(el.scrollTop / el.clientHeight)));
-      setActiveIndex(idx);
-      el.scrollTo({ top: idx * el.clientHeight, behavior: "smooth" });
-    }, 90);
+      setActiveIndex((current) => current === idx ? current : idx);
+      scrollRafRef.current = null;
+    });
   }, [videos.length]);
 
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
     el.addEventListener("scroll", handleScroll, { passive: true });
-    return () => el.removeEventListener("scroll", handleScroll);
+    return () => {
+      el.removeEventListener("scroll", handleScroll);
+      if (scrollRafRef.current) window.cancelAnimationFrame(scrollRafRef.current);
+    };
   }, [handleScroll]);
 
   if (loading) {
@@ -135,10 +138,11 @@ export default function VideoFeed() {
         <motion.button
           whileTap={{ scale: 0.9 }}
           onClick={() => navigate("/lives")}
-          className="glass relative grid h-10 w-10 place-items-center rounded-full"
+          className="glass relative flex h-10 items-center gap-2 rounded-full px-3"
           aria-label="Ouvrir les lives"
         >
           <Radio className="h-4 w-4 text-foreground" />
+          <span className="text-xs font-black text-foreground">Live</span>
           {activeLivesCount > 0 && (
             <span className="absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-primary px-1 text-[9px] font-black text-primary-foreground">
               {activeLivesCount > 9 ? "9+" : activeLivesCount}
@@ -158,7 +162,7 @@ export default function VideoFeed() {
 
       <div
         ref={containerRef}
-        className="h-[100svh] w-full snap-y snap-mandatory overflow-y-scroll no-scrollbar overscroll-contain md:mx-auto md:my-4 md:h-[calc(100dvh-2rem)] md:w-full md:max-w-[460px] md:rounded-[24px] md:bg-black"
+        className="pwa-feed-scroll h-[100svh] w-full snap-y snap-mandatory overflow-y-scroll no-scrollbar md:mx-auto md:my-4 md:h-[calc(100dvh-2rem)] md:w-full md:max-w-[460px] md:rounded-[24px] md:bg-black"
       >
         {videos.map((video, i) => (
           <VideoCard

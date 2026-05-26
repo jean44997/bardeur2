@@ -32,6 +32,8 @@
   <string>BARDEUR accede a la galerie pour importer tes medias.</string>
   <key>NSPhotoLibraryAddUsageDescription</key>
   <string>BARDEUR peut enregistrer des medias exportes si tu le demandes.</string>
+  <key>NSUserTrackingUsageDescription</key>
+  <string>BARDEUR utilise les autorisations de suivi seulement si tu actives une campagne de promotion.</string>
   <key>ITSAppUsesNonExemptEncryption</key>
   <false/>
 </dict>

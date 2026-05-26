@@ -5,7 +5,7 @@ import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
-import logo from "@/assets/logo.png";
+import AppLogo from "@/components/AppLogo";
 
 export default function ResetPasswordPage() {
   const [password, setPassword] = useState("");
@@ -48,7 +48,7 @@ export default function ResetPasswordPage() {
     <div className="min-h-[100svh] bg-background flex items-center justify-center px-4">
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="w-full max-w-sm">
         <div className="text-center mb-8">
-          <img src={logo} alt="BARDEUR YK" className="h-16 w-16 rounded-2xl mx-auto mb-3" />
+          <AppLogo className="mx-auto mb-3 h-16 w-16" markClassName="text-2xl" />
           <h1 className="text-2xl font-bold text-foreground">Nouveau mot de passe</h1>
           <p className="text-sm text-muted-foreground mt-1">Choisis un mot de passe sécurisé</p>
         </div>

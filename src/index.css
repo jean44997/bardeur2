@@ -134,6 +134,19 @@
   .safe-bottom {
     padding-bottom: max(1rem, env(safe-area-inset-bottom));
   }
+  .pwa-bottom-nav {
+    bottom: max(0.15rem, calc(env(safe-area-inset-bottom) * 0.28));
+  }
+  .pwa-feed-scroll {
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-y: contain;
+    scroll-snap-type: y mandatory;
+    scroll-padding: 0;
+  }
+  .tap-target {
+    min-width: 2.5rem;
+    min-height: 2.5rem;
+  }
 }
 
 @supports (-webkit-touch-callout: none) {

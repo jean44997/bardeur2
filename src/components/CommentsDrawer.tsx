@@ -304,11 +304,11 @@ export default function CommentsDrawer({ isOpen, onClose, commentCount, videoId 
                   </button>
                 </div>
               ) : (
-              <div className="flex items-center gap-2">
+              <div className="flex min-w-0 items-center gap-1.5 sm:gap-2">
                 <div className="h-8 w-8 shrink-0 rounded-full gradient-primary flex items-center justify-center text-xs font-bold text-primary-foreground">
                   {profile?.display_name?.[0] || "?"}
                 </div>
-                <div className="flex-1 glass rounded-full flex items-center px-3 py-2 gap-2">
+                <div className="glass flex min-w-0 flex-1 items-center gap-2 rounded-full px-3 py-2">
                   <input
                     ref={inputRef}
                     type="text"
@@ -318,7 +318,7 @@ export default function CommentsDrawer({ isOpen, onClose, commentCount, videoId 
                     maxLength={280}
                     placeholder={user ? "Ajouter un commentaire..." : "Connecte-toi pour commenter"}
                     disabled={!user}
-                    className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none disabled:opacity-50"
+                    className="min-w-0 flex-1 bg-transparent text-base leading-5 text-foreground placeholder:text-muted-foreground outline-none disabled:opacity-50"
                   />
                   <button onClick={() => setShowStickers(p => !p)}><Sticker className="h-4 w-4 text-muted-foreground" /></button>
                 </div>

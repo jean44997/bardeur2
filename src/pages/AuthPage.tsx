@@ -4,7 +4,7 @@ import { Eye, EyeOff, Mail, Lock, User, ArrowLeft, Sparkles } from "lucide-react
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
-import logo from "@/assets/logo.png";
+import AppLogo from "@/components/AppLogo";
 
 function Particle({ delay }: { delay: number }) {
   const x = Math.random() * 100;
@@ -191,7 +191,7 @@ export default function AuthPage() {
               transition={{ duration: 8, repeat: Infinity, ease: "easeInOut" }}
               style={{ transformStyle: "preserve-3d" }}
             >
-              <img src={logo} alt="BARDEUR YK" className="h-20 w-20 rounded-2xl shadow-2xl" />
+              <AppLogo className="h-20 w-20" markClassName="text-3xl" />
               <motion.div
                 className="absolute inset-0 rounded-2xl gradient-primary"
                 style={{ opacity: 0.25 }}

@@ -3,7 +3,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
-import logo from "@/assets/logo.png";
+import AppLogo from "@/components/AppLogo";
 
 const mainItems = [
   { path: "/", icon: Home, label: "Accueil", requiresAuth: false },
@@ -34,7 +34,7 @@ export default function DesktopSidebar() {
     <aside className={`hidden md:flex fixed left-0 top-0 bottom-0 z-50 flex-col border-r border-border bg-sidebar transition-all duration-300 ${collapsed ? "w-[72px]" : "w-[260px]"}`}>
       <div className="flex items-center justify-between px-3 pt-4 pb-2 mb-2">
         <div className="flex items-center gap-2 overflow-hidden cursor-pointer" onClick={() => navigate("/")}>
-          <img src={logo} alt="BARDEUR YK" className="h-9 w-9 rounded-lg object-contain flex-shrink-0" />
+          <AppLogo className="h-9 w-9 flex-shrink-0 rounded-lg" markClassName="text-sm" />
           <AnimatePresence>
             {!collapsed && (
               <motion.span initial={{ opacity: 0, width: 0 }} animate={{ opacity: 1, width: "auto" }} exit={{ opacity: 0, width: 0 }} className="text-lg font-extrabold tracking-tight whitespace-nowrap overflow-hidden">
