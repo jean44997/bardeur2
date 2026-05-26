@@ -817,11 +817,12 @@ export default function ChatPage() {
                   <span className="text-[10px] text-muted-foreground">{msg.time}</span>
                   {msg.fromMe && <StatusIcon status={msg.status} />}
                 </div>
-                {msg.fromMe && msg.text !== "Message supprimé" && (
+                {msg.fromMe && (
                   <motion.button
                     whileTap={{ scale: 0.9 }}
-                    onClick={() => deleteMessage(msg.id)}
-                    className="absolute -left-8 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded-full bg-card"
+                    onClick={() => setDeleteTarget(msg)}
+                    className="absolute -left-8 top-1/2 -translate-y-1/2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity p-1.5 rounded-full bg-card border border-border"
+                    aria-label="Supprimer le message"
                   >
                     <Trash2 className="h-3 w-3 text-destructive" />
                   </motion.button>
