@@ -79,6 +79,7 @@ export default function CommentsDrawer({ isOpen, onClose, commentCount, videoId 
     if (data) {
       setComments(data.map((c: any) => ({
         id: c.id,
+        userId: c.user_id,
         user: {
           name: c.profiles?.username || "unknown",
           avatar: c.profiles?.display_name?.[0] || "?",
