@@ -198,6 +198,15 @@ export default function CommentsDrawer({ isOpen, onClose, commentCount, videoId 
     ));
   };
 
+  const deleteComment = async (commentId: string) => {
+    if (!user) return;
+    if (!window.confirm("Supprimer ce commentaire ?")) return;
+    const { error } = await supabase.from("comments").delete().eq("id", commentId).eq("user_id", user.id);
+    if (error) { toast.error("Suppression impossible"); return; }
+    setComments(prev => prev.filter(c => c.id !== commentId));
+    toast.success("Commentaire supprimé");
+  };
+
   return (
     <AnimatePresence>
       {isOpen && (
