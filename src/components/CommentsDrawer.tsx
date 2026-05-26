@@ -250,6 +250,16 @@ export default function CommentsDrawer({ isOpen, onClose, commentCount, videoId 
                           <span className="text-[10px] text-muted-foreground tabular-nums">{comment.likes}</span>
                         </button>
                         <button className="text-[10px] font-medium text-muted-foreground">Répondre</button>
+                        {user && comment.userId === user.id && (
+                          <button
+                            type="button"
+                            onClick={() => deleteComment(comment.id)}
+                            className="ml-auto flex items-center gap-1 text-[10px] font-medium text-destructive"
+                            aria-label="Supprimer le commentaire"
+                          >
+                            <Trash2 className="h-3 w-3" /> Supprimer
+                          </button>
+                        )}
                       </div>
                     </div>
                   </div>
