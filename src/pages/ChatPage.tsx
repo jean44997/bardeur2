@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, type CSSProperties } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowLeft, Send, Smile, Image as ImageIcon, Mic, MicOff, Phone, Video, Check, CheckCheck, Trash2, MoreVertical, Flag, Ban, Flame, Wallpaper, PhoneOff, CameraOff, RotateCcw, Upload, Activity, BellRing, SignalHigh, Volume2, VolumeX } from "lucide-react";
+import { ArrowLeft, Send, Smile, Image as ImageIcon, Mic, MicOff, Phone, Video, Check, CheckCheck, Trash2, MoreVertical, Flag, Ban, Flame, Wallpaper, PhoneOff, CameraOff, RotateCcw, Upload, Activity, BellRing, SignalHigh, Volume2, VolumeX, ShieldCheck } from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -404,6 +404,23 @@ export default function ChatPage() {
     setShowSafetyMenu(false);
   };
 
+  const reportAndBlockConversation = async () => {
+    if (!user || !otherUserId) return;
+    await supabase.from("reports").insert({
+      reporter_id: user.id,
+      reported_user_id: otherUserId,
+      type: "message",
+      reason: "Signalement + blocage depuis une conversation privee",
+      status: "pending",
+    });
+    if (!isBlocked) {
+      await (supabase as any).from("user_blocks").insert({ blocker_id: user.id, blocked_id: otherUserId, reason: "Signalement et blocage" });
+      setIsBlocked(true);
+    }
+    toast.success("Signalement envoye et utilisateur bloque");
+    setShowSafetyMenu(false);
+  };
+
   const stopRingtone = () => {
     if (ringtoneTimerRef.current) window.clearInterval(ringtoneTimerRef.current);
     ringtoneTimerRef.current = null;
@@ -646,12 +663,15 @@ export default function ChatPage() {
       <AnimatePresence>
         {showSafetyMenu && (
           <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="z-10 overflow-hidden border-b border-border bg-card/95 px-4 py-3">
-            <div className="mx-auto grid max-w-lg grid-cols-2 gap-2">
+            <div className="mx-auto grid max-w-lg grid-cols-3 gap-2">
               <button onClick={reportConversation} className="flex items-center justify-center gap-2 rounded-xl bg-destructive/15 px-3 py-2 text-xs font-semibold text-destructive">
                 <Flag className="h-4 w-4" /> Signaler
               </button>
               <button onClick={toggleBlockUser} className="flex items-center justify-center gap-2 rounded-xl bg-card px-3 py-2 text-xs font-semibold text-foreground">
                 <Ban className="h-4 w-4" /> {isBlocked ? "Débloquer" : "Bloquer"}
+              </button>
+              <button onClick={reportAndBlockConversation} className="flex items-center justify-center gap-2 rounded-xl bg-destructive px-3 py-2 text-xs font-semibold text-destructive-foreground">
+                <ShieldCheck className="h-4 w-4" /> Les deux
               </button>
             </div>
             <div className="mx-auto mt-3 max-w-lg rounded-2xl bg-background/55 p-3">
@@ -803,6 +823,14 @@ export default function ChatPage() {
         {(isBlocked || blockedByThem) && (
           <div className="mb-3 rounded-xl bg-destructive/10 px-3 py-2 text-center text-xs font-medium text-destructive">
             {isBlocked ? "Tu as bloqué cette conversation. Débloque pour réécrire." : "Cette conversation ne peut plus recevoir de messages."}
+          </div>
+        )}
+
+        {!isRecordingAudio && newMsg.trim() && !isBlocked && !blockedByThem && (
+          <div className="mb-2 flex justify-end">
+            <div className="max-w-[78%] rounded-2xl rounded-br-sm bg-primary/15 px-3 py-2 text-xs text-foreground shadow-sm">
+              {newMsg.slice(0, 120)}
+            </div>
           </div>
         )}
 

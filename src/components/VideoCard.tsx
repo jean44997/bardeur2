@@ -2,9 +2,10 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Heart, MessageCircle, Share2, Bookmark, Music, Volume2, VolumeX,
-  BadgeCheck, Trophy, Download, Gauge, SkipForward, Flag, Link2,
+  BadgeCheck, Trophy, Download, Gauge, SkipForward, Flag, Link2, Flame, Send,
   Play, Pause, X, Maximize2, Minimize2, MoreHorizontal
 } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { VideoData, formatCount } from "@/data/mockVideos";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -40,6 +41,7 @@ function FloatingHeart({ id, x, y, onDone }: { id: string; x: number; y: number;
 
 export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOpenComments, onOpenGamification }: VideoCardProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const navigate = useNavigate();
   const { user } = useAuth();
   const [liked, setLiked] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -55,6 +57,9 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
   const [buffered, setBuffered] = useState(0);
   const [saveCount, setSaveCount] = useState(video.stats.saves);
   const [fitMode, setFitMode] = useState<"contain" | "cover">("contain");
+  const [showShareSheet, setShowShareSheet] = useState(false);
+  const [shareTargets, setShareTargets] = useState<any[]>([]);
+  const [shareSending, setShareSending] = useState<string | null>(null);
   const lastTapRef = useRef(0);
   const singleTapTimer = useRef<number | null>(null);
   const actionCooldowns = useRef<Record<string, number>>({});
@@ -225,17 +230,51 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
   };
 
   const handleShare = async () => {
-    const shareUrl = `${window.location.origin}/?video=${video.id}`;
-    if (navigator.share) {
-      try {
-        await navigator.share({ title: video.description, url: shareUrl });
-        if (user) await supabase.from("shares").insert({ user_id: user.id, video_id: video.id });
-      } catch {
-        // Native share was cancelled or blocked by the browser.
-      }
-    } else {
-      await navigator.clipboard.writeText(shareUrl);
-      toast.success("Lien copié ! 🔗");
+    setShowShareSheet(true);
+    if (!user) return;
+    const { data } = await supabase
+      .from("follows")
+      .select("following_id, profiles:following_id(id, username, display_name, avatar_url)")
+      .eq("follower_id", user.id)
+      .limit(12);
+    setShareTargets((data || []).map((row: any) => row.profiles).filter(Boolean));
+  };
+
+  const copyShareLink = async () => {
+    await navigator.clipboard.writeText(`${window.location.origin}/?video=${video.id}`);
+    if (user) await supabase.from("shares").insert({ user_id: user.id, video_id: video.id });
+    toast.success("Lien video copie");
+  };
+
+  const sendVideoToFriend = async (target: any) => {
+    if (!user || !target?.id) { toast.error("Connecte-toi pour envoyer"); return; }
+    setShareSending(target.id);
+    try {
+      const shareUrl = `${window.location.origin}/?video=${video.id}`;
+      const { data: conversationId, error: rpcError } = await supabase.rpc("find_or_create_direct_conversation", { _other_user_id: target.id } as any);
+      if (rpcError || !conversationId) throw rpcError;
+      await supabase.from("messages").insert({
+        conversation_id: conversationId,
+        sender_id: user.id,
+        content: `Video partagee: ${shareUrl}`,
+        media_url: video.url,
+        media_type: "video/share",
+      } as any);
+      await (supabase as any).from("direct_shares").insert({
+        sender_id: user.id,
+        recipient_id: target.id,
+        video_id: video.id,
+        media_url: video.url,
+        media_type: "video/share",
+        message: shareUrl,
+      });
+      await supabase.from("shares").insert({ user_id: user.id, video_id: video.id });
+      toast.success(`Envoye a @${target.username} - flamme relancee`);
+      setShowShareSheet(false);
+    } catch {
+      toast.error("Envoi impossible pour le moment");
+    } finally {
+      setShareSending(null);
     }
   };
 
@@ -309,6 +348,12 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
     setShowLongPress(false);
   };
 
+  const seekBy = (seconds: number) => {
+    const v = videoRef.current;
+    if (!v) return;
+    v.currentTime = Math.min(Math.max(v.currentTime + seconds, 0), v.duration || v.currentTime + seconds);
+  };
+
   return (
     <div className="relative h-[100svh] w-full snap-start overflow-hidden bg-background touch-manipulation select-none md:h-[calc(100dvh-2rem)] md:max-h-[900px] md:rounded-[24px] md:border md:border-border/60 md:shadow-2xl md:shadow-black/40">
       <video
@@ -365,6 +410,24 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
         <motion.button
           type="button"
           whileTap={{ scale: 0.9 }}
+          onClick={() => seekBy(-5)}
+          className="glass grid h-10 w-10 place-items-center rounded-full"
+          aria-label="Reculer de 5 secondes"
+        >
+          <SkipForward className="h-4 w-4 rotate-180 text-foreground" />
+        </motion.button>
+        <motion.button
+          type="button"
+          whileTap={{ scale: 0.9 }}
+          onClick={() => seekBy(5)}
+          className="glass grid h-10 w-10 place-items-center rounded-full"
+          aria-label="Avancer de 5 secondes"
+        >
+          <SkipForward className="h-4 w-4 text-foreground" />
+        </motion.button>
+        <motion.button
+          type="button"
+          whileTap={{ scale: 0.9 }}
           onClick={() => setFitMode((mode) => mode === "contain" ? "cover" : "contain")}
           className="glass hidden h-10 items-center gap-1 rounded-full px-3 text-[11px] font-semibold text-foreground sm:flex"
           aria-label={fitMode === "contain" ? "Remplir l'ecran" : "Ajuster sans zoom"}
@@ -401,15 +464,17 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
       {/* Bottom Info */}
       <div className="absolute bottom-[calc(4.8rem+env(safe-area-inset-bottom))] left-4 right-20 z-20 text-shadow-video md:bottom-5">
         <div className="flex items-center gap-2 mb-2">
-          <div className="h-10 w-10 rounded-full gradient-primary flex items-center justify-center text-sm font-bold text-primary-foreground overflow-hidden">
-            {video.user.avatar ? (
-              <img src={video.user.avatar} alt="" className="h-full w-full object-cover" />
-            ) : (
-              video.user.displayName[0]
-            )}
-          </div>
-          <span className="font-semibold text-foreground text-[15px]">@{video.user.username}</span>
-          {video.user.verified && <BadgeCheck className="h-4 w-4 text-accent" />}
+          <button type="button" onClick={() => navigate(`/profile/${video.user.username}`)} className="flex min-w-0 items-center gap-2 rounded-full bg-background/18 pr-2 text-left backdrop-blur-sm">
+            <div className="h-10 w-10 rounded-full gradient-primary flex items-center justify-center text-sm font-bold text-primary-foreground overflow-hidden">
+              {video.user.avatar ? (
+                <img src={video.user.avatar} alt="" className="h-full w-full object-cover" />
+              ) : (
+                video.user.displayName[0]
+              )}
+            </div>
+            <span className="truncate font-semibold text-foreground text-[15px]">@{video.user.username}</span>
+            {video.user.verified && <BadgeCheck className="h-4 w-4 shrink-0 text-accent" />}
+          </button>
           <motion.button
             type="button"
             whileTap={{ scale: 0.9 }}
@@ -480,6 +545,59 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
 
       {/* Long Press Menu */}
       <AnimatePresence>
+        {showShareSheet && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 z-50 flex items-end justify-center bg-background/60"
+            onClick={() => setShowShareSheet(false)}
+          >
+            <motion.div
+              initial={{ y: 220 }}
+              animate={{ y: 0 }}
+              exit={{ y: 220 }}
+              transition={{ type: "spring", damping: 25 }}
+              className="w-full max-w-lg rounded-t-3xl glass p-5 pb-10"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="mb-4 flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-bold text-foreground">Partager la video</h3>
+                  <p className="text-xs text-muted-foreground">Un envoi en message relance la flamme et garde le lien de la video.</p>
+                </div>
+                <button type="button" onClick={() => setShowShareSheet(false)} className="rounded-full bg-card p-2">
+                  <X className="h-4 w-4 text-muted-foreground" />
+                </button>
+              </div>
+              <div className="mb-3 grid grid-cols-2 gap-2">
+                <button type="button" onClick={copyShareLink} className="rounded-2xl bg-card px-3 py-3 text-xs font-bold text-foreground">
+                  <Link2 className="mx-auto mb-1 h-4 w-4 text-primary" /> Copier lien
+                </button>
+                <button type="button" onClick={() => { onOpenGamification(); setShowShareSheet(false); }} className="rounded-2xl bg-card px-3 py-3 text-xs font-bold text-foreground">
+                  <Flame className="mx-auto mb-1 h-4 w-4 text-primary" /> Recompenses
+                </button>
+              </div>
+              {user ? (
+                <div className="grid max-h-60 grid-cols-4 gap-2 overflow-y-auto pr-1">
+                  {shareTargets.length === 0 ? (
+                    <div className="col-span-4 rounded-2xl bg-card px-3 py-6 text-center text-xs text-muted-foreground">Suis des amis pour envoyer la video en DM.</div>
+                  ) : shareTargets.map(target => (
+                    <button key={target.id} type="button" onClick={() => sendVideoToFriend(target)} disabled={shareSending === target.id} className="rounded-2xl bg-card px-2 py-3 text-center text-[11px] font-bold text-foreground disabled:opacity-60">
+                      <div className="mx-auto mb-1 grid h-10 w-10 place-items-center overflow-hidden rounded-full gradient-primary text-primary-foreground">
+                        {target.avatar_url ? <img src={target.avatar_url} alt="" className="h-full w-full object-cover" /> : target.display_name?.[0] || target.username?.[0] || "?"}
+                      </div>
+                      <span className="block truncate">@{target.username}</span>
+                      <Send className="mx-auto mt-1 h-3.5 w-3.5 text-primary" />
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <button type="button" onClick={() => navigate("/auth")} className="w-full rounded-2xl gradient-primary px-4 py-3 text-sm font-bold text-primary-foreground">Se connecter pour envoyer</button>
+              )}
+            </motion.div>
+          </motion.div>
+        )}
         {showLongPress && (
           <motion.div
             initial={{ opacity: 0 }}

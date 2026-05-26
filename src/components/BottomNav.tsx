@@ -26,14 +26,22 @@ export default function BottomNav() {
       .select("conversation_id")
       .eq("user_id", user.id);
     const convIds = (participations || []).map((p: any) => p.conversation_id);
-    if (!convIds.length) { setUnread(0); return; }
-    const { count } = await supabase
-      .from("messages")
-      .select("id", { count: "exact", head: true })
-      .in("conversation_id", convIds)
-      .neq("sender_id", user.id)
-      .eq("is_read", false);
-    setUnread(count || 0);
+    const [messageCount, activityCount] = await Promise.all([
+      convIds.length
+        ? supabase
+          .from("messages")
+          .select("id", { count: "exact", head: true })
+          .in("conversation_id", convIds)
+          .neq("sender_id", user.id)
+          .eq("is_read", false)
+        : Promise.resolve({ count: 0 }),
+      supabase
+        .from("notifications")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", user.id)
+        .eq("is_read", false),
+    ]);
+    setUnread((messageCount.count || 0) + (activityCount.count || 0));
   };
 
   useEffect(() => {
@@ -42,6 +50,7 @@ export default function BottomNav() {
     const channel = supabase
       .channel(`bottom-nav-unread-${user.id}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "messages" }, refreshUnread)
+      .on("postgres_changes", { event: "*", schema: "public", table: "notifications", filter: `user_id=eq.${user.id}` }, refreshUnread)
       .on("postgres_changes", { event: "*", schema: "public", table: "conversation_participants", filter: `user_id=eq.${user.id}` }, refreshUnread)
       .subscribe();
     return () => { supabase.removeChannel(channel); };

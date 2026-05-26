@@ -1,4 +1,4 @@
-import { Home, Plus, MessageCircle, User, Compass, Settings, Shield, ChevronLeft, ChevronRight, Bell } from "lucide-react";
+import { Home, Plus, MessageCircle, User, Compass, Settings, Shield, ChevronLeft, ChevronRight } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { useEffect, useState } from "react";
@@ -9,7 +9,6 @@ const mainItems = [
   { path: "/", icon: Home, label: "Accueil", requiresAuth: false },
   { path: "/explore", icon: Compass, label: "Explorer", requiresAuth: false },
   { path: "/inbox", icon: MessageCircle, label: "Messages", requiresAuth: true },
-  { path: "/notifications", icon: Bell, label: "Notifications", requiresAuth: true },
   { path: "/profile", icon: User, label: "Profil", requiresAuth: true },
 ];
 

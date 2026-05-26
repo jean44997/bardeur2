@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -16,7 +16,6 @@ import AuthPage from "./pages/AuthPage";
 import ChatPage from "./pages/ChatPage";
 import SettingsPage from "./pages/SettingsPage";
 import AdminPage from "./pages/AdminPage";
-import NotificationsPage from "./pages/NotificationsPage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
 import LivePage from "./pages/LivePage";
 import WatchLivePage from "./pages/WatchLivePage";
@@ -56,7 +55,7 @@ const App = () => (
                       <Route path="/settings" element={<AuthGuard><SettingsPage /></AuthGuard>} />
                       <Route path="/settings/live-debug" element={<AuthGuard><LiveDebugPage /></AuthGuard>} />
                       <Route path="/admin" element={<AuthGuard><AdminPage /></AuthGuard>} />
-                      <Route path="/notifications" element={<AuthGuard><NotificationsPage /></AuthGuard>} />
+                      <Route path="/notifications" element={<AuthGuard><Navigate to="/inbox?tab=activity" replace /></AuthGuard>} />
                       <Route path="*" element={<NotFound />} />
                     </Routes>
                   </main>

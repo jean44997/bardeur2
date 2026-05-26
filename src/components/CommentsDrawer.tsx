@@ -261,6 +261,13 @@ export default function CommentsDrawer({ isOpen, onClose, commentCount, videoId 
             </AnimatePresence>
 
             <div className="border-t border-border px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+              {!isRecordingAudio && newComment.trim() && (
+                <div className="mb-2 flex justify-end">
+                  <div className="max-w-[82%] rounded-2xl rounded-br-sm bg-primary/15 px-3 py-2 text-xs text-foreground">
+                    {newComment.slice(0, 120)}
+                  </div>
+                </div>
+              )}
               {isRecordingAudio ? (
                 <div className="flex items-center gap-2">
                   <button type="button" onClick={cancelAudioRecording} className="grid h-10 w-10 place-items-center rounded-full bg-destructive/10 text-destructive">

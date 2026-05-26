@@ -146,8 +146,17 @@ export default function ExplorePage() {
                 </div>
               ) : (
                 videos.map(v => (
-                  <motion.button key={v.id} whileTap={{ scale: 0.97 }} onClick={() => navigate(`/?video=${v.id}`)} className="aspect-[9/16] rounded-lg bg-card flex items-center justify-center cursor-pointer overflow-hidden text-left">
-                    {v.thumbnail_url ? <img src={v.thumbnail_url} className="h-full w-full object-cover" loading="lazy" alt="" /> : <span className="text-2xl opacity-20">▶</span>}
+                  <motion.button key={v.id} whileTap={{ scale: 0.97 }} onClick={() => navigate(`/?video=${v.id}`)} className="group relative aspect-[9/16] cursor-pointer overflow-hidden rounded-lg bg-card text-left">
+                    {v.thumbnail_url ? (
+                      <img src={v.thumbnail_url} className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105" loading="lazy" alt="" />
+                    ) : v.video_url ? (
+                      <video src={v.video_url} className="h-full w-full object-cover" muted playsInline preload="metadata" />
+                    ) : (
+                      <span className="grid h-full place-items-center text-2xl opacity-20">▶</span>
+                    )}
+                    <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-background/80 to-transparent p-1.5">
+                      <p className="truncate text-[10px] font-bold text-foreground">@{v.profiles?.username || "createur"}</p>
+                    </div>
                   </motion.button>
                 ))
               )}

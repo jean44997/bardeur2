@@ -52,7 +52,7 @@ export default function CreatePage() {
   const [cameraMode, setCameraMode] = useState<"photo" | "video">("video");
   const [effect, setEffect] = useState<"none" | "pop" | "cinema" | "mono">("none");
   const [fileMeta, setFileMeta] = useState("");
-  const [recordingDuration, setRecordingDuration] = useState<15 | 60 | 180>(15);
+  const [recordingDuration, setRecordingDuration] = useState<15 | 60 | 180 | 600>(15);
   const [recordingTime, setRecordingTime] = useState(0);
   const [countdown, setCountdown] = useState(0);
   const [facingMode, setFacingMode] = useState<"user" | "environment">("user");
@@ -185,11 +185,11 @@ export default function CreatePage() {
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const fileCheck = validateUploadFile(file, { maxBytes: 100 * 1024 * 1024, acceptedPrefixes: ["video/", "image/"] });
+    const fileCheck = validateUploadFile(file, { maxBytes: 2 * 1024 * 1024 * 1024, acceptedPrefixes: ["video/", "image/"] });
     if (!fileCheck.ok) { toast.error(fileCheck.reason); return; }
     setSelectedFile(file);
     setPreview(URL.createObjectURL(file));
-    setFileMeta(`${file.type || "fichier"} · ${(file.size / 1024 / 1024).toFixed(1)}MB`);
+    setFileMeta(`${file.type || "fichier"} · ${(file.size / 1024 / 1024).toFixed(1)}MB · original conserve`);
   };
 
   const openCamera = async () => {
@@ -229,7 +229,7 @@ export default function CreatePage() {
     chunksRef.current = [];
     setRecordingTime(0);
     const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp9,opus") ? "video/webm;codecs=vp9,opus" : "video/webm";
-    const mr = new MediaRecorder(cameraStream, { mimeType, videoBitsPerSecond: 8_000_000, audioBitsPerSecond: 192_000 });
+    const mr = new MediaRecorder(cameraStream, { mimeType, videoBitsPerSecond: 25_000_000, audioBitsPerSecond: 256_000 });
     mr.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
     mr.onstop = () => {
       const blob = new Blob(chunksRef.current, { type: "video/webm" });
@@ -398,9 +398,9 @@ export default function CreatePage() {
               </div>
               {cameraMode === "video" && (
                 <div className="absolute bottom-32 left-0 right-0 z-10 flex justify-center gap-2">
-                  {([15, 60, 180] as const).map(d => (
+                  {([15, 60, 180, 600] as const).map(d => (
                     <button key={d} type="button" onClick={() => setRecordingDuration(d)} className={`rounded-full px-3 py-1 text-xs font-bold ${recordingDuration === d ? "gradient-primary text-primary-foreground" : "glass text-foreground"}`}>
-                      {d === 180 ? "3m" : `${d}s`}
+                      {d === 600 ? "10m" : d === 180 ? "3m" : `${d}s`}
                     </button>
                   ))}
                 </div>
@@ -439,7 +439,7 @@ export default function CreatePage() {
                 <Upload className="h-8 w-8 text-primary-foreground" />
               </div>
               <h2 className="text-xl font-bold text-foreground mb-2">Importer un fichier</h2>
-              <p className="text-sm text-muted-foreground">MP4, MOV, WebM, JPG, PNG, GIF — max 100MB</p>
+              <p className="text-sm text-muted-foreground">MP4, MOV, WebM, JPG, PNG, GIF — 10 min / 4K original</p>
             </motion.div>
             <input ref={fileInputRef} type="file" accept="video/*,image/*" className="hidden" onChange={handleFileSelect} />
 
@@ -524,7 +524,7 @@ export default function CreatePage() {
               </div>
               <div className="grid grid-cols-3 gap-2 rounded-xl bg-card/60 p-2">
                 <div className="flex items-center justify-center gap-1 text-[11px] font-semibold text-muted-foreground"><Gauge className="h-3.5 w-3.5" /> HD</div>
-                <div className="flex items-center justify-center gap-1 text-[11px] font-semibold text-muted-foreground"><Timer className="h-3.5 w-3.5" /> {recordingDuration === 180 ? "3m" : `${recordingDuration}s`}</div>
+                <div className="flex items-center justify-center gap-1 text-[11px] font-semibold text-muted-foreground"><Timer className="h-3.5 w-3.5" /> {recordingDuration === 600 ? "10m" : recordingDuration === 180 ? "3m" : `${recordingDuration}s`}</div>
                 <div className="flex items-center justify-center gap-1 text-[11px] font-semibold text-muted-foreground"><Sparkles className="h-3.5 w-3.5" /> {effect === "none" ? "Normal" : effect}</div>
               </div>
               <motion.button whileTap={{ scale: 0.95 }} onClick={() => { setCommentsEnabled(!commentsEnabled); setCreatorOptions(prev => ({ ...prev, comments: !commentsEnabled })); }} className="flex items-center gap-2 w-full glass rounded-xl px-4 py-3">

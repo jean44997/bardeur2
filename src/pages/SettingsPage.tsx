@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { ArrowLeft, User, Bell, Database, Info, Lock, Eye, EyeOff, Globe, Trash2, Download, ChevronRight, Camera, Mic, Shield, Mail, Smartphone, CheckCircle2, AlertCircle, Activity, Cookie } from "lucide-react";
+import { ArrowLeft, User, Bell, Database, Info, Lock, Eye, EyeOff, Globe, Trash2, Download, ChevronRight, Camera, Mic, Shield, Mail, Smartphone, CheckCircle2, AlertCircle, Activity, WalletCards } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { probeAudioCodecs, isIOSDevice } from "@/lib/mediaCapabilities";
+import MonetizationPanel from "@/components/MonetizationPanel";
 
 interface SettingItemProps {
   icon: React.ReactNode;
@@ -46,7 +47,7 @@ function SettingItem({ icon, label, description, toggle, value, onToggle, onClic
 
 export default function SettingsPage() {
   const navigate = useNavigate();
-  const { profile, updateProfile, signOut, deleteAccount, updatePassword } = useAuth();
+  const { user, profile, updateProfile, signOut, deleteAccount, updatePassword } = useAuth();
   const [showPasswordChange, setShowPasswordChange] = useState(false);
   const [newPassword, setNewPassword] = useState("");
   const [confirmNewPassword, setConfirmNewPassword] = useState("");
@@ -62,18 +63,20 @@ export default function SettingsPage() {
   const [mfaFactors, setMfaFactors] = useState<any[]>([]);
   const [notificationPermission, setNotificationPermission] = useState<string>(typeof Notification !== "undefined" ? Notification.permission : "unsupported");
   const [mediaPermission, setMediaPermission] = useState<"idle" | "granted" | "denied">("idle");
-  const [cookiePrefs, setCookiePrefs] = useState({ essential: true, security: true, media: true, analytics: false });
+  const [showAboutDetails, setShowAboutDetails] = useState(false);
+  const [creatorStats, setCreatorStats] = useState({ followers: 0, likes: 0, videos: 0, views: 0 });
 
   useEffect(() => {
     if (typeof Notification !== "undefined") {
       setNotificationPermission(Notification.permission);
     }
-    const savedPrefs = localStorage.getItem("cookie-consent:pwa");
-    if (savedPrefs) {
-      try { setCookiePrefs({ essential: true, ...JSON.parse(savedPrefs) }); } catch { localStorage.removeItem("cookie-consent:pwa"); }
-    }
     loadMfaStatus();
   }, []);
+
+  useEffect(() => {
+    if (!user) return;
+    fetchCreatorStats();
+  }, [user?.id]);
 
   const loadMfaStatus = async () => {
     const { data } = await supabase.auth.mfa.listFactors();
@@ -85,14 +88,24 @@ export default function SettingsPage() {
   };
 
   const handleToggle = async (key: string, value: boolean) => {
-    await updateProfile({ [key]: value } as any);
+    const { error } = await updateProfile({ [key]: value } as any);
+    if (error) toast.error("Reglage impossible: applique la derniere migration Supabase");
+    else toast.success(value ? "Reglage active" : "Reglage desactive");
   };
 
-  const updateCookiePref = (key: "security" | "media" | "analytics", value: boolean) => {
-    const next = { ...cookiePrefs, essential: true, [key]: value };
-    setCookiePrefs(next);
-    localStorage.setItem("cookie-consent:pwa", JSON.stringify(next));
-    toast.success("Preference cookie sauvegardee");
+  const fetchCreatorStats = async () => {
+    if (!user) return;
+    const [followers, totalLikes, videoData] = await Promise.all([
+      supabase.from("follows").select("*", { count: "exact", head: true }).eq("following_id", user.id),
+      supabase.from("videos").select("likes_count, views_count").eq("user_id", user.id),
+      supabase.from("videos").select("*", { count: "exact", head: true }).eq("user_id", user.id),
+    ]);
+    setCreatorStats({
+      followers: followers.count || 0,
+      likes: totalLikes.data?.reduce((sum: number, v: any) => sum + (v.likes_count || 0), 0) || 0,
+      videos: videoData.count || 0,
+      views: totalLikes.data?.reduce((sum: number, v: any) => sum + (v.views_count || 0), 0) || 0,
+    });
   };
 
   const updateNotificationSound = async (sound: "pop" | "soft" | "none") => {
@@ -348,6 +361,17 @@ export default function SettingsPage() {
         </div>
 
         <div className="mb-6">
+          <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-4 mb-2">Monetisation et abonnements</h2>
+          <div className="mb-2 glass rounded-2xl px-4 py-3">
+            <div className="flex items-center gap-2 text-sm font-bold text-foreground">
+              <WalletCards className="h-4 w-4 text-primary" /> Centre createur
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">Retraits, abonnements, publicites, checklist rewards et regles createur restent dans les parametres.</p>
+          </div>
+          <MonetizationPanel stats={creatorStats} username={profile?.username || "createur"} />
+        </div>
+
+        <div className="mb-6">
           <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-4 mb-2">Autorisations appareil</h2>
           <div className="glass rounded-2xl overflow-hidden">
             <SettingItem icon={<Camera className="h-4 w-4 text-primary" />} label={`Caméra : ${mediaPermission === "granted" ? "autorisée" : mediaPermission === "denied" ? "refusée" : "à demander"}`} description="Nécessaire pour photo, vidéo et live" onClick={requestMediaPermissions} />
@@ -375,36 +399,28 @@ export default function SettingsPage() {
             <SettingItem icon={<Database className="h-4 w-4 text-muted-foreground" />} label="Vider le cache" onClick={() => { localStorage.clear(); toast.success("Cache vidé !"); }} />
             <SettingItem icon={<Download className="h-4 w-4 text-accent" />} label="Télécharger mes données" onClick={handleDownloadData} />
           </div>
-          <div className="mt-2 glass rounded-2xl p-3">
-            <div className="mb-2 flex items-center gap-2 px-1 text-xs font-bold text-foreground">
-              <Cookie className="h-4 w-4 text-primary" /> Cookies PWA et super reels
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              {([
-                ["security", "Securite", "sessions, 2FA, anti-abus"],
-                ["media", "Media", "drafts, qualite, preferences video"],
-                ["analytics", "Stats", "vues locales et performance"],
-              ] as const).map(([key, label, description]) => (
-                <button key={key} type="button" onClick={() => updateCookiePref(key, !cookiePrefs[key])} className={`rounded-xl px-3 py-2 text-left text-xs ${cookiePrefs[key] ? "bg-primary/15 text-primary" : "bg-card text-muted-foreground"}`}>
-                  <span className="block font-bold">{label}</span>
-                  <span className="block text-[10px] opacity-80">{description}</span>
-                </button>
-              ))}
-              <button type="button" className="rounded-xl bg-card px-3 py-2 text-left text-xs text-muted-foreground">
-                <span className="block font-bold">Essentiel</span>
-                <span className="block text-[10px] opacity-80">toujours actif pour connexion et securite</span>
-              </button>
-            </div>
-          </div>
         </div>
 
         <div className="mb-6">
           <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-4 mb-2">À propos</h2>
           <div className="glass rounded-2xl overflow-hidden">
-            <SettingItem icon={<Info className="h-4 w-4 text-muted-foreground" />} label="Version 1.0.0" description="BARDEUR YK — Créé par mienthy" />
-            <SettingItem icon={<Shield className="h-4 w-4 text-primary" />} label="Politiques et securite" description="Confidentialite, cookies, signalement, monetisation et contenu sponsorise" onClick={() => toast.info("Politiques: privacy, cookies, signalement, pubs, paiements et contenus createur")} />
-            <SettingItem icon={<Info className="h-4 w-4 text-accent" />} label="Aide createur" description="Regles video, droits audio, pubs, retraits et abonnements" onClick={() => toast.info("Aide createur ouverte dans profil > Monetisation")} />
+            <SettingItem icon={<Info className="h-4 w-4 text-muted-foreground" />} label="Version 1.0.0" description="BARDEUR YK - politiques, securite et aide createur" onClick={() => setShowAboutDetails(p => !p)} />
           </div>
+          {showAboutDetails && (
+            <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} className="mt-2 space-y-2 rounded-2xl border border-border bg-card/80 p-4">
+              {[
+                ["Politique", "Confidentialite, donnees de profil, liens bio, contenus publics/prives et demandes de suppression."],
+                ["Securite", "2FA, mot de passe, sessions, signalement, blocage, anti-spam, anti-abus et verification des paiements."],
+                ["Creation", "Formats 9:16, HD/4K conservee, droits audio, partenariats, commentaires, remix, stitch, lives et stories."],
+                ["Monetisation", "Abonnements, retrait, campagnes de promotion, contenu sponsorise, eligibility rewards et lutte anti-fraude."],
+              ].map(([title, body]) => (
+                <div key={title} className="rounded-xl bg-background/60 px-3 py-2">
+                  <p className="text-xs font-bold text-foreground">{title}</p>
+                  <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">{body}</p>
+                </div>
+              ))}
+            </motion.div>
+          )}
         </div>
 
         <div className="space-y-2">

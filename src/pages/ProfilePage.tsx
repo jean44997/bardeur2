@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Settings, Grid3X3, Heart, Bookmark, BadgeCheck, Share2, QrCode, Link2, Camera, Trash2, MessageCircle, Edit3, ToggleLeft, ToggleRight, X, Download, WalletCards, Eye, PlusCircle, Lock } from "lucide-react";
+import { Settings, Grid3X3, Heart, Bookmark, BadgeCheck, QrCode, Link2, Camera, Trash2, MessageCircle, Edit3, ToggleLeft, ToggleRight, X, Download, Eye, PlusCircle, Lock } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
@@ -9,7 +9,6 @@ import logo from "@/assets/logo.png";
 import QRCode from "qrcode";
 import { sanitizeHashtags, validateUploadFile, validateUserText } from "@/lib/contentSafety";
 import ProfileViewsPanel from "@/components/ProfileViewsPanel";
-import MonetizationPanel from "@/components/MonetizationPanel";
 
 export default function ProfilePage() {
   const navigate = useNavigate();
@@ -355,12 +354,10 @@ export default function ProfilePage() {
     { icon: Grid3X3, label: "Vidéos" },
     { icon: Heart, label: "Aimées" },
     { icon: Bookmark, label: "Sauvegardées" },
-    ...(isOwnProfile ? [{ icon: WalletCards, label: "Monetisation" }] : []),
   ];
   const showAdminBadge = (isOwnProfile && (role === "admin" || role === "super_admin")) ||
     (!isOwnProfile && viewedProfile);
 
-  const isMonetizationTab = isOwnProfile && activeTab === 3;
   const privateLocked = !isOwnProfile && currentProfile?.is_private && !isFollowing;
   const currentTabVideos = privateLocked ? [] : activeTab === 0 ? videos : activeTab === 1 ? likedVideos : savedVideos;
 
@@ -489,9 +486,6 @@ export default function ProfilePage() {
             <motion.button whileTap={{ scale: 0.95 }} className="glass rounded-lg px-4 py-2" onClick={() => { navigator.clipboard.writeText(shareUrl); toast.success("Lien copié ! 🔗"); }}>
               <Link2 className="h-4 w-4 text-foreground" />
             </motion.button>
-            <motion.button whileTap={{ scale: 0.95 }} className="glass rounded-lg px-4 py-2" onClick={openQR}>
-              <Share2 className="h-4 w-4 text-foreground" />
-            </motion.button>
           </div>
         </div>
 
@@ -509,9 +503,7 @@ export default function ProfilePage() {
           ))}
         </div>
 
-        {isMonetizationTab ? (
-          <MonetizationPanel stats={stats} username={currentProfile.username} />
-        ) : privateLocked ? (
+        {privateLocked ? (
           <div className="glass rounded-2xl px-4 py-10 text-center">
             <Lock className="mx-auto mb-3 h-8 w-8 text-muted-foreground" />
             <p className="text-sm font-bold text-foreground">Compte prive</p>
