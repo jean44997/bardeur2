@@ -508,7 +508,7 @@ export default function ChatPage() {
       toast.error("Colle une URL d'image https");
       return;
     }
-    saveChatBackground(`linear-gradient(180deg, rgba(0,0,0,.58), rgba(0,0,0,.78)), url("${url.replaceAll('"', "%22")}") center / cover fixed`);
+    saveChatBackground(`linear-gradient(180deg, rgba(0,0,0,.58), rgba(0,0,0,.78)), url("${url.split('"').join("%22")}") center / cover fixed`);
     setCustomBackgroundUrl("");
   };
 
