@@ -1,4 +1,4 @@
-const CACHE_VERSION = "bardeur-pwa-v1";
+const CACHE_VERSION = "bardeur-pwa-v2";
 const APP_SHELL = [
   "/",
   "/offline.html",
@@ -6,6 +6,28 @@ const APP_SHELL = [
   "/favicon.png",
   "/app-icon-512.png"
 ];
+
+const SENSITIVE_PATHS = [
+  "/auth/",
+  "/rest/v1/",
+  "/storage/v1/object/",
+  "/functions/v1/",
+  "/realtime/v1/",
+  "/chat/",
+  "/admin"
+];
+
+const SECURITY_HEADERS = {
+  "X-Bardeur-Cache": "pwa-v2",
+  "X-Bardeur-Offline": "safe-shell"
+};
+
+const shouldBypassCache = (url, request) => {
+  if (request.headers.get("authorization")) return true;
+  if (request.cache === "no-store") return true;
+  if (url.searchParams.has("token") || url.searchParams.has("access_token")) return true;
+  return SENSITIVE_PATHS.some((path) => url.pathname.includes(path));
+};
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -29,6 +51,10 @@ self.addEventListener("fetch", (event) => {
 
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
+  if (shouldBypassCache(url, request)) {
+    event.respondWith(fetch(request));
+    return;
+  }
 
   if (request.mode === "navigate") {
     event.respondWith(
@@ -36,7 +62,7 @@ self.addEventListener("fetch", (event) => {
         .then((response) => {
           const copy = response.clone();
           caches.open(CACHE_VERSION).then((cache) => cache.put("/", copy));
-          return response;
+          return new Response(response.body, { status: response.status, statusText: response.statusText, headers: new Headers([...response.headers, ...Object.entries(SECURITY_HEADERS)]) });
         })
         .catch(async () => (await caches.match("/")) || caches.match("/offline.html"))
     );

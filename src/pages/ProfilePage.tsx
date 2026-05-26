@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Settings, Grid3X3, Heart, Bookmark, BadgeCheck, Share2, QrCode, Link2, Camera, Trash2, MessageCircle, Edit3, ToggleLeft, ToggleRight, X, Download } from "lucide-react";
+import { Settings, Grid3X3, Heart, Bookmark, BadgeCheck, Share2, QrCode, Link2, Camera, Trash2, MessageCircle, Edit3, ToggleLeft, ToggleRight, X, Download, WalletCards, Eye, PlusCircle, Lock } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
@@ -8,6 +8,8 @@ import { supabase } from "@/integrations/supabase/client";
 import logo from "@/assets/logo.png";
 import QRCode from "qrcode";
 import { sanitizeHashtags, validateUploadFile, validateUserText } from "@/lib/contentSafety";
+import ProfileViewsPanel from "@/components/ProfileViewsPanel";
+import MonetizationPanel from "@/components/MonetizationPanel";
 
 export default function ProfilePage() {
   const navigate = useNavigate();
@@ -33,7 +35,12 @@ export default function ProfilePage() {
   const [editDesc, setEditDesc] = useState("");
   const [editHashtags, setEditHashtags] = useState("");
   const [editCommentsEnabled, setEditCommentsEnabled] = useState(true);
+  const [profileViewers, setProfileViewers] = useState<any[]>([]);
+  const [showProfileViews, setShowProfileViews] = useState(false);
+  const [uploadingStory, setUploadingStory] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const storyInputRef = useRef<HTMLInputElement>(null);
+  const storyAudienceRef = useRef<"public" | "private">("public");
 
   const targetUserId = isOwnProfile ? user?.id : viewedProfile?.id;
   const currentProfile = isOwnProfile ? profile : viewedProfile;
@@ -62,6 +69,15 @@ export default function ProfilePage() {
       }
     }
   }, [targetUserId, activeTab]);
+
+  useEffect(() => {
+    if (!targetUserId || !user) return;
+    if (isOwnProfile) {
+      fetchProfileViewers();
+    } else {
+      recordProfileView(targetUserId);
+    }
+  }, [targetUserId, user?.id, isOwnProfile]);
 
   const fetchUserByUsername = async (username: string) => {
     const { data } = await supabase.from("profiles").select("*").eq("username", username).single();
@@ -126,6 +142,51 @@ export default function ProfilePage() {
     if (data) setSavedVideos(data.map((d: any) => d.videos).filter(Boolean));
   };
 
+  const recordProfileView = async (profileId: string) => {
+    if (!user || user.id === profileId || (currentProfile as any)?.allow_profile_views === false) return;
+    try {
+      await (supabase as any).from("profile_views").insert({
+        profile_id: profileId,
+        viewer_id: user.id,
+        viewed_at: new Date().toISOString(),
+      });
+    } catch {
+      // Profile views are best-effort and should never block profile browsing.
+    }
+  };
+
+  const fetchProfileViewers = async () => {
+    if (!user) return;
+    try {
+      const { data: views } = await (supabase as any)
+        .from("profile_views")
+        .select("id, viewer_id, viewed_at")
+        .eq("profile_id", user.id)
+        .order("viewed_at", { ascending: false })
+        .limit(60);
+      const viewerIds = Array.from(new Set((views || []).map((v: any) => v.viewer_id).filter(Boolean)));
+      const { data: profiles } = viewerIds.length
+        ? await supabase.from("profiles").select("id, username, display_name, avatar_url").in("id", viewerIds as string[])
+        : { data: [] as any[] };
+      const byId = new Map((profiles || []).map((p: any) => [p.id, p]));
+      setProfileViewers((views || []).map((entry: any) => {
+        const viewer = byId.get(entry.viewer_id) || {};
+        return {
+          id: entry.id,
+          viewedAt: entry.viewed_at,
+          viewer: {
+            id: entry.viewer_id,
+            username: viewer.username || "user",
+            displayName: viewer.display_name || viewer.username || "Utilisateur",
+            avatarUrl: viewer.avatar_url || "",
+          },
+        };
+      }));
+    } catch {
+      setProfileViewers([]);
+    }
+  };
+
   const handleFollow = async () => {
     if (!user || !viewedProfile) return;
     if (isFollowing) {
@@ -188,6 +249,39 @@ export default function ProfilePage() {
   const handleRemoveAvatar = async () => {
     await updateProfile({ avatar_url: "" });
     toast.success("Photo supprimée");
+  };
+
+  const openStoryUpload = (audience: "public" | "private") => {
+    storyAudienceRef.current = audience;
+    storyInputRef.current?.click();
+  };
+
+  const handleStoryUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !user) return;
+    const fileCheck = validateUploadFile(file, { maxBytes: 80 * 1024 * 1024, acceptedPrefixes: ["image/", "video/"] });
+    if (!fileCheck.ok) { toast.error(fileCheck.reason); return; }
+    setUploadingStory(true);
+    try {
+      const ext = file.name.split(".").pop() || (file.type.startsWith("video") ? "mp4" : "jpg");
+      const path = `${user.id}/stories/${crypto.randomUUID()}.${ext}`;
+      const { error } = await supabase.storage.from("media").upload(path, file, { contentType: file.type, upsert: false });
+      if (error) throw error;
+      const { data } = supabase.storage.from("media").getPublicUrl(path);
+      await (supabase as any).from("stories").insert({
+        user_id: user.id,
+        media_url: data.publicUrl,
+        media_type: file.type,
+        audience: storyAudienceRef.current,
+        expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      });
+      toast.success(storyAudienceRef.current === "private" ? "Story privee publiee" : "Story publique publiee");
+    } catch (err: any) {
+      toast.error(err?.message || "Story impossible a publier");
+    } finally {
+      setUploadingStory(false);
+      if (storyInputRef.current) storyInputRef.current.value = "";
+    }
   };
 
   const generateQR = useCallback(async () => {
@@ -261,11 +355,14 @@ export default function ProfilePage() {
     { icon: Grid3X3, label: "Vidéos" },
     { icon: Heart, label: "Aimées" },
     { icon: Bookmark, label: "Sauvegardées" },
+    ...(isOwnProfile ? [{ icon: WalletCards, label: "Monetisation" }] : []),
   ];
   const showAdminBadge = (isOwnProfile && (role === "admin" || role === "super_admin")) ||
     (!isOwnProfile && viewedProfile);
 
-  const currentTabVideos = activeTab === 0 ? videos : activeTab === 1 ? likedVideos : savedVideos;
+  const isMonetizationTab = isOwnProfile && activeTab === 3;
+  const privateLocked = !isOwnProfile && currentProfile?.is_private && !isFollowing;
+  const currentTabVideos = privateLocked ? [] : activeTab === 0 ? videos : activeTab === 1 ? likedVideos : savedVideos;
 
   return (
     <div className="min-h-[100svh] bg-background pb-20 md:pb-8 md:pl-[var(--sidebar-width,260px)]">
@@ -275,6 +372,9 @@ export default function ProfilePage() {
           <h1 className="text-xl font-bold text-foreground">@{currentProfile.username}</h1>
           {isOwnProfile && (
             <div className="flex items-center gap-2">
+              <motion.button whileTap={{ scale: 0.9 }} onClick={() => { fetchProfileViewers(); setShowProfileViews(true); }} aria-label="Voir les visites du profil">
+                <Eye className="h-5 w-5 text-muted-foreground" />
+              </motion.button>
               <motion.button whileTap={{ scale: 0.9 }} onClick={openQR}>
                 <QrCode className="h-5 w-5 text-muted-foreground" />
               </motion.button>
@@ -301,6 +401,7 @@ export default function ProfilePage() {
                   <Camera className="h-4 w-4 text-primary-foreground" />
                 </motion.button>
                 <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarUpload} />
+                <input ref={storyInputRef} type="file" accept="image/*,video/*" className="hidden" onChange={handleStoryUpload} />
               </>
             )}
           </div>
@@ -343,7 +444,7 @@ export default function ProfilePage() {
           {/* Stats */}
           <div className="flex gap-6 mb-4">
             {[
-              { label: "Abonnements", value: formatCount(stats.following) },
+              { label: "Abonnements", value: !isOwnProfile && (currentProfile as any)?.hide_following ? "Privé" : formatCount(stats.following) },
               { label: "Abonnés", value: formatCount(stats.followers) },
               { label: "J'aime", value: formatCount(stats.likes) },
             ].map(s => (
@@ -363,7 +464,15 @@ export default function ProfilePage() {
                   <motion.button whileTap={{ scale: 0.95 }} onClick={() => setIsEditing(false)} className="glass rounded-lg px-4 py-2 text-sm text-foreground">Annuler</motion.button>
                 </>
               ) : (
-                <motion.button whileTap={{ scale: 0.95 }} onClick={() => setIsEditing(true)} className="rounded-lg gradient-primary px-6 py-2 text-sm font-semibold text-primary-foreground">Modifier le profil</motion.button>
+                <>
+                  <motion.button whileTap={{ scale: 0.95 }} onClick={() => setIsEditing(true)} className="rounded-lg gradient-primary px-6 py-2 text-sm font-semibold text-primary-foreground">Modifier le profil</motion.button>
+                  <motion.button whileTap={{ scale: 0.95 }} onClick={() => openStoryUpload("public")} disabled={uploadingStory} className="glass flex items-center gap-2 rounded-lg px-4 py-2 text-sm text-foreground disabled:opacity-60">
+                    <PlusCircle className="h-4 w-4" /> Story
+                  </motion.button>
+                  <motion.button whileTap={{ scale: 0.95 }} onClick={() => openStoryUpload("private")} disabled={uploadingStory} className="glass flex items-center gap-2 rounded-lg px-4 py-2 text-sm text-foreground disabled:opacity-60">
+                    <Lock className="h-4 w-4" /> Privée
+                  </motion.button>
+                </>
               )
             ) : (
               <>
@@ -400,41 +509,60 @@ export default function ProfilePage() {
           ))}
         </div>
 
-        {/* Video Grid */}
-        <div className="grid grid-cols-3 gap-1">
-          {currentTabVideos.length === 0 ? (
-            <div className="col-span-3 text-center py-12">
-              <p className="text-sm text-muted-foreground">
-                {activeTab === 0 ? "Aucune vidéo publiée" : activeTab === 1 ? "Aucun j'aime" : "Aucune sauvegarde"}
-              </p>
-            </div>
-          ) : (
-            currentTabVideos.map((v: any) => (
-              <motion.div
-                key={v.id}
-                whileTap={{ scale: 0.97 }}
-                className="aspect-[9/16] rounded-lg bg-card flex items-center justify-center cursor-pointer overflow-hidden relative group"
-                onClick={() => isOwnProfile && activeTab === 0 ? openEditVideo(v) : navigate(`/?video=${v.id}`)}
-              >
-                {v.thumbnail_url ? (
-                  <img src={v.thumbnail_url} alt="" className="h-full w-full object-cover" loading="lazy" />
-                ) : v.video_url ? (
-                  <video src={v.video_url} className="h-full w-full object-cover" muted preload="metadata" />
-                ) : (
-                  <span className="text-2xl opacity-20">▶</span>
-                )}
-                <div className="absolute bottom-1 left-1 flex items-center gap-1 text-[10px] text-foreground/80 bg-background/60 rounded px-1">
-                  <Heart className="h-2.5 w-2.5" /> {v.likes_count || 0}
-                </div>
-                {isOwnProfile && activeTab === 0 && (
-                  <div className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <Edit3 className="h-3.5 w-3.5 text-foreground drop-shadow" />
+        {isMonetizationTab ? (
+          <MonetizationPanel stats={stats} username={currentProfile.username} />
+        ) : privateLocked ? (
+          <div className="glass rounded-2xl px-4 py-10 text-center">
+            <Lock className="mx-auto mb-3 h-8 w-8 text-muted-foreground" />
+            <p className="text-sm font-bold text-foreground">Compte prive</p>
+            <p className="mt-1 text-xs text-muted-foreground">Suis @{currentProfile.username} pour voir ses videos, stories et favoris visibles.</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-3 gap-1">
+            {currentTabVideos.length === 0 ? (
+              <div className="col-span-3 text-center py-12">
+                <p className="text-sm text-muted-foreground">
+                  {activeTab === 0 ? "Aucune vidéo publiée" : activeTab === 1 ? "Aucun j'aime" : "Aucune sauvegarde"}
+                </p>
+              </div>
+            ) : (
+              currentTabVideos.map((v: any) => (
+                <motion.div
+                  key={v.id}
+                  whileTap={{ scale: 0.97 }}
+                  className="aspect-[9/16] rounded-lg bg-card flex items-center justify-center cursor-pointer overflow-hidden relative group"
+                  onClick={() => isOwnProfile && activeTab === 0 ? openEditVideo(v) : navigate(`/?video=${v.id}`)}
+                >
+                  {v.thumbnail_url ? (
+                    <img src={v.thumbnail_url} alt="" className="h-full w-full object-cover" loading="lazy" />
+                  ) : v.video_url ? (
+                    <video src={v.video_url} className="h-full w-full object-cover" muted preload="metadata" />
+                  ) : (
+                    <span className="text-2xl opacity-20">▶</span>
+                  )}
+                  <div className="absolute bottom-1 left-1 flex items-center gap-1 text-[10px] text-foreground/80 bg-background/60 rounded px-1">
+                    <Heart className="h-2.5 w-2.5" /> {v.likes_count || 0}
                   </div>
-                )}
-              </motion.div>
-            ))
-          )}
-        </div>
+                  {isOwnProfile && activeTab === 0 && (
+                    <div className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <Edit3 className="h-3.5 w-3.5 text-foreground drop-shadow" />
+                    </div>
+                  )}
+                </motion.div>
+              ))
+            )}
+          </div>
+        )}
+
+        <ProfileViewsPanel
+          isOpen={showProfileViews}
+          onClose={() => setShowProfileViews(false)}
+          viewers={profileViewers}
+          onOpenProfile={(username) => {
+            setShowProfileViews(false);
+            navigate(`/profile/${username}`);
+          }}
+        />
 
         {/* QR Modal */}
         <AnimatePresence>

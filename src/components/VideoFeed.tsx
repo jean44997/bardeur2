@@ -5,11 +5,12 @@ import CommentsDrawer from "./CommentsDrawer";
 import GamificationPanel from "./GamificationPanel";
 import { VideoData } from "@/data/mockVideos";
 import { motion } from "framer-motion";
-import { RefreshCw, Film } from "lucide-react";
-import { useSearchParams } from "react-router-dom";
+import { RefreshCw, Film, Radio } from "lucide-react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 
 export default function VideoFeed() {
   const [videos, setVideos] = useState<VideoData[]>([]);
+  const [activeLivesCount, setActiveLivesCount] = useState(0);
   const [activeIndex, setActiveIndex] = useState(0);
   const [isMuted, setIsMuted] = useState(true);
   const [commentsOpen, setCommentsOpen] = useState(false);
@@ -19,6 +20,7 @@ export default function VideoFeed() {
   const [loading, setLoading] = useState(true);
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollTimerRef = useRef<number | null>(null);
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
   const fetchVideos = useCallback(async () => {
@@ -64,6 +66,23 @@ export default function VideoFeed() {
   useEffect(() => {
     fetchVideos();
   }, [fetchVideos]);
+
+  const fetchLivesCount = useCallback(async () => {
+    const { count } = await supabase
+      .from("lives")
+      .select("id", { count: "exact", head: true })
+      .eq("is_active", true);
+    setActiveLivesCount(count || 0);
+  }, []);
+
+  useEffect(() => {
+    fetchLivesCount();
+    const channel = supabase
+      .channel("home-mini-live-count")
+      .on("postgres_changes", { event: "*", schema: "public", table: "lives" }, fetchLivesCount)
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [fetchLivesCount]);
 
   const preloadVideos = videos.filter((_, i) => Math.abs(i - activeIndex) <= 2 && i !== activeIndex);
 
@@ -112,8 +131,23 @@ export default function VideoFeed() {
 
   return (
     <div className="relative min-h-[100svh] bg-background md:min-h-[100dvh] md:pl-[var(--sidebar-width,260px)] md:pr-6">
+      <div className="fixed left-4 top-[max(1rem,env(safe-area-inset-top))] z-40 md:left-[calc(var(--sidebar-width,260px)+1.5rem)]">
+        <motion.button
+          whileTap={{ scale: 0.9 }}
+          onClick={() => navigate("/lives")}
+          className="glass relative grid h-10 w-10 place-items-center rounded-full"
+          aria-label="Ouvrir les lives"
+        >
+          <Radio className="h-4 w-4 text-foreground" />
+          {activeLivesCount > 0 && (
+            <span className="absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-primary px-1 text-[9px] font-black text-primary-foreground">
+              {activeLivesCount > 9 ? "9+" : activeLivesCount}
+            </span>
+          )}
+        </motion.button>
+      </div>
       <div className="fixed top-[max(1rem,env(safe-area-inset-top))] right-4 z-40 flex items-center gap-2 md:right-8">
-        <motion.button whileTap={{ scale: 0.9 }} onClick={fetchVideos} className="glass rounded-full p-2" aria-label="Actualiser">
+        <motion.button whileTap={{ scale: 0.9 }} onClick={() => { fetchVideos(); fetchLivesCount(); }} className="glass rounded-full p-2" aria-label="Actualiser">
           <RefreshCw className="h-4 w-4 text-foreground" />
         </motion.button>
       </div>

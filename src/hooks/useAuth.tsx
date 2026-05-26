@@ -12,6 +12,8 @@ interface Profile {
   is_private: boolean;
   hide_likes: boolean;
   hide_saves: boolean;
+  hide_following?: boolean;
+  allow_profile_views?: boolean;
   invisible_mode: boolean;
   push_notifications: boolean;
   sound_notifications: boolean;

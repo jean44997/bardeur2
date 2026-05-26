@@ -1,11 +1,34 @@
 import { useState, useRef, useEffect } from "react";
-import { Upload, Camera, Video, X, Image, Palette, Sparkles, Wand2, RotateCcw, Timer, Save, Hash, Gauge } from "lucide-react";
+import { Upload, Camera, Video, X, Image, Palette, Sparkles, Wand2, RotateCcw, Timer, Save, Hash, Gauge, Clock, Lock, Eye, Users, Download, MessageCircle, ShieldCheck, BadgeDollarSign, MapPin } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 import { sanitizeHashtags, validateUploadFile, validateUserText } from "@/lib/contentSafety";
+
+const creatorToolOptions = [
+  { id: "autoCaptions", label: "Captions auto", icon: Sparkles },
+  { id: "beautyPass", label: "Lumiere visage", icon: Wand2 },
+  { id: "safeZone", label: "Zones iOS", icon: ShieldCheck },
+  { id: "highBitrate", label: "Bitrate max", icon: Gauge },
+  { id: "stabilize", label: "Stabiliser", icon: Video },
+  { id: "coverPick", label: "Cover", icon: Image },
+  { id: "soundMix", label: "Mix audio", icon: Palette },
+  { id: "duet", label: "Duo", icon: Users },
+  { id: "stitch", label: "Stitch", icon: Hash },
+  { id: "downloads", label: "Download", icon: Download },
+  { id: "comments", label: "Commentaires", icon: MessageCircle },
+  { id: "brand", label: "Partenariat", icon: BadgeDollarSign },
+  { id: "promote", label: "Promouvoir", icon: BadgeDollarSign },
+  { id: "schedule", label: "Planifier", icon: Clock },
+  { id: "privateStory", label: "Story privee", icon: Lock },
+  { id: "publicStory", label: "Story publique", icon: Eye },
+  { id: "location", label: "Lieu", icon: MapPin },
+  { id: "antiSpam", label: "Anti-spam", icon: ShieldCheck },
+  { id: "qualityGate", label: "Controle HD", icon: Gauge },
+  { id: "draftBackup", label: "Backup draft", icon: Save },
+];
 
 export default function CreatePage() {
   const { user } = useAuth();
@@ -33,6 +56,32 @@ export default function CreatePage() {
   const [recordingTime, setRecordingTime] = useState(0);
   const [countdown, setCountdown] = useState(0);
   const [facingMode, setFacingMode] = useState<"user" | "environment">("user");
+  const [visibility, setVisibility] = useState<"public" | "followers" | "private">("public");
+  const [scheduledAt, setScheduledAt] = useState("");
+  const [locationTag, setLocationTag] = useState("");
+  const [coverNote, setCoverNote] = useState("");
+  const [creatorOptions, setCreatorOptions] = useState<Record<string, boolean>>({
+    autoCaptions: true,
+    beautyPass: true,
+    safeZone: true,
+    highBitrate: true,
+    stabilize: false,
+    coverPick: true,
+    soundMix: true,
+    duet: true,
+    stitch: true,
+    downloads: true,
+    comments: true,
+    brand: false,
+    promote: false,
+    schedule: false,
+    privateStory: false,
+    publicStory: false,
+    location: false,
+    antiSpam: true,
+    qualityGate: true,
+    draftBackup: true,
+  });
 
   // 3D Canvas background animation
   useEffect(() => {
@@ -98,14 +147,19 @@ export default function CreatePage() {
       setHashtags(parsed.hashtags || "");
       setCommentsEnabled(parsed.commentsEnabled !== false);
       setEffect(parsed.effect || "none");
+      setVisibility(parsed.visibility || "public");
+      setScheduledAt(parsed.scheduledAt || "");
+      setLocationTag(parsed.locationTag || "");
+      setCoverNote(parsed.coverNote || "");
+      setCreatorOptions((prev) => ({ ...prev, ...(parsed.creatorOptions || {}) }));
     } catch {
       // Ignore corrupted local drafts and let the user start clean.
     }
   }, []);
 
   useEffect(() => {
-    localStorage.setItem("create-draft-meta", JSON.stringify({ description, hashtags, commentsEnabled, effect }));
-  }, [description, hashtags, commentsEnabled, effect]);
+    localStorage.setItem("create-draft-meta", JSON.stringify({ description, hashtags, commentsEnabled, effect, visibility, scheduledAt, locationTag, coverNote, creatorOptions }));
+  }, [description, hashtags, commentsEnabled, effect, visibility, scheduledAt, locationTag, coverNote, creatorOptions]);
 
   useEffect(() => {
     return () => {
@@ -249,6 +303,15 @@ export default function CreatePage() {
     setCountdown(0);
   };
 
+  const toggleCreatorOption = (id: string) => {
+    setCreatorOptions(prev => {
+      const next = { ...prev, [id]: !prev[id] };
+      if (id === "comments") setCommentsEnabled(!prev[id]);
+      if (id === "schedule" && prev[id]) setScheduledAt("");
+      return next;
+    });
+  };
+
   const handleUpload = async () => {
     if (!selectedFile || !user) return;
     const desc = validateUserText(description, { maxLength: 2200, minLength: 0, allowLinks: true });
@@ -261,7 +324,7 @@ export default function CreatePage() {
       if (uploadError) throw uploadError;
       const { data: urlData } = supabase.storage.from("media").getPublicUrl(path);
       const hashtagArray = sanitizeHashtags(hashtags);
-      const { error: insertError } = await supabase.from("videos").insert({
+      const { error: insertError } = await (supabase as any).from("videos").insert({
         user_id: user.id,
         video_url: urlData.publicUrl,
         description: desc.value,
@@ -269,7 +332,18 @@ export default function CreatePage() {
         sound_name: "Son original",
         sound_artist: user.user_metadata?.username || "",
         comments_enabled: commentsEnabled,
-        is_published: true,
+        is_published: !scheduledAt,
+        audience: visibility,
+        allow_downloads: creatorOptions.downloads !== false,
+        allow_duet: creatorOptions.duet !== false,
+        allow_stitch: creatorOptions.stitch !== false,
+        auto_captions: creatorOptions.autoCaptions === true,
+        promote_after_publish: creatorOptions.promote === true,
+        brand_disclosure: creatorOptions.brand === true,
+        location_tag: locationTag.trim() || null,
+        cover_note: coverNote.trim() || null,
+        scheduled_at: scheduledAt || null,
+        create_options: creatorOptions,
       });
       if (insertError) throw insertError;
       toast.success("Publié ! 🎬");
@@ -278,6 +352,9 @@ export default function CreatePage() {
       setFileMeta("");
       setDescription("");
       setHashtags("");
+      setScheduledAt("");
+      setLocationTag("");
+      setCoverNote("");
       navigate("/");
     } catch (err: any) {
       toast.error(err.message || "Erreur lors de la publication");
@@ -413,6 +490,28 @@ export default function CreatePage() {
               </div>
               <input value={hashtags} onChange={e => setHashtags(e.target.value)} maxLength={160} placeholder="#hashtags séparés par des espaces" className="w-full glass rounded-xl px-4 py-3 bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none" />
               <div className="grid grid-cols-3 gap-2">
+                {(["public", "followers", "private"] as const).map(option => (
+                  <button key={option} type="button" onClick={() => setVisibility(option)} className={`rounded-xl px-3 py-2 text-xs font-bold ${visibility === option ? "gradient-primary text-primary-foreground" : "glass text-foreground"}`}>
+                    {option === "public" ? "Public" : option === "followers" ? "Abonnes" : "Prive"}
+                  </button>
+                ))}
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <input value={locationTag} onChange={e => setLocationTag(e.target.value)} maxLength={80} placeholder="Lieu / evenement" className="glass rounded-xl px-3 py-2 bg-transparent text-xs text-foreground placeholder:text-muted-foreground outline-none" />
+                <input value={coverNote} onChange={e => setCoverNote(e.target.value)} maxLength={80} placeholder="Note cover" className="glass rounded-xl px-3 py-2 bg-transparent text-xs text-foreground placeholder:text-muted-foreground outline-none" />
+              </div>
+              {creatorOptions.schedule && (
+                <input type="datetime-local" value={scheduledAt} onChange={e => setScheduledAt(e.target.value)} className="w-full glass rounded-xl px-4 py-3 bg-transparent text-sm text-foreground outline-none" />
+              )}
+              <div className="grid grid-cols-4 gap-2">
+                {creatorToolOptions.map(tool => (
+                  <button key={tool.id} type="button" onClick={() => toggleCreatorOption(tool.id)} className={`min-h-16 rounded-xl px-2 py-2 text-[10px] font-bold ${creatorOptions[tool.id] ? "bg-primary/15 text-primary" : "glass text-muted-foreground"}`}>
+                    <tool.icon className="mx-auto mb-1 h-4 w-4" />
+                    <span className="block leading-tight">{tool.label}</span>
+                  </button>
+                ))}
+              </div>
+              <div className="grid grid-cols-3 gap-2">
                 <button type="button" onClick={autoHashtags} className="glass flex items-center justify-center gap-1 rounded-xl px-3 py-2 text-xs font-bold text-foreground">
                   <Hash className="h-3.5 w-3.5 text-primary" /> Auto
                 </button>
@@ -428,7 +527,7 @@ export default function CreatePage() {
                 <div className="flex items-center justify-center gap-1 text-[11px] font-semibold text-muted-foreground"><Timer className="h-3.5 w-3.5" /> {recordingDuration === 180 ? "3m" : `${recordingDuration}s`}</div>
                 <div className="flex items-center justify-center gap-1 text-[11px] font-semibold text-muted-foreground"><Sparkles className="h-3.5 w-3.5" /> {effect === "none" ? "Normal" : effect}</div>
               </div>
-              <motion.button whileTap={{ scale: 0.95 }} onClick={() => setCommentsEnabled(!commentsEnabled)} className="flex items-center gap-2 w-full glass rounded-xl px-4 py-3">
+              <motion.button whileTap={{ scale: 0.95 }} onClick={() => { setCommentsEnabled(!commentsEnabled); setCreatorOptions(prev => ({ ...prev, comments: !commentsEnabled })); }} className="flex items-center gap-2 w-full glass rounded-xl px-4 py-3">
                 <div className={`h-5 w-5 rounded-full flex items-center justify-center ${commentsEnabled ? "bg-primary" : "bg-muted"}`}>
                   {commentsEnabled ? <span className="text-[10px] text-primary-foreground">✓</span> : <X className="h-3 w-3 text-muted-foreground" />}
                 </div>

@@ -1,20 +1,51 @@
-import { Home, Search, Plus, Radio, User } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Home, Search, Plus, MessageCircle, User } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { useAuth } from "@/hooks/useAuth";
+import { supabase } from "@/integrations/supabase/client";
 
 export default function BottomNav() {
   const location = useLocation();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const [unread, setUnread] = useState(0);
 
   const navItems = [
     { path: "/", icon: Home, label: "Accueil", requiresAuth: false },
     { path: "/explore", icon: Search, label: "Explorer", requiresAuth: false },
     { path: "/create", icon: Plus, label: "", isCreate: true, requiresAuth: true },
-    { path: "/lives", icon: Radio, label: "Lives", requiresAuth: false },
+    { path: "/inbox", icon: MessageCircle, label: "Messages", requiresAuth: true, badge: unread },
     { path: "/profile", icon: User, label: "Profil", requiresAuth: true },
   ];
+
+  const refreshUnread = async () => {
+    if (!user) { setUnread(0); return; }
+    const { data: participations } = await supabase
+      .from("conversation_participants")
+      .select("conversation_id")
+      .eq("user_id", user.id);
+    const convIds = (participations || []).map((p: any) => p.conversation_id);
+    if (!convIds.length) { setUnread(0); return; }
+    const { count } = await supabase
+      .from("messages")
+      .select("id", { count: "exact", head: true })
+      .in("conversation_id", convIds)
+      .neq("sender_id", user.id)
+      .eq("is_read", false);
+    setUnread(count || 0);
+  };
+
+  useEffect(() => {
+    refreshUnread();
+    if (!user) return;
+    const channel = supabase
+      .channel(`bottom-nav-unread-${user.id}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "messages" }, refreshUnread)
+      .on("postgres_changes", { event: "*", schema: "public", table: "conversation_participants", filter: `user_id=eq.${user.id}` }, refreshUnread)
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [user]);
 
   const handleNav = (path: string, requiresAuth?: boolean) => {
     if (requiresAuth && !user) {
@@ -38,7 +69,14 @@ export default function BottomNav() {
           }
           return (
             <motion.button key={item.path} whileTap={{ scale: 0.9 }} onClick={() => handleNav(item.path, item.requiresAuth)} className={`flex min-w-12 flex-col items-center gap-0.5 rounded-2xl px-2 py-1 ${active ? "bg-foreground/10" : ""}`}>
-              <item.icon className={`h-6 w-6 transition-colors ${active ? "text-foreground" : "text-muted-foreground"}`} strokeWidth={active ? 2.5 : 2} />
+              <span className="relative">
+                <item.icon className={`h-6 w-6 transition-colors ${active ? "text-foreground" : "text-muted-foreground"}`} strokeWidth={active ? 2.5 : 2} />
+                {!!item.badge && item.badge > 0 && (
+                  <span className="absolute -right-2 -top-2 grid h-4 min-w-4 place-items-center rounded-full bg-primary px-1 text-[9px] font-black text-primary-foreground">
+                    {item.badge > 99 ? "99+" : item.badge}
+                  </span>
+                )}
+              </span>
               <span className={`text-[10px] font-medium ${active ? "text-foreground" : "text-muted-foreground"}`}>{item.label}</span>
             </motion.button>
           );

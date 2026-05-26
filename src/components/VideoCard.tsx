@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Heart, MessageCircle, Share2, Bookmark, Music, Volume2, VolumeX,
   BadgeCheck, Trophy, Download, Gauge, SkipForward, Flag, Link2,
-  Play, Pause, X, Maximize2, Minimize2
+  Play, Pause, X, Maximize2, Minimize2, MoreHorizontal
 } from "lucide-react";
 import { VideoData, formatCount } from "@/data/mockVideos";
 import { supabase } from "@/integrations/supabase/client";
@@ -225,7 +225,7 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
   };
 
   const handleShare = async () => {
-    const shareUrl = `${window.location.origin}/video/${video.id}`;
+    const shareUrl = `${window.location.origin}/?video=${video.id}`;
     if (navigator.share) {
       try {
         await navigator.share({ title: video.description, url: shareUrl });
@@ -343,7 +343,7 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
 
       <div className="gradient-overlay absolute inset-x-0 bottom-0 h-[45%] pointer-events-none" />
 
-      <div className="pointer-events-auto absolute left-3 top-[max(0.85rem,env(safe-area-inset-top))] z-30 flex items-center gap-2 md:left-4">
+      {isActive && <div className="pointer-events-auto absolute left-3 top-[max(0.85rem,env(safe-area-inset-top))] z-30 flex items-center gap-2 md:left-4">
         <motion.button
           type="button"
           whileTap={{ scale: 0.9 }}
@@ -372,7 +372,7 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
           {fitMode === "contain" ? <Maximize2 className="h-3.5 w-3.5" /> : <Minimize2 className="h-3.5 w-3.5" />}
           {fitMode === "contain" ? "Remplir" : "Ajuster"}
         </motion.button>
-      </div>
+      </div>}
 
       {/* Progress Bar */}
       <div className="absolute bottom-[calc(4rem+env(safe-area-inset-bottom))] left-0 right-0 z-30 h-[3px] bg-foreground/10 md:bottom-0">
@@ -439,32 +439,42 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
       </div>
 
       {/* Right Action Bar */}
-      <div className="absolute right-3 bottom-[calc(9rem+env(safe-area-inset-bottom))] z-20 flex flex-col items-center gap-4 md:bottom-8 md:gap-5">
+      <div className="absolute right-3 bottom-[calc(8.6rem+env(safe-area-inset-bottom))] z-20 flex flex-col items-center gap-3 md:bottom-8 md:gap-4">
         <ActionButton
           icon={<Heart className={`h-7 w-7 ${liked ? "fill-primary text-primary" : "text-foreground"}`} />}
           label={formatCount(likeCount)}
+          ariaLabel="Aimer la video"
           onClick={toggleLike}
         />
         <ActionButton
           icon={<MessageCircle className="h-7 w-7 text-foreground" />}
           label={formatCount(video.stats.comments)}
+          ariaLabel="Ouvrir les commentaires"
           onClick={() => onOpenComments(video.stats.comments)}
         />
         <ActionButton
           icon={<Share2 className="h-7 w-7 text-foreground" />}
           label={formatCount(video.stats.shares)}
+          ariaLabel="Partager la video"
           onClick={handleShare}
         />
         <ActionButton
           icon={<Bookmark className={`h-7 w-7 ${saved ? "fill-accent text-accent" : "text-foreground"}`} />}
           label={formatCount(saveCount)}
+          ariaLabel="Enregistrer la video"
           onClick={toggleSave}
         />
-        <motion.button type="button" whileTap={{ scale: 0.85 }} onClick={onToggleMute} className="glass rounded-full p-2" aria-label={isMuted ? "Activer le son" : "Couper le son"}>
-          {isMuted ? <VolumeX className="h-5 w-5 text-foreground/70" /> : <Volume2 className="h-5 w-5 text-foreground/70" />}
-        </motion.button>
+        <ActionButton
+          icon={<Download className="h-6 w-6 text-foreground" />}
+          label="HD"
+          ariaLabel="Telecharger en qualite max"
+          onClick={handleDownload}
+        />
         <motion.button type="button" whileTap={{ scale: 0.85 }} onClick={onOpenGamification} className="glass rounded-full p-2" aria-label="Ouvrir les trophees">
           <Trophy className="h-5 w-5 text-accent" />
+        </motion.button>
+        <motion.button type="button" whileTap={{ scale: 0.85 }} onClick={() => setShowLongPress(true)} className="glass rounded-full p-2" aria-label="Options video">
+          <MoreHorizontal className="h-5 w-5 text-foreground/80" />
         </motion.button>
       </div>
 
@@ -493,14 +503,14 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
                 </motion.button>
               </div>
               <div className="grid grid-cols-4 gap-3">
-                <LongPressOption icon={<Download className="h-5 w-5" />} label="Télécharger HD" onClick={handleDownload} />
+                <LongPressOption icon={<Download className="h-5 w-5" />} label="Qualite max" onClick={handleDownload} />
                 <LongPressOption icon={<Gauge className="h-5 w-5" />} label="0.5x" onClick={() => changeSpeed(0.5)} />
                 <LongPressOption icon={<Gauge className="h-5 w-5" />} label="1x" onClick={() => changeSpeed(1)} />
                 <LongPressOption icon={<Gauge className="h-5 w-5" />} label="1.5x" onClick={() => changeSpeed(1.5)} />
                 <LongPressOption icon={<Gauge className="h-5 w-5" />} label="2x" onClick={() => changeSpeed(2)} />
                 <LongPressOption icon={<SkipForward className="h-5 w-5" />} label="3x" onClick={() => changeSpeed(3)} />
                 <LongPressOption icon={fitMode === "contain" ? <Maximize2 className="h-5 w-5" /> : <Minimize2 className="h-5 w-5" />} label={fitMode === "contain" ? "Remplir" : "Ajuster"} onClick={() => { setFitMode((mode) => mode === "contain" ? "cover" : "contain"); setShowLongPress(false); }} />
-                <LongPressOption icon={<Link2 className="h-5 w-5" />} label="Copier lien" onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/video/${video.id}`); toast.success("Lien copié"); setShowLongPress(false); }} />
+                <LongPressOption icon={<Link2 className="h-5 w-5" />} label="Copier lien" onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/?video=${video.id}`); toast.success("Lien copié"); setShowLongPress(false); }} />
                 <LongPressOption icon={<Flag className="h-5 w-5" />} label="Signaler" onClick={handleReportVideo} />
               </div>
             </motion.div>
@@ -511,9 +521,9 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
   );
 }
 
-function ActionButton({ icon, label, onClick }: { icon: React.ReactNode; label: string; onClick?: () => void }) {
+function ActionButton({ icon, label, ariaLabel, onClick }: { icon: React.ReactNode; label: string; ariaLabel: string; onClick?: () => void }) {
   return (
-    <motion.button type="button" whileTap={{ scale: 0.85 }} onClick={onClick} className="flex flex-col items-center gap-1" aria-label={label}>
+    <motion.button type="button" whileTap={{ scale: 0.85 }} onClick={onClick} className="flex flex-col items-center gap-1" aria-label={ariaLabel}>
       {icon}
       <span className="text-[11px] font-semibold text-foreground/80 tabular-nums">{label}</span>
     </motion.button>

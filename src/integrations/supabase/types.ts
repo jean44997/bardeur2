@@ -530,6 +530,8 @@ export type Database = {
           bio: string | null
           created_at: string | null
           display_name: string
+          allow_profile_views: boolean
+          hide_following: boolean
           hide_likes: boolean | null
           hide_saves: boolean | null
           id: string
@@ -559,6 +561,8 @@ export type Database = {
           bio?: string | null
           created_at?: string | null
           display_name?: string
+          allow_profile_views?: boolean
+          hide_following?: boolean
           hide_likes?: boolean | null
           hide_saves?: boolean | null
           id: string
@@ -588,6 +592,8 @@ export type Database = {
           bio?: string | null
           created_at?: string | null
           display_name?: string
+          allow_profile_views?: boolean
+          hide_following?: boolean
           hide_likes?: boolean | null
           hide_saves?: boolean | null
           id?: string

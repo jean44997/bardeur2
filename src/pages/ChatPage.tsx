@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, type CSSProperties } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowLeft, Send, Smile, Image as ImageIcon, Mic, MicOff, Phone, Video, Check, CheckCheck, Trash2, MoreVertical, Flag, Ban, Flame, Wallpaper, PhoneOff, CameraOff, RotateCcw } from "lucide-react";
+import { ArrowLeft, Send, Smile, Image as ImageIcon, Mic, MicOff, Phone, Video, Check, CheckCheck, Trash2, MoreVertical, Flag, Ban, Flame, Wallpaper, PhoneOff, CameraOff, RotateCcw, Upload, Activity, BellRing, SignalHigh, Volume2, VolumeX } from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -21,6 +21,15 @@ interface Message {
   mediaType?: string;
   senderId?: string;
   createdAt?: string;
+}
+
+interface CallState {
+  type: "audio" | "video";
+  status: "requesting" | "ringing" | "connected";
+  muted: boolean;
+  cameraOff: boolean;
+  speakerOn: boolean;
+  quality: "HD" | "Auto" | "Eco";
 }
 
 const quickEmojis = ["❤️", "🔥", "😂", "😍", "👏", "🤯", "💀", "🙏", "😭", "🥰", "💯", "🎉"];
@@ -51,15 +60,22 @@ export default function ChatPage() {
   const [customBackgroundUrl, setCustomBackgroundUrl] = useState("");
   const [streakDays, setStreakDays] = useState(0);
   const [streakNeedsReply, setStreakNeedsReply] = useState(false);
-  const [callState, setCallState] = useState<null | { type: "audio" | "video"; status: "requesting" | "ringing" | "connected"; muted: boolean; cameraOff: boolean }>(null);
+  const [callState, setCallState] = useState<CallState | null>(null);
+  const [callSeconds, setCallSeconds] = useState(0);
+  const [callAudioLevel, setCallAudioLevel] = useState(0);
   const bottomRef = useRef<HTMLDivElement>(null);
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
+  const backgroundInputRef = useRef<HTMLInputElement>(null);
   const audioRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const audioStreamRef = useRef<MediaStream | null>(null);
   const callStreamRef = useRef<MediaStream | null>(null);
   const callSessionRef = useRef<string | null>(null);
+  const callFacingModeRef = useRef<"user" | "environment">("user");
+  const ringtoneCtxRef = useRef<AudioContext | null>(null);
+  const ringtoneTimerRef = useRef<number | null>(null);
+  const callMeterFrameRef = useRef<number | null>(null);
   const cancelledAudioRef = useRef(false);
   const recentTextRef = useRef<string[]>([]);
 
@@ -114,8 +130,19 @@ export default function ChatPage() {
   useEffect(() => {
     return () => {
       callStreamRef.current?.getTracks().forEach(t => t.stop());
+      stopRingtone();
+      if (callMeterFrameRef.current) cancelAnimationFrame(callMeterFrameRef.current);
     };
   }, []);
+
+  useEffect(() => {
+    if (callState?.status !== "connected") {
+      setCallSeconds(0);
+      return;
+    }
+    const interval = window.setInterval(() => setCallSeconds(s => s + 1), 1000);
+    return () => window.clearInterval(interval);
+  }, [callState?.status]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -377,6 +404,54 @@ export default function ChatPage() {
     setShowSafetyMenu(false);
   };
 
+  const stopRingtone = () => {
+    if (ringtoneTimerRef.current) window.clearInterval(ringtoneTimerRef.current);
+    ringtoneTimerRef.current = null;
+    ringtoneCtxRef.current?.close().catch(() => {});
+    ringtoneCtxRef.current = null;
+  };
+
+  const startRingtone = () => {
+    stopRingtone();
+    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioCtx) return;
+    const ctx = new AudioCtx();
+    ringtoneCtxRef.current = ctx;
+    const beep = () => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.value = 880;
+      gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.08, ctx.currentTime + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.28);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.32);
+    };
+    beep();
+    ringtoneTimerRef.current = window.setInterval(beep, 1250);
+  };
+
+  const startAudioMeter = (stream: MediaStream) => {
+    if (callMeterFrameRef.current) cancelAnimationFrame(callMeterFrameRef.current);
+    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioCtx || stream.getAudioTracks().length === 0) return;
+    const ctx = new AudioCtx();
+    const source = ctx.createMediaStreamSource(stream);
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 512;
+    source.connect(analyser);
+    const data = new Uint8Array(analyser.frequencyBinCount);
+    const tick = () => {
+      analyser.getByteFrequencyData(data);
+      const avg = data.reduce((sum, v) => sum + v, 0) / data.length;
+      setCallAudioLevel(Math.min(100, Math.round(avg * 1.4)));
+      callMeterFrameRef.current = requestAnimationFrame(tick);
+    };
+    tick();
+  };
+
   const saveChatBackground = async (background: string) => {
     if (!conversationId || !user) return;
     setChatBackground(background);
@@ -389,6 +464,24 @@ export default function ChatPage() {
       // Keep the local wallpaper even if the preference sync is unavailable.
     }
     toast.success("Fond de chat appliqué");
+  };
+
+  const uploadChatBackground = async (file?: File | null) => {
+    if (!file || !user || !conversationId) return;
+    const fileCheck = validateUploadFile(file, { maxBytes: 6 * 1024 * 1024, acceptedPrefixes: ["image/"] });
+    if (!fileCheck.ok) { toast.error(fileCheck.reason); return; }
+    try {
+      const ext = file.name.split(".").pop() || "jpg";
+      const path = `${user.id}/chat-backgrounds/${conversationId}-${crypto.randomUUID()}.${ext}`;
+      const { error } = await supabase.storage.from("media").upload(path, file, { contentType: file.type, upsert: false });
+      if (error) throw error;
+      const { data } = supabase.storage.from("media").getPublicUrl(path);
+      await saveChatBackground(`linear-gradient(180deg, rgba(0,0,0,.46), rgba(0,0,0,.76)), url("${data.publicUrl}") center / cover fixed`);
+    } catch {
+      toast.error("Upload du fond impossible");
+    } finally {
+      if (backgroundInputRef.current) backgroundInputRef.current.value = "";
+    }
   };
 
   const applyCustomBackground = () => {
@@ -405,12 +498,16 @@ export default function ChatPage() {
   const startCall = async (type: "audio" | "video") => {
     if (!user || !conversationId || !otherUserId || isBlocked || blockedByThem) return;
     try {
-      setCallState({ type, status: "requesting", muted: false, cameraOff: false });
+      setCallSeconds(0);
+      setCallAudioLevel(0);
+      callFacingModeRef.current = "user";
+      setCallState({ type, status: "requesting", muted: false, cameraOff: false, speakerOn: true, quality: type === "video" ? "HD" : "Auto" });
       const media = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, sampleRate: 48000 },
-        video: type === "video" ? { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } } : false,
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, sampleRate: 48000, channelCount: 1 },
+        video: type === "video" ? { facingMode: "user", width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 60, max: 60 } } : false,
       });
       callStreamRef.current = media;
+      startAudioMeter(media);
       let data: any = null;
       try {
         const res = await (supabase as any)
@@ -423,15 +520,26 @@ export default function ChatPage() {
         // Call signaling is best-effort; media controls still work locally.
       }
       callSessionRef.current = data?.id || null;
-      setCallState({ type, status: "ringing", muted: false, cameraOff: false });
-      window.setTimeout(() => setCallState((current) => current ? { ...current, status: "connected" } : current), 900);
+      startRingtone();
+      setCallState({ type, status: "ringing", muted: false, cameraOff: false, speakerOn: true, quality: type === "video" ? "HD" : "Auto" });
+      window.setTimeout(() => {
+        stopRingtone();
+        setCallState((current) => current ? { ...current, status: "connected" } : current);
+        if (callSessionRef.current) {
+          (supabase as any).from("direct_call_sessions").update({ status: "connected" }).eq("id", callSessionRef.current);
+        }
+      }, 1100);
     } catch {
+      stopRingtone();
       setCallState(null);
       toast.error(type === "video" ? "Autorise la caméra et le micro" : "Autorise le micro");
     }
   };
 
   const endCall = async () => {
+    stopRingtone();
+    if (callMeterFrameRef.current) cancelAnimationFrame(callMeterFrameRef.current);
+    setCallAudioLevel(0);
     callStreamRef.current?.getTracks().forEach(t => t.stop());
     callStreamRef.current = null;
     if (callSessionRef.current) {
@@ -453,6 +561,36 @@ export default function ChatPage() {
   const toggleCallCamera = () => {
     callStreamRef.current?.getVideoTracks().forEach(t => { t.enabled = !t.enabled; });
     setCallState((current) => current ? { ...current, cameraOff: !current.cameraOff } : current);
+  };
+
+  const flipCallCamera = async () => {
+    if (!callStreamRef.current || callState?.type !== "video") return;
+    const next = callFacingModeRef.current === "user" ? "environment" : "user";
+    try {
+      const replacement = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: next, width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 60, max: 60 } },
+        audio: false,
+      });
+      callStreamRef.current.getVideoTracks().forEach(track => {
+        track.stop();
+        callStreamRef.current?.removeTrack(track);
+      });
+      replacement.getVideoTracks().forEach(track => callStreamRef.current?.addTrack(track));
+      callFacingModeRef.current = next;
+      if (localVideoRef.current) {
+        localVideoRef.current.srcObject = callStreamRef.current;
+        localVideoRef.current.play().catch(() => {});
+      }
+      setCallState((current) => current ? { ...current, cameraOff: false, quality: "HD" } : current);
+      toast.success(next === "environment" ? "Camera arriere activee" : "Camera selfie activee");
+    } catch {
+      toast.error("Changement de camera impossible sur cet appareil");
+    }
+  };
+
+  const toggleSpeaker = () => {
+    setCallState((current) => current ? { ...current, speakerOn: !current.speakerOn } : current);
+    toast.success(callState?.speakerOn ? "Mode ecouteur demande" : "Haut-parleur demande");
   };
 
   const StatusIcon = ({ status }: { status: string }) => {
@@ -520,6 +658,13 @@ export default function ChatPage() {
               <div className="mb-2 flex items-center gap-2 text-xs font-bold text-foreground">
                 <Wallpaper className="h-4 w-4 text-primary" /> Fond privé
               </div>
+              <input
+                ref={backgroundInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => uploadChatBackground(e.target.files?.[0])}
+              />
               <div className="grid grid-cols-4 gap-2">
                 {chatBackgrounds.map(bg => (
                   <button
@@ -537,6 +682,9 @@ export default function ChatPage() {
                 <input value={customBackgroundUrl} onChange={e => setCustomBackgroundUrl(e.target.value)} placeholder="URL image https..." className="min-w-0 flex-1 rounded-xl bg-card px-3 py-2 text-xs text-foreground outline-none" />
                 <button type="button" onClick={applyCustomBackground} className="rounded-xl gradient-primary px-3 py-2 text-xs font-bold text-primary-foreground">OK</button>
               </div>
+              <button type="button" onClick={() => backgroundInputRef.current?.click()} className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl bg-card px-3 py-2 text-xs font-bold text-foreground">
+                <Upload className="h-3.5 w-3.5 text-primary" /> Uploader une image
+              </button>
             </div>
           </motion.div>
         )}
@@ -555,8 +703,22 @@ export default function ChatPage() {
                     <p className="text-sm font-semibold text-foreground">{callState.type === "video" ? "Camera coupée" : "Appel audio"}</p>
                   </div>
                 )}
-                <div className="absolute left-4 top-4 rounded-full bg-background/60 px-3 py-1 text-xs font-bold text-foreground backdrop-blur">
-                  {callState.status === "requesting" ? "Permissions..." : callState.status === "ringing" ? "Sonnerie..." : "Connecté"}
+                <div className="absolute left-4 top-4 flex items-center gap-2 rounded-full bg-background/70 px-3 py-1 text-xs font-bold text-foreground backdrop-blur">
+                  {callState.status === "ringing" ? <BellRing className="h-3.5 w-3.5 text-primary" /> : <SignalHigh className="h-3.5 w-3.5 text-accent" />}
+                  {callState.status === "requesting" ? "Permissions" : callState.status === "ringing" ? "Sonnerie" : fmtTime(callSeconds)}
+                </div>
+              </div>
+              <div className="space-y-2 border-b border-border px-4 py-3">
+                <div className="flex items-center justify-between text-[11px] font-bold text-muted-foreground">
+                  <span className="flex items-center gap-1"><SignalHigh className="h-3.5 w-3.5 text-primary" /> {callState.type === "video" ? "Video 1080p/60" : "Audio 48 kHz"}</span>
+                  <span>{callState.quality}</span>
+                </div>
+                <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                  <Activity className="h-3.5 w-3.5 text-accent" />
+                  <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
+                    <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${callAudioLevel}%` }} />
+                  </div>
+                  <span className="w-10 text-right tabular-nums">{callAudioLevel}%</span>
                 </div>
               </div>
               <div className="flex items-center justify-center gap-3 p-4">
@@ -568,9 +730,14 @@ export default function ChatPage() {
                     {callState.cameraOff ? <CameraOff className="h-5 w-5" /> : <Video className="h-5 w-5" />}
                   </button>
                 )}
-                <button type="button" onClick={() => toast.info("Changement de caméra prêt côté navigateur")} className="grid h-12 w-12 place-items-center rounded-full bg-secondary text-foreground" aria-label="Changer de camera">
+                <button type="button" onClick={toggleSpeaker} className={`grid h-12 w-12 place-items-center rounded-full ${callState.speakerOn ? "bg-secondary text-foreground" : "bg-card text-muted-foreground"}`} aria-label={callState.speakerOn ? "Passer en ecouteur" : "Activer haut-parleur"}>
+                  {callState.speakerOn ? <Volume2 className="h-5 w-5" /> : <VolumeX className="h-5 w-5" />}
+                </button>
+                {callState.type === "video" && (
+                <button type="button" onClick={flipCallCamera} className="grid h-12 w-12 place-items-center rounded-full bg-secondary text-foreground" aria-label="Changer de camera">
                   <RotateCcw className="h-5 w-5" />
                 </button>
+                )}
                 <button type="button" onClick={endCall} className="grid h-12 w-12 place-items-center rounded-full bg-destructive text-destructive-foreground" aria-label="Raccrocher">
                   <PhoneOff className="h-5 w-5" />
                 </button>

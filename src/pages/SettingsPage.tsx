@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { ArrowLeft, User, Bell, Database, Info, Lock, Eye, EyeOff, Globe, Trash2, Download, ChevronRight, Camera, Mic, Shield, Mail, Smartphone, CheckCircle2, AlertCircle, Activity } from "lucide-react";
+import { ArrowLeft, User, Bell, Database, Info, Lock, Eye, EyeOff, Globe, Trash2, Download, ChevronRight, Camera, Mic, Shield, Mail, Smartphone, CheckCircle2, AlertCircle, Activity, Cookie } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
@@ -62,10 +62,15 @@ export default function SettingsPage() {
   const [mfaFactors, setMfaFactors] = useState<any[]>([]);
   const [notificationPermission, setNotificationPermission] = useState<string>(typeof Notification !== "undefined" ? Notification.permission : "unsupported");
   const [mediaPermission, setMediaPermission] = useState<"idle" | "granted" | "denied">("idle");
+  const [cookiePrefs, setCookiePrefs] = useState({ essential: true, security: true, media: true, analytics: false });
 
   useEffect(() => {
     if (typeof Notification !== "undefined") {
       setNotificationPermission(Notification.permission);
+    }
+    const savedPrefs = localStorage.getItem("cookie-consent:pwa");
+    if (savedPrefs) {
+      try { setCookiePrefs({ essential: true, ...JSON.parse(savedPrefs) }); } catch { localStorage.removeItem("cookie-consent:pwa"); }
     }
     loadMfaStatus();
   }, []);
@@ -81,6 +86,13 @@ export default function SettingsPage() {
 
   const handleToggle = async (key: string, value: boolean) => {
     await updateProfile({ [key]: value } as any);
+  };
+
+  const updateCookiePref = (key: "security" | "media" | "analytics", value: boolean) => {
+    const next = { ...cookiePrefs, essential: true, [key]: value };
+    setCookiePrefs(next);
+    localStorage.setItem("cookie-consent:pwa", JSON.stringify(next));
+    toast.success("Preference cookie sauvegardee");
   };
 
   const updateNotificationSound = async (sound: "pop" | "soft" | "none") => {
@@ -303,6 +315,8 @@ export default function SettingsPage() {
             <SettingItem icon={<Eye className="h-4 w-4 text-primary" />} label="Compte privé" description="Seuls tes abonnés approuvés peuvent voir ton contenu" toggle value={profile?.is_private} onToggle={v => handleToggle("is_private", v)} />
             <SettingItem icon={<EyeOff className="h-4 w-4 text-muted-foreground" />} label="Masquer les j'aime" toggle value={profile?.hide_likes} onToggle={v => handleToggle("hide_likes", v)} />
             <SettingItem icon={<EyeOff className="h-4 w-4 text-muted-foreground" />} label="Masquer les sauvegardes" toggle value={profile?.hide_saves} onToggle={v => handleToggle("hide_saves", v)} />
+            <SettingItem icon={<EyeOff className="h-4 w-4 text-muted-foreground" />} label="Masquer tes abonnements" description="Les autres ne voient plus qui tu suis" toggle value={(profile as any)?.hide_following === true} onToggle={v => handleToggle("hide_following", v)} />
+            <SettingItem icon={<Eye className="h-4 w-4 text-primary" />} label="Historique visites profil" description="Active le panneau qui regarde ton profil" toggle value={(profile as any)?.allow_profile_views !== false} onToggle={v => handleToggle("allow_profile_views", v)} />
             <SettingItem icon={<Globe className="h-4 w-4 text-accent" />} label="Mode invisible" description="Cache ton statut en ligne" toggle value={profile?.invisible_mode} onToggle={v => handleToggle("invisible_mode", v)} />
           </div>
         </div>
@@ -361,12 +375,35 @@ export default function SettingsPage() {
             <SettingItem icon={<Database className="h-4 w-4 text-muted-foreground" />} label="Vider le cache" onClick={() => { localStorage.clear(); toast.success("Cache vidé !"); }} />
             <SettingItem icon={<Download className="h-4 w-4 text-accent" />} label="Télécharger mes données" onClick={handleDownloadData} />
           </div>
+          <div className="mt-2 glass rounded-2xl p-3">
+            <div className="mb-2 flex items-center gap-2 px-1 text-xs font-bold text-foreground">
+              <Cookie className="h-4 w-4 text-primary" /> Cookies PWA et super reels
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              {([
+                ["security", "Securite", "sessions, 2FA, anti-abus"],
+                ["media", "Media", "drafts, qualite, preferences video"],
+                ["analytics", "Stats", "vues locales et performance"],
+              ] as const).map(([key, label, description]) => (
+                <button key={key} type="button" onClick={() => updateCookiePref(key, !cookiePrefs[key])} className={`rounded-xl px-3 py-2 text-left text-xs ${cookiePrefs[key] ? "bg-primary/15 text-primary" : "bg-card text-muted-foreground"}`}>
+                  <span className="block font-bold">{label}</span>
+                  <span className="block text-[10px] opacity-80">{description}</span>
+                </button>
+              ))}
+              <button type="button" className="rounded-xl bg-card px-3 py-2 text-left text-xs text-muted-foreground">
+                <span className="block font-bold">Essentiel</span>
+                <span className="block text-[10px] opacity-80">toujours actif pour connexion et securite</span>
+              </button>
+            </div>
+          </div>
         </div>
 
         <div className="mb-6">
           <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-4 mb-2">À propos</h2>
           <div className="glass rounded-2xl overflow-hidden">
             <SettingItem icon={<Info className="h-4 w-4 text-muted-foreground" />} label="Version 1.0.0" description="BARDEUR YK — Créé par mienthy" />
+            <SettingItem icon={<Shield className="h-4 w-4 text-primary" />} label="Politiques et securite" description="Confidentialite, cookies, signalement, monetisation et contenu sponsorise" onClick={() => toast.info("Politiques: privacy, cookies, signalement, pubs, paiements et contenus createur")} />
+            <SettingItem icon={<Info className="h-4 w-4 text-accent" />} label="Aide createur" description="Regles video, droits audio, pubs, retraits et abonnements" onClick={() => toast.info("Aide createur ouverte dans profil > Monetisation")} />
           </div>
         </div>
 
