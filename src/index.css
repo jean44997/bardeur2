@@ -135,7 +135,10 @@
     padding-bottom: max(1rem, env(safe-area-inset-bottom));
   }
   .pwa-bottom-nav {
-    bottom: max(0.15rem, calc(env(safe-area-inset-bottom) * 0.28));
+    bottom: 0;
+  }
+  .mobile-page-bottom-safe {
+    padding-bottom: calc(6.75rem + env(safe-area-inset-bottom));
   }
   .pwa-feed-scroll {
     -webkit-overflow-scrolling: touch;

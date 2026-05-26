@@ -70,7 +70,7 @@ export default function ExplorePage() {
   };
 
   return (
-    <div className="min-h-[100svh] bg-background pb-20 md:pb-8 md:pl-[var(--sidebar-width,260px)]">
+    <div className="min-h-[100svh] bg-background mobile-page-bottom-safe md:pb-8 md:pl-[var(--sidebar-width,260px)]">
       <div className="mx-auto max-w-3xl px-4 pt-[max(1.5rem,env(safe-area-inset-top))]">
         <div className="glass flex items-center gap-3 rounded-2xl px-4 py-3 mb-4">
           <Search className="h-5 w-5 text-muted-foreground" />

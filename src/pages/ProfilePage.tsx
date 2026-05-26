@@ -110,35 +110,52 @@ export default function ProfilePage() {
     setStats({
       followers: followers.count || 0,
       following: following.count || 0,
-      likes: totalLikes.data?.reduce((sum: number, v: any) => sum + (v.likes_count || 0), 0) || 0,
+      likes: totalLikes.data?.reduce((sum: number, v: any) => sum + Math.max(0, v.likes_count || 0), 0) || 0,
       videos: videoData.count || 0,
-      views: totalLikes.data?.reduce((sum: number, v: any) => sum + (v.views_count || 0), 0) || 0,
+      views: totalLikes.data?.reduce((sum: number, v: any) => sum + Math.max(0, v.views_count || 0), 0) || 0,
     });
   };
 
+  const loadVideosByIds = async (ids: string[]) => {
+    const uniqueIds = Array.from(new Set(ids.filter(Boolean)));
+    if (uniqueIds.length === 0) return [];
+    const { data } = await supabase
+      .from("videos")
+      .select("*")
+      .in("id", uniqueIds)
+      .order("created_at", { ascending: false });
+    const byId = new Map((data || []).map((v: any) => [v.id, v]));
+    return uniqueIds.map(id => byId.get(id)).filter(Boolean);
+  };
+
   const fetchVideos = async (userId: string) => {
-    const { data } = await supabase.from("videos").select("*").eq("user_id", userId).order("created_at", { ascending: false });
-    if (data) setVideos(data);
+    const { data, error } = await supabase
+      .from("videos")
+      .select("*")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false });
+    if (!error) setVideos(data || []);
+    else setVideos([]);
   };
 
   const fetchLikedVideos = async (profileId = user?.id) => {
     if (!profileId) return;
     const { data } = await supabase
       .from("likes")
-      .select("video_id, videos:video_id(id, video_url, thumbnail_url, description, likes_count, views_count)")
+      .select("video_id, created_at")
       .eq("user_id", profileId)
       .order("created_at", { ascending: false });
-    if (data) setLikedVideos(data.map((d: any) => d.videos).filter(Boolean));
+    setLikedVideos(await loadVideosByIds((data || []).map((d: any) => d.video_id)));
   };
 
   const fetchSavedVideos = async () => {
     if (!user) return;
     const { data } = await supabase
       .from("saves")
-      .select("video_id, videos:video_id(id, video_url, thumbnail_url, description, likes_count, views_count)")
+      .select("video_id, created_at")
       .eq("user_id", user.id)
       .order("created_at", { ascending: false });
-    if (data) setSavedVideos(data.map((d: any) => d.videos).filter(Boolean));
+    setSavedVideos(await loadVideosByIds((data || []).map((d: any) => d.video_id)));
   };
 
   const recordProfileView = async (profileId: string) => {
@@ -203,7 +220,10 @@ export default function ProfilePage() {
   };
 
   const handleOpenConversation = async () => {
-    if (!viewedProfile?.id || !isMutual) return;
+    if (!viewedProfile?.id || !user) {
+      navigate("/auth");
+      return;
+    }
     setOpeningChat(true);
     const { data, error } = await supabase.rpc("find_or_create_direct_conversation", { _other_user_id: viewedProfile.id } as any);
     setOpeningChat(false);
@@ -362,7 +382,7 @@ export default function ProfilePage() {
   const currentTabVideos = privateLocked ? [] : activeTab === 0 ? videos : activeTab === 1 ? likedVideos : savedVideos;
 
   return (
-    <div className="min-h-[100svh] bg-background pb-20 md:pb-8 md:pl-[var(--sidebar-width,260px)]">
+    <div className="min-h-[100svh] bg-background mobile-page-bottom-safe md:pb-8 md:pl-[var(--sidebar-width,260px)]">
       <div className="mx-auto max-w-lg px-4 pt-8">
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
@@ -476,11 +496,9 @@ export default function ProfilePage() {
                 <motion.button whileTap={{ scale: 0.95 }} onClick={handleFollow} className={`rounded-lg px-6 py-2 text-sm font-semibold ${isFollowing ? "glass text-foreground" : "gradient-primary text-primary-foreground"}`}>
                   {isFollowing ? "Suivi ✓" : "Suivre"}
                 </motion.button>
-                {isMutual && (
-                  <motion.button whileTap={{ scale: 0.95 }} onClick={handleOpenConversation} disabled={openingChat} className="glass rounded-lg px-4 py-2 text-sm text-foreground disabled:opacity-60">
-                    <span className="flex items-center gap-2"><MessageCircle className="h-4 w-4" /> {openingChat ? "..." : "Message"}</span>
-                  </motion.button>
-                )}
+                <motion.button whileTap={{ scale: 0.95 }} onClick={handleOpenConversation} disabled={openingChat} className="glass rounded-lg px-4 py-2 text-sm text-foreground disabled:opacity-60">
+                  <span className="flex items-center gap-2"><MessageCircle className="h-4 w-4" /> {openingChat ? "..." : "Message"}</span>
+                </motion.button>
               </>
             )}
             <motion.button whileTap={{ scale: 0.95 }} className="glass rounded-lg px-4 py-2" onClick={() => { navigator.clipboard.writeText(shareUrl); toast.success("Lien copié ! 🔗"); }}>
@@ -533,7 +551,7 @@ export default function ProfilePage() {
                     <span className="text-2xl opacity-20">▶</span>
                   )}
                   <div className="absolute bottom-1 left-1 flex items-center gap-1 text-[10px] text-foreground/80 bg-background/60 rounded px-1">
-                    <Heart className="h-2.5 w-2.5" /> {v.likes_count || 0}
+                    <Heart className="h-2.5 w-2.5" /> {Math.max(0, v.likes_count || 0)}
                   </div>
                   {isOwnProfile && activeTab === 0 && (
                     <div className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity">

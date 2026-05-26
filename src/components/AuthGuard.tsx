@@ -22,7 +22,7 @@ export default function AuthGuard({ children, fallbackMessage = "Inscris-toi ou 
 
   if (!user) {
     return (
-      <div className="min-h-[100svh] bg-background flex items-center justify-center px-4 pb-20 md:pb-8 md:pl-[var(--sidebar-width,260px)]">
+      <div className="min-h-[100svh] bg-background flex items-center justify-center px-4 mobile-page-bottom-safe md:pb-8 md:pl-[var(--sidebar-width,260px)]">
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="text-center max-w-sm">
           <div className="h-20 w-20 rounded-full gradient-primary flex items-center justify-center mx-auto mb-4">
             <LogIn className="h-8 w-8 text-primary-foreground" />

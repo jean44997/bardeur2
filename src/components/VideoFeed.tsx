@@ -15,6 +15,7 @@ export default function VideoFeed() {
   const [isMuted, setIsMuted] = useState(false);
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [commentVideoId, setCommentVideoId] = useState<string | null>(null);
+  const [commentVideoOwnerId, setCommentVideoOwnerId] = useState<string | null>(null);
   const [commentCount, setCommentCount] = useState(0);
   const [gamificationOpen, setGamificationOpen] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -50,10 +51,10 @@ export default function VideoFeed() {
         hashtags: v.hashtags || [],
         sound: { name: v.sound_name || "Son original", artist: v.sound_artist || "" },
         stats: {
-          likes: v.likes_count || 0,
-          comments: v.comments_count || 0,
-          shares: v.shares_count || 0,
-          saves: v.saves_count || 0,
+          likes: Math.max(0, v.likes_count || 0),
+          comments: Math.max(0, v.comments_count || 0),
+          shares: Math.max(0, v.shares_count || 0),
+          saves: Math.max(0, v.saves_count || 0),
         },
         isFollowing: false,
         commentsEnabled: v.comments_enabled !== false,
@@ -175,6 +176,7 @@ export default function VideoFeed() {
               const v = videos[i] as any;
               if (v.commentsEnabled === false) { return; }
               setCommentVideoId(video.id);
+              setCommentVideoOwnerId(video.user.id);
               setCommentCount(count);
               setCommentsOpen(true);
             }}
@@ -182,7 +184,7 @@ export default function VideoFeed() {
           />
         ))}
       </div>
-      <CommentsDrawer isOpen={commentsOpen} onClose={() => setCommentsOpen(false)} commentCount={commentCount} videoId={commentVideoId} />
+      <CommentsDrawer isOpen={commentsOpen} onClose={() => setCommentsOpen(false)} commentCount={commentCount} videoId={commentVideoId} videoOwnerId={commentVideoOwnerId} />
       <GamificationPanel isOpen={gamificationOpen} onClose={() => setGamificationOpen(false)} />
     </div>
   );

@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, type CSSProperties } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { ArrowLeft, Send, Smile, Image as ImageIcon, Mic, MicOff, Phone, Video, Check, CheckCheck, Trash2, MoreVertical, Flag, Ban, Flame, Wallpaper, PhoneOff, CameraOff, RotateCcw, Upload, Activity, BellRing, SignalHigh, Volume2, VolumeX, ShieldCheck } from "lucide-react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
@@ -50,6 +50,7 @@ const chatBackgrounds = [
 export default function ChatPage() {
   const navigate = useNavigate();
   const { id: conversationId } = useParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { user } = useAuth();
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMsg, setNewMsg] = useState("");
@@ -110,6 +111,31 @@ export default function ChatPage() {
       return () => { supabase.removeChannel(channel); };
     }
   }, [conversationId, user]);
+
+  useEffect(() => {
+    const callId = searchParams.get("call");
+    if (!callId || !conversationId || !user) return;
+    void (async () => {
+      const { data } = await (supabase as any)
+        .from("direct_call_sessions")
+        .select("*")
+        .eq("id", callId)
+        .eq("conversation_id", conversationId)
+        .maybeSingle();
+      if (data?.status === "ringing" && data.recipient_id === user.id) {
+        const call = { id: data.id, type: data.call_type === "video" ? "video" : "audio", callerId: data.caller_id } as IncomingCall;
+        callSessionRef.current = data.id;
+        setIncomingCall(call);
+        if (searchParams.get("answer") === "1") {
+          window.setTimeout(() => acceptIncomingCall(call), 0);
+        } else {
+          startRingtone();
+          navigator.vibrate?.([180, 80, 180]);
+        }
+      }
+      setSearchParams({}, { replace: true });
+    })();
+  }, [conversationId, searchParams, setSearchParams, user]);
 
   useEffect(() => {
     if (!conversationId || !user) return;
@@ -653,11 +679,12 @@ export default function ChatPage() {
     }
   };
 
-  const acceptIncomingCall = async () => {
-    if (!incomingCall || !user) return;
+  const acceptIncomingCall = async (callOverride?: IncomingCall) => {
+    const callToAccept = callOverride || incomingCall;
+    if (!callToAccept || !user) return;
     try {
-      const type = incomingCall.type;
-      callSessionRef.current = incomingCall.id;
+      const type = callToAccept.type;
+      callSessionRef.current = callToAccept.id;
       setCallSeconds(0);
       setCallAudioLevel(0);
       callFacingModeRef.current = "user";
@@ -671,10 +698,10 @@ export default function ChatPage() {
       startAudioMeter(media);
       stopRingtone();
       setIncomingCall(null);
-      await (supabase as any).from("direct_call_sessions").update({ status: "connected", started_at: new Date().toISOString() }).eq("id", incomingCall.id);
+      await (supabase as any).from("direct_call_sessions").update({ status: "connected", started_at: new Date().toISOString() }).eq("id", callToAccept.id);
       setCallState({ type, status: "connected", direction: "incoming", muted: false, cameraOff: false, speakerOn: true, quality: type === "video" ? "HD" : "Auto" });
     } catch {
-      await (supabase as any).from("direct_call_sessions").update({ status: "declined", ended_at: new Date().toISOString() }).eq("id", incomingCall.id);
+      await (supabase as any).from("direct_call_sessions").update({ status: "declined", ended_at: new Date().toISOString() }).eq("id", callToAccept.id);
       cleanupCallUi("Appel refuse: permission micro/camera manquante");
     }
   };
@@ -759,7 +786,7 @@ export default function ChatPage() {
 
   return (
     <div className="flex h-[100svh] h-[100dvh] flex-col overflow-hidden bg-background md:pl-[var(--sidebar-width,260px)]">
-      <div className="glass z-10 flex shrink-0 items-center gap-2 border-b border-border px-3 py-2.5 pt-[max(0.75rem,env(safe-area-inset-top))] sm:gap-3 sm:px-4 sm:py-3">
+      <div className="glass z-10 flex shrink-0 items-center gap-1.5 border-b border-border px-2 py-2 pt-[max(0.75rem,env(safe-area-inset-top))] sm:gap-3 sm:px-4 sm:py-3">
         <motion.button whileTap={{ scale: 0.9 }} onClick={() => navigate("/inbox")} className="tap-target grid place-items-center rounded-full">
           <ArrowLeft className="h-5 w-5 text-foreground" />
         </motion.button>
@@ -768,7 +795,7 @@ export default function ChatPage() {
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="truncate text-sm font-semibold text-foreground">{otherUserName}</span>
+            <span className="truncate text-xs font-semibold text-foreground sm:text-sm">{otherUserName}</span>
             {streakDays > 0 && (
               <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold ${streakNeedsReply ? "bg-accent/15 text-accent" : "bg-primary/15 text-primary"}`}>
                 <Flame className="h-3 w-3" /> {streakDays}j
@@ -856,7 +883,7 @@ export default function ChatPage() {
                 <button type="button" onClick={declineIncomingCall} className="grid h-14 w-14 place-items-center rounded-full bg-destructive text-destructive-foreground" aria-label="Refuser l'appel">
                   <PhoneOff className="h-6 w-6" />
                 </button>
-                <button type="button" onClick={acceptIncomingCall} className="grid h-14 w-14 place-items-center rounded-full bg-primary text-primary-foreground" aria-label="Decrocher">
+                <button type="button" onClick={() => acceptIncomingCall()} className="grid h-14 w-14 place-items-center rounded-full bg-primary text-primary-foreground" aria-label="Decrocher">
                   <Phone className="h-6 w-6" />
                 </button>
               </div>
@@ -869,7 +896,7 @@ export default function ChatPage() {
             <motion.div initial={{ scale: 0.94, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.94, y: 20 }} className="w-full max-w-sm overflow-hidden rounded-3xl border border-border bg-card shadow-2xl">
               <div className="relative aspect-[3/4] bg-black">
                 {callState.type === "video" && !callState.cameraOff ? (
-                  <video ref={localVideoRef} className="h-full w-full object-cover" muted playsInline autoPlay style={{ transform: callFacingMode === "user" ? "scaleX(-1)" : "none" }} />
+                  <video ref={localVideoRef} className="h-full w-full object-cover" muted playsInline autoPlay />
                 ) : (
                   <div className="flex h-full w-full flex-col items-center justify-center gap-3 bg-gradient-to-br from-background via-card to-background">
                     <div className="grid h-24 w-24 place-items-center rounded-full gradient-primary text-3xl font-bold text-primary-foreground">{otherUserName[0]}</div>
@@ -907,9 +934,9 @@ export default function ChatPage() {
                   {callState.speakerOn ? <Volume2 className="h-5 w-5" /> : <VolumeX className="h-5 w-5" />}
                 </button>
                 {callState.type === "video" && (
-                <button type="button" onClick={flipCallCamera} className="grid h-12 w-12 place-items-center rounded-full bg-secondary text-foreground" aria-label="Changer de camera">
-                  <RotateCcw className="h-5 w-5" />
-                </button>
+                  <button type="button" onClick={flipCallCamera} className="grid h-12 w-12 place-items-center rounded-full bg-secondary text-foreground" aria-label="Changer de camera">
+                    <RotateCcw className="h-5 w-5" />
+                  </button>
                 )}
                 <button type="button" onClick={endCall} className="grid h-12 w-12 place-items-center rounded-full bg-destructive text-destructive-foreground" aria-label="Raccrocher">
                   <PhoneOff className="h-5 w-5" />
@@ -930,7 +957,7 @@ export default function ChatPage() {
         ) : (
           messages.map(msg => (
             <motion.div key={msg.id} initial={{ opacity: 0, y: 10, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} className={`flex ${msg.fromMe ? "justify-end" : "justify-start"} group`}>
-              <div className="max-w-[75%] relative">
+              <div className="max-w-[82%] relative sm:max-w-[75%]">
                 <div className={`px-4 py-2.5 text-sm ${msg.fromMe ? "gradient-primary text-primary-foreground rounded-2xl rounded-br-sm" : "glass text-foreground rounded-2xl rounded-bl-sm"}`}>
                   {msg.mediaUrl && msg.mediaType?.startsWith("image") && (
                     <img src={msg.mediaUrl} alt="" className="mb-2 max-h-64 w-full rounded-xl object-cover" loading="lazy" />
@@ -974,7 +1001,7 @@ export default function ChatPage() {
         )}
       </AnimatePresence>
 
-      <div className="shrink-0 border-t border-border px-3 py-2.5 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-4 sm:py-3">
+      <div className="shrink-0 border-t border-border px-2 py-2 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-4 sm:py-3">
         <input ref={imageInputRef} type="file" accept="image/*" className="hidden" onChange={e => sendImage(e.target.files?.[0])} />
 
         {(isBlocked || blockedByThem) && (
@@ -1010,7 +1037,7 @@ export default function ChatPage() {
             <motion.button whileTap={{ scale: 0.9 }} onClick={() => setShowEmojis(p => !p)} className="tap-target grid shrink-0 place-items-center rounded-full">
               <Smile className="h-5 w-5 text-muted-foreground" />
             </motion.button>
-            <motion.button whileTap={{ scale: 0.9 }} onClick={() => imageInputRef.current?.click()} disabled={uploadingImage || isBlocked || blockedByThem} className="tap-target grid shrink-0 place-items-center rounded-full disabled:opacity-40">
+            <motion.button whileTap={{ scale: 0.9 }} onClick={() => imageInputRef.current?.click()} disabled={uploadingImage || isBlocked || blockedByThem} className="tap-target grid shrink-0 place-items-center rounded-full disabled:opacity-40 max-[360px]:hidden">
               <ImageIcon className="h-5 w-5 text-muted-foreground" />
             </motion.button>
             <div className="glass flex min-w-0 flex-1 items-center rounded-full px-4 py-2.5">

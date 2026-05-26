@@ -152,7 +152,7 @@ export default function NotificationsPage() {
   };
 
   return (
-    <div className="min-h-[100svh] bg-background pb-20 md:pb-8 md:pl-[var(--sidebar-width,260px)]">
+    <div className="min-h-[100svh] bg-background mobile-page-bottom-safe md:pb-8 md:pl-[var(--sidebar-width,260px)]">
       <div className="mx-auto max-w-lg px-4 pt-6">
         <div className="flex items-center gap-3 mb-6">
           <motion.button whileTap={{ scale: 0.9 }} onClick={() => navigate(-1)} className="md:hidden">

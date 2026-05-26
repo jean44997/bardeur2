@@ -75,7 +75,7 @@ export default function LivesListPage() {
   });
 
   return (
-    <div className="min-h-[100svh] bg-background pb-24 md:pb-8 md:pl-[var(--sidebar-width,260px)]">
+    <div className="min-h-[100svh] bg-background mobile-page-bottom-safe md:pb-8 md:pl-[var(--sidebar-width,260px)]">
       <div className="mx-auto max-w-3xl px-4 pt-[max(1.5rem,env(safe-area-inset-top))]">
         <div className="mb-4 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">

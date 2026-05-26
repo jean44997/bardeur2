@@ -7,6 +7,7 @@ import { AuthProvider } from "@/hooks/useAuth";
 import BottomNav from "@/components/BottomNav";
 import DesktopSidebar from "@/components/DesktopSidebar";
 import AuthGuard from "@/components/AuthGuard";
+import GlobalCallListener from "@/components/GlobalCallListener";
 import Index from "./pages/Index";
 import ExplorePage from "./pages/ExplorePage";
 import ProfilePage from "./pages/ProfilePage";
@@ -33,6 +34,7 @@ const App = () => (
       <Sonner />
       <BrowserRouter>
         <AuthProvider>
+          <GlobalCallListener />
           <Routes>
             <Route path="/auth" element={<AuthPage />} />
             <Route path="/reset-password" element={<ResetPasswordPage />} />

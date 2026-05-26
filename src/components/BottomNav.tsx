@@ -65,8 +65,8 @@ export default function BottomNav() {
   };
 
   return (
-    <nav className="pwa-bottom-nav fixed left-2 right-2 z-50 rounded-[1.35rem] border border-border/40 bg-background/62 shadow-2xl shadow-black/30 backdrop-blur-2xl supports-[backdrop-filter]:bg-background/50 md:hidden">
-      <div className="flex items-center justify-around px-2 pb-[max(0.35rem,calc(env(safe-area-inset-bottom)*0.45))] pt-2">
+    <nav className="pwa-bottom-nav fixed left-2 right-2 z-50 rounded-t-[1.35rem] border border-b-0 border-border/40 bg-background/62 shadow-2xl shadow-black/30 backdrop-blur-2xl supports-[backdrop-filter]:bg-background/50 md:hidden">
+      <div className="flex items-center justify-around px-2 pb-[max(0.2rem,calc(env(safe-area-inset-bottom)*0.24))] pt-2">
         {navItems.map(item => {
           const active = location.pathname === item.path;
           if (item.isCreate) {

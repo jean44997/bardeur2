@@ -105,7 +105,7 @@ export default function SettingsPage() {
       notification_sound: "pop",
     } as any);
     toast.success("Toutes les notifications utiles sont activées");
-    if (notificationPermission !== "granted") requestNotificationPermission();
+    if (notificationPermission !== "granted") await requestNotificationPermission();
   };
 
   const handlePasswordChange = async () => {
@@ -201,6 +201,16 @@ export default function SettingsPage() {
       return;
     }
 
+    if (Notification.permission !== "default") {
+      setNotificationPermission(Notification.permission);
+      toast.info(Notification.permission === "granted" ? "Notifications deja autorisees" : "Notifications deja refusees dans le navigateur");
+      return;
+    }
+    if (localStorage.getItem("permission-prompt:notifications") === "asked") {
+      toast.info("Demande deja faite une fois. Change l'autorisation dans les reglages du navigateur si besoin.");
+      return;
+    }
+    localStorage.setItem("permission-prompt:notifications", "asked");
     const permission = await Notification.requestPermission();
     setNotificationPermission(permission);
     if (permission === "granted") toast.success("Notifications autorisées");
@@ -208,13 +218,21 @@ export default function SettingsPage() {
   };
 
   const requestMediaPermissions = async () => {
+    if (localStorage.getItem("permission-prompt:media") === "denied") {
+      setMediaPermission("denied");
+      toast.info("Camera/micro deja refuses. Active-les dans les reglages du navigateur pour eviter une nouvelle demande.");
+      return;
+    }
     try {
+      localStorage.setItem("permission-prompt:media", "asked");
       const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
       stream.getTracks().forEach(track => track.stop());
       setMediaPermission("granted");
+      localStorage.setItem("permission-prompt:media", "granted");
       toast.success("Caméra et micro autorisés");
     } catch {
       setMediaPermission("denied");
+      localStorage.setItem("permission-prompt:media", "denied");
       toast.error("Autorisation caméra/micro refusée");
     }
   };
@@ -250,7 +268,7 @@ export default function SettingsPage() {
   };
 
   return (
-    <div className="min-h-[100svh] bg-background pb-20 md:pb-8 md:pl-[var(--sidebar-width,260px)]">
+    <div className="min-h-[100svh] bg-background mobile-page-bottom-safe md:pb-8 md:pl-[var(--sidebar-width,260px)]">
       <div className="mx-auto max-w-lg px-4 pt-6">
         <div className="flex items-center gap-3 mb-6">
           <motion.button whileTap={{ scale: 0.9 }} onClick={() => navigate(-1)}>

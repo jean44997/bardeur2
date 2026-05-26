@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { ArrowLeft, Shield, Users, Flag, BarChart3, Ban, Search, Download, RefreshCw, ExternalLink, Clock, CheckCircle } from "lucide-react";
+import { ArrowLeft, Shield, Users, Flag, BarChart3, Ban, Search, Download, RefreshCw, ExternalLink, Clock, CheckCircle, MessageCircle, Send } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -9,13 +9,16 @@ import { useAuth } from "@/hooks/useAuth";
 export default function AdminPage() {
   const navigate = useNavigate();
   const { user, role } = useAuth();
-  const [activeTab, setActiveTab] = useState<"stats" | "users" | "reports">("stats");
+  const [activeTab, setActiveTab] = useState<"stats" | "users" | "reports" | "messages">("stats");
   const [users, setUsers] = useState<any[]>([]);
   const [reports, setReports] = useState<any[]>([]);
   const [stats, setStats] = useState({ users: 0, videos: 0, reports: 0, banned: 0 });
   const [loading, setLoading] = useState(true);
   const [userSearch, setUserSearch] = useState("");
   const [reportStatus, setReportStatus] = useState<"all" | "pending" | "resolved" | "dismissed">("pending");
+  const [adminMessage, setAdminMessage] = useState("");
+  const [adminTargetId, setAdminTargetId] = useState("");
+  const [sendingAdminMessage, setSendingAdminMessage] = useState(false);
 
   useEffect(() => {
     if (role === "super_admin" || role === "admin") {
@@ -57,6 +60,54 @@ export default function AdminPage() {
     fetchAll();
   };
 
+  const sendAdminMessage = async (broadcast = false) => {
+    if (!user) return;
+    const content = adminMessage.trim().slice(0, 600);
+    if (!content) {
+      toast.error("Message vide");
+      return;
+    }
+
+    const targets = broadcast
+      ? users.filter(u => u.id !== user.id).slice(0, 300)
+      : users.filter(u => u.id === adminTargetId && u.id !== user.id);
+
+    if (targets.length === 0) {
+      toast.error(broadcast ? "Aucun utilisateur a contacter" : "Choisis un utilisateur");
+      return;
+    }
+    if (broadcast && !window.confirm(`Envoyer ce message a ${targets.length} utilisateurs ?`)) return;
+
+    setSendingAdminMessage(true);
+    let sent = 0;
+    let failed = 0;
+    for (const target of targets) {
+      try {
+        const { data: conversationId, error: rpcError } = await supabase.rpc("find_or_create_direct_conversation", { _other_user_id: target.id } as any);
+        if (rpcError || !conversationId) throw rpcError || new Error("Conversation indisponible");
+        const { error } = await (supabase as any).from("messages").insert({
+          conversation_id: conversationId,
+          sender_id: user.id,
+          content: `[Admin] ${content}`,
+          content_version: "plain",
+        });
+        if (error) throw error;
+        sent += 1;
+      } catch {
+        failed += 1;
+      }
+    }
+    setSendingAdminMessage(false);
+    if (sent > 0) {
+      toast.success(failed ? `${sent} envoyes, ${failed} echecs` : `${sent} message${sent > 1 ? "s" : ""} envoye${sent > 1 ? "s" : ""}`);
+      setAdminMessage("");
+      if (!broadcast) setAdminTargetId("");
+      fetchAll();
+    } else {
+      toast.error("Aucun message envoye");
+    }
+  };
+
   const exportAdminJson = () => {
     const payload = {
       exported_at: new Date().toISOString(),
@@ -75,7 +126,7 @@ export default function AdminPage() {
 
   if (role !== "super_admin" && role !== "admin") {
     return (
-      <div className="min-h-[100svh] bg-background flex items-center justify-center pb-20 md:pb-8 md:pl-[var(--sidebar-width,260px)]">
+      <div className="min-h-[100svh] bg-background flex items-center justify-center mobile-page-bottom-safe md:pb-8 md:pl-[var(--sidebar-width,260px)]">
         <div className="text-center">
           <Shield className="h-12 w-12 text-muted-foreground mx-auto mb-3" />
           <h2 className="text-lg font-bold text-foreground mb-2">Accès refusé</h2>
@@ -97,7 +148,7 @@ export default function AdminPage() {
   const filteredReports = reports.filter(r => reportStatus === "all" ? true : r.status === reportStatus);
 
   return (
-    <div className="min-h-[100svh] bg-background pb-20 md:pb-8 md:pl-[var(--sidebar-width,260px)]">
+    <div className="min-h-[100svh] bg-background mobile-page-bottom-safe md:pb-8 md:pl-[var(--sidebar-width,260px)]">
       <div className="mx-auto max-w-2xl px-4 pt-6">
         <div className="flex items-center gap-3 mb-6">
           <motion.button whileTap={{ scale: 0.9 }} onClick={() => navigate(-1)}>
@@ -121,6 +172,7 @@ export default function AdminPage() {
             { key: "stats", label: "Stats", icon: BarChart3 },
             { key: "users", label: "Utilisateurs", icon: Users },
             { key: "reports", label: "Signalements", icon: Flag },
+            { key: "messages", label: "Messages", icon: MessageCircle },
           ].map(tab => (
             <motion.button
               key={tab.key}
@@ -221,6 +273,57 @@ export default function AdminPage() {
                     </div>
                   ))
                 )}
+              </div>
+            )}
+
+            {activeTab === "messages" && (
+              <div className="space-y-3">
+                <div className="glass rounded-2xl p-4">
+                  <div className="mb-3 flex items-center gap-2">
+                    <MessageCircle className="h-5 w-5 text-primary" />
+                    <div>
+                      <p className="text-sm font-bold text-foreground">Message admin prive</p>
+                      <p className="text-xs text-muted-foreground">Envoie dans une vraie conversation, visible dans Messages.</p>
+                    </div>
+                  </div>
+                  <select
+                    value={adminTargetId}
+                    onChange={e => setAdminTargetId(e.target.value)}
+                    className="mb-3 w-full rounded-xl bg-card px-3 py-3 text-sm text-foreground outline-none"
+                  >
+                    <option value="">Choisir un utilisateur</option>
+                    {filteredUsers.filter(u => u.id !== user?.id).slice(0, 120).map(u => (
+                      <option key={u.id} value={u.id}>@{u.username || "user"} - {u.display_name || "Utilisateur"}</option>
+                    ))}
+                  </select>
+                  <textarea
+                    value={adminMessage}
+                    onChange={e => setAdminMessage(e.target.value)}
+                    maxLength={600}
+                    rows={5}
+                    placeholder="Message de moderation, aide, recompense ou information..."
+                    className="mb-3 w-full resize-none rounded-xl bg-card px-3 py-3 text-base text-foreground outline-none placeholder:text-muted-foreground"
+                  />
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => sendAdminMessage(false)}
+                      disabled={sendingAdminMessage || !adminTargetId || !adminMessage.trim()}
+                      className="flex items-center justify-center gap-2 rounded-xl gradient-primary px-4 py-3 text-sm font-bold text-primary-foreground disabled:opacity-45"
+                    >
+                      <Send className="h-4 w-4" /> Envoyer prive
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => sendAdminMessage(true)}
+                      disabled={sendingAdminMessage || !adminMessage.trim()}
+                      className="flex items-center justify-center gap-2 rounded-xl bg-card px-4 py-3 text-sm font-bold text-foreground disabled:opacity-45"
+                    >
+                      <Users className="h-4 w-4" /> Tous
+                    </button>
+                  </div>
+                  <p className="mt-3 text-[11px] text-muted-foreground">Broadcast limite a 300 users par envoi, avec anti-spam serveur et conversations reutilisees.</p>
+                </div>
               </div>
             )}
           </>

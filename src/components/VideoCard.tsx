@@ -192,12 +192,12 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
     if (!user) { toast.error("Connecte-toi pour aimer"); return; }
     const newLiked = !liked;
     setLiked(newLiked);
-    setLikeCount((c) => newLiked ? c + 1 : c - 1);
+    setLikeCount((c) => newLiked ? c + 1 : Math.max(0, c - 1));
 
     const { error } = newLiked
       ? await supabase.from("likes").insert({ user_id: user.id, video_id: video.id })
       : await supabase.from("likes").delete().eq("user_id", user.id).eq("video_id", video.id);
-    if (error) { setLiked(!newLiked); setLikeCount((c) => newLiked ? c - 1 : c + 1); toast.error("Action impossible"); }
+    if (error) { setLiked(!newLiked); setLikeCount((c) => newLiked ? Math.max(0, c - 1) : c + 1); toast.error("Action impossible"); }
   };
 
   const toggleSave = async () => {
@@ -421,7 +421,7 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
 
       <div className="gradient-overlay absolute inset-x-0 bottom-0 h-[45%] pointer-events-none" />
 
-      {isActive && <div className="pointer-events-auto absolute left-3 top-[max(0.85rem,env(safe-area-inset-top))] z-30 flex items-center gap-2 md:left-4">
+      {isActive && <div className="pointer-events-auto absolute right-3 top-[max(3.65rem,calc(env(safe-area-inset-top)+3.1rem))] z-30 flex items-center gap-2 md:right-4 md:top-4">
         <motion.button
           type="button"
           whileTap={{ scale: 0.9 }}
@@ -470,16 +470,16 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
       {/* Bottom Info */}
       <div className="absolute bottom-[calc(5.9rem+env(safe-area-inset-bottom))] left-4 right-20 z-20 text-shadow-video md:bottom-5">
         <div className="flex items-center gap-2 mb-2">
-          <button type="button" onClick={() => navigate(`/profile/${video.user.username}`)} className="flex min-w-0 items-center gap-2 rounded-full bg-background/18 pr-2 text-left backdrop-blur-sm">
-            <div className="h-10 w-10 rounded-full gradient-primary flex items-center justify-center text-sm font-bold text-primary-foreground overflow-hidden">
+          <button type="button" onClick={() => navigate(`/profile/${video.user.username}`)} className="flex min-w-0 max-w-[70vw] items-center gap-1.5 rounded-full bg-background/18 pr-2 text-left backdrop-blur-sm">
+            <div className="h-9 w-9 rounded-full gradient-primary flex items-center justify-center text-xs font-bold text-primary-foreground overflow-hidden">
               {video.user.avatar ? (
                 <img src={video.user.avatar} alt="" className="h-full w-full object-cover" />
               ) : (
                 video.user.displayName[0]
               )}
             </div>
-            <span className="truncate font-semibold text-foreground text-[15px]">@{video.user.username}</span>
-            {video.user.verified && <BadgeCheck className="h-4 w-4 shrink-0 text-accent" />}
+            <span className="truncate font-semibold text-foreground text-[13px]">@{video.user.username}</span>
+            {video.user.verified && <BadgeCheck className="h-3.5 w-3.5 shrink-0 text-accent" />}
           </button>
           <motion.button
             type="button"

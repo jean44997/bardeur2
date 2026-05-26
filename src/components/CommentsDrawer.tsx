@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Heart, Send, Sticker, Mic, Trash2 } from "lucide-react";
+import { X, Heart, Send, Sticker, Mic, Trash2, Flag } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
@@ -30,9 +30,10 @@ interface CommentsDrawerProps {
   onClose: () => void;
   commentCount: number;
   videoId?: string | null;
+  videoOwnerId?: string | null;
 }
 
-export default function CommentsDrawer({ isOpen, onClose, commentCount, videoId }: CommentsDrawerProps) {
+export default function CommentsDrawer({ isOpen, onClose, commentCount, videoId, videoOwnerId }: CommentsDrawerProps) {
   const [comments, setComments] = useState<Comment[]>([]);
   const [newComment, setNewComment] = useState("");
   const [showStickers, setShowStickers] = useState(false);
@@ -194,17 +195,37 @@ export default function CommentsDrawer({ isOpen, onClose, commentCount, videoId 
 
   const toggleLike = (id: string) => {
     setComments(prev => prev.map(c =>
-      c.id === id ? { ...c, liked: !c.liked, likes: c.liked ? c.likes - 1 : c.likes + 1 } : c
+      c.id === id ? { ...c, liked: !c.liked, likes: c.liked ? Math.max(0, c.likes - 1) : c.likes + 1 } : c
     ));
   };
 
-  const deleteComment = async (commentId: string) => {
+  const canDeleteComment = (comment: Comment) => !!user && (comment.userId === user.id || videoOwnerId === user.id);
+
+  const deleteComment = async (comment: Comment) => {
     if (!user) return;
     if (!window.confirm("Supprimer ce commentaire ?")) return;
-    const { error } = await supabase.from("comments").delete().eq("id", commentId).eq("user_id", user.id);
+    const { error } = await supabase.from("comments").delete().eq("id", comment.id);
     if (error) { toast.error("Suppression impossible"); return; }
-    setComments(prev => prev.filter(c => c.id !== commentId));
+    setComments(prev => prev.filter(c => c.id !== comment.id));
     toast.success("Commentaire supprimé");
+  };
+
+  const reportComment = async (comment: Comment) => {
+    if (!user || !videoId) {
+      toast.error("Connecte-toi pour signaler");
+      return;
+    }
+    const { error } = await supabase.from("reports").insert({
+      reporter_id: user.id,
+      reported_user_id: comment.userId,
+      video_id: videoId,
+      comment_id: comment.id,
+      type: "comment",
+      reason: "Signalement depuis les commentaires",
+      status: "pending",
+    });
+    if (error) toast.error("Signalement impossible");
+    else toast.success("Signalement envoye");
   };
 
   return (
@@ -250,16 +271,25 @@ export default function CommentsDrawer({ isOpen, onClose, commentCount, videoId 
                           <span className="text-[10px] text-muted-foreground tabular-nums">{comment.likes}</span>
                         </button>
                         <button className="text-[10px] font-medium text-muted-foreground">Répondre</button>
-                        {user && comment.userId === user.id && (
+                        {canDeleteComment(comment) ? (
                           <button
                             type="button"
-                            onClick={() => deleteComment(comment.id)}
+                            onClick={() => deleteComment(comment)}
                             className="ml-auto flex items-center gap-1 text-[10px] font-medium text-destructive"
                             aria-label="Supprimer le commentaire"
                           >
                             <Trash2 className="h-3 w-3" /> Supprimer
                           </button>
-                        )}
+                        ) : user ? (
+                          <button
+                            type="button"
+                            onClick={() => reportComment(comment)}
+                            className="ml-auto flex items-center gap-1 text-[10px] font-medium text-muted-foreground"
+                            aria-label="Signaler le commentaire"
+                          >
+                            <Flag className="h-3 w-3" /> Signaler
+                          </button>
+                        ) : null}
                       </div>
                     </div>
                   </div>

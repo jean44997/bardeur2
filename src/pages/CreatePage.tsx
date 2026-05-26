@@ -6,6 +6,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 import { sanitizeHashtags, validateUploadFile, validateUserText } from "@/lib/contentSafety";
+import { checkClientRateLimit, formatRetryAfter } from "@/lib/clientRateLimit";
 
 const creatorToolOptions = [
   { id: "autoCaptions", label: "Captions auto", icon: Sparkles },
@@ -314,6 +315,11 @@ export default function CreatePage() {
 
   const handleUpload = async () => {
     if (!selectedFile || !user) return;
+    const postRate = checkClientRateLimit({ key: `post:${user.id}`, limit: 4, windowMs: 10 * 60_000, cooldownMs: 4000, blockMs: 5 * 60_000 });
+    if (!postRate.allowed) {
+      toast.error(`Publication ralentie, reessaie dans ${formatRetryAfter(postRate.retryAfterMs)}`);
+      return;
+    }
     const desc = validateUserText(description, { maxLength: 2200, minLength: 0, allowLinks: true });
     if (!desc.ok) { toast.error(desc.reason); return; }
     setUploading(true);
@@ -364,7 +370,7 @@ export default function CreatePage() {
   };
 
   return (
-    <div className="min-h-[100svh] bg-background pb-20 md:pb-8 md:pl-[var(--sidebar-width,260px)] flex items-center justify-center relative overflow-hidden">
+    <div className="min-h-[100svh] bg-background mobile-page-bottom-safe md:pb-8 md:pl-[var(--sidebar-width,260px)] flex items-center justify-center relative overflow-hidden">
       {/* 3D Background Canvas */}
       <canvas ref={canvasRef} className="absolute inset-0 w-full h-full pointer-events-none opacity-60" />
 

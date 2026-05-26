@@ -242,7 +242,7 @@ export default function InboxPage() {
   ];
 
   return (
-    <div className="min-h-[100svh] bg-background pb-20 md:pb-8 md:pl-[var(--sidebar-width,260px)]">
+    <div className="min-h-[100svh] bg-background mobile-page-bottom-safe md:pb-8 md:pl-[var(--sidebar-width,260px)]">
       <div className="mx-auto max-w-lg px-4 pt-6">
         <div className="mb-4 flex items-center justify-between">
           <h1 className="text-xl font-bold text-foreground">Messages</h1>
