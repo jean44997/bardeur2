@@ -63,6 +63,7 @@ export default function ChatPage() {
   const [callState, setCallState] = useState<CallState | null>(null);
   const [callSeconds, setCallSeconds] = useState(0);
   const [callAudioLevel, setCallAudioLevel] = useState(0);
+  const [deleteTarget, setDeleteTarget] = useState<Message | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
@@ -223,7 +224,11 @@ export default function ChatPage() {
     if (!conversationId) return;
     setLoading(true);
     const { data } = await supabase.from("messages").select("*").eq("conversation_id", conversationId).order("created_at", { ascending: true });
-    if (data) setMessages(await Promise.all(data.map(mapMessage)));
+    if (data) {
+      const hidden = loadHiddenIds();
+      const mapped = await Promise.all(data.filter((m: any) => !hidden.has(m.id)).map(mapMessage));
+      setMessages(mapped);
+    }
     setLoading(false);
   };
 
@@ -370,10 +375,35 @@ export default function ChatPage() {
     } catch { toast.error("Erreur envoi vocal"); }
   };
 
-  const deleteMessage = async (msgId: string) => {
+  const hiddenStorageKey = () => (conversationId && user ? `chat-hidden:${conversationId}:${user.id}` : null);
+
+  const loadHiddenIds = (): Set<string> => {
+    const k = hiddenStorageKey();
+    if (!k) return new Set();
+    try { return new Set(JSON.parse(localStorage.getItem(k) || "[]")); } catch { return new Set(); }
+  };
+
+  const persistHidden = (ids: Set<string>) => {
+    const k = hiddenStorageKey();
+    if (k) localStorage.setItem(k, JSON.stringify(Array.from(ids)));
+  };
+
+  const deleteForMe = (msgId: string) => {
+    const ids = loadHiddenIds();
+    ids.add(msgId);
+    persistHidden(ids);
+    setMessages(prev => prev.filter(m => m.id !== msgId));
+    setDeleteTarget(null);
+    toast.success("Supprimé pour toi");
+  };
+
+  const deleteForBoth = async (msgId: string) => {
     if (!user) return;
-    await supabase.from("messages").update({ content: "Message supprimé", content_version: "plain" } as any).eq("id", msgId).eq("sender_id", user.id);
-    fetchMessages();
+    const { error } = await supabase.from("messages").delete().eq("id", msgId).eq("sender_id", user.id);
+    if (error) { toast.error("Suppression impossible"); return; }
+    setMessages(prev => prev.filter(m => m.id !== msgId));
+    setDeleteTarget(null);
+    toast.success("Message supprimé pour tous");
   };
 
   const toggleBlockUser = async () => {
@@ -508,7 +538,7 @@ export default function ChatPage() {
       toast.error("Colle une URL d'image https");
       return;
     }
-    saveChatBackground(`linear-gradient(180deg, rgba(0,0,0,.58), rgba(0,0,0,.78)), url("${url.replaceAll('"', "%22")}") center / cover fixed`);
+    saveChatBackground(`linear-gradient(180deg, rgba(0,0,0,.58), rgba(0,0,0,.78)), url("${url.split('"').join("%22")}") center / cover fixed`);
     setCustomBackgroundUrl("");
   };
 
@@ -791,11 +821,12 @@ export default function ChatPage() {
                   <span className="text-[10px] text-muted-foreground">{msg.time}</span>
                   {msg.fromMe && <StatusIcon status={msg.status} />}
                 </div>
-                {msg.fromMe && msg.text !== "Message supprimé" && (
+                {msg.fromMe && (
                   <motion.button
                     whileTap={{ scale: 0.9 }}
-                    onClick={() => deleteMessage(msg.id)}
-                    className="absolute -left-8 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded-full bg-card"
+                    onClick={() => setDeleteTarget(msg)}
+                    className="absolute -left-8 top-1/2 -translate-y-1/2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity p-1.5 rounded-full bg-card border border-border"
+                    aria-label="Supprimer le message"
                   >
                     <Trash2 className="h-3 w-3 text-destructive" />
                   </motion.button>
@@ -871,6 +902,48 @@ export default function ChatPage() {
           </div>
         )}
       </div>
+
+      <AnimatePresence>
+        {deleteTarget && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            onClick={() => setDeleteTarget(null)}
+            className="fixed inset-0 z-[90] flex items-end justify-center bg-background/70 backdrop-blur-sm sm:items-center"
+          >
+            <motion.div
+              initial={{ y: 40, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 40, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-sm rounded-t-3xl sm:rounded-3xl bg-card border border-border p-4 pb-[max(1rem,env(safe-area-inset-bottom))]"
+            >
+              <p className="text-sm font-bold text-foreground text-center">Supprimer ce message ?</p>
+              <p className="mt-1 text-xs text-muted-foreground text-center line-clamp-2">{deleteTarget.text || "Média"}</p>
+              <div className="mt-4 space-y-2">
+                <button
+                  type="button"
+                  onClick={() => deleteForMe(deleteTarget.id)}
+                  className="w-full rounded-2xl bg-secondary px-4 py-3 text-sm font-semibold text-foreground"
+                >
+                  Supprimer pour moi
+                </button>
+                <button
+                  type="button"
+                  onClick={() => deleteForBoth(deleteTarget.id)}
+                  className="w-full rounded-2xl bg-destructive px-4 py-3 text-sm font-bold text-destructive-foreground"
+                >
+                  Supprimer pour nous deux
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDeleteTarget(null)}
+                  className="w-full rounded-2xl bg-transparent px-4 py-3 text-sm text-muted-foreground"
+                >
+                  Annuler
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

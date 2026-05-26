@@ -404,10 +404,8 @@ export type Database = {
       messages: {
         Row: {
           content: string | null
-          content_version: string
           conversation_id: string
           created_at: string | null
-          encrypted_content: boolean
           id: string
           is_read: boolean | null
           media_type: string | null
@@ -416,10 +414,8 @@ export type Database = {
         }
         Insert: {
           content?: string | null
-          content_version?: string
           conversation_id: string
           created_at?: string | null
-          encrypted_content?: boolean
           id?: string
           is_read?: boolean | null
           media_type?: string | null
@@ -428,10 +424,8 @@ export type Database = {
         }
         Update: {
           content?: string | null
-          content_version?: string
           conversation_id?: string
           created_at?: string | null
-          encrypted_content?: boolean
           id?: string
           is_read?: boolean | null
           media_type?: string | null
@@ -530,23 +524,11 @@ export type Database = {
           bio: string | null
           created_at: string | null
           display_name: string
-          allow_profile_views: boolean
-          hide_following: boolean
           hide_likes: boolean | null
           hide_saves: boolean | null
           id: string
           invisible_mode: boolean | null
           is_private: boolean | null
-          notification_quiet_hours_enabled: boolean
-          notification_quiet_hours_end: string
-          notification_quiet_hours_start: string
-          notification_sound: string
-          notify_comments: boolean
-          notify_follows: boolean
-          notify_likes: boolean
-          notify_mentions: boolean
-          notify_messages: boolean
-          notify_shares: boolean
           push_notifications: boolean | null
           sound_notifications: boolean | null
           updated_at: string | null
@@ -561,23 +543,11 @@ export type Database = {
           bio?: string | null
           created_at?: string | null
           display_name?: string
-          allow_profile_views?: boolean
-          hide_following?: boolean
           hide_likes?: boolean | null
           hide_saves?: boolean | null
           id: string
           invisible_mode?: boolean | null
           is_private?: boolean | null
-          notification_quiet_hours_enabled?: boolean
-          notification_quiet_hours_end?: string
-          notification_quiet_hours_start?: string
-          notification_sound?: string
-          notify_comments?: boolean
-          notify_follows?: boolean
-          notify_likes?: boolean
-          notify_mentions?: boolean
-          notify_messages?: boolean
-          notify_shares?: boolean
           push_notifications?: boolean | null
           sound_notifications?: boolean | null
           updated_at?: string | null
@@ -592,23 +562,11 @@ export type Database = {
           bio?: string | null
           created_at?: string | null
           display_name?: string
-          allow_profile_views?: boolean
-          hide_following?: boolean
           hide_likes?: boolean | null
           hide_saves?: boolean | null
           id?: string
           invisible_mode?: boolean | null
           is_private?: boolean | null
-          notification_quiet_hours_enabled?: boolean
-          notification_quiet_hours_end?: string
-          notification_quiet_hours_start?: string
-          notification_sound?: string
-          notify_comments?: boolean
-          notify_follows?: boolean
-          notify_likes?: boolean
-          notify_mentions?: boolean
-          notify_messages?: boolean
-          notify_shares?: boolean
           push_notifications?: boolean | null
           sound_notifications?: boolean | null
           updated_at?: string | null
@@ -625,7 +583,6 @@ export type Database = {
           comment_id: string | null
           created_at: string | null
           id: string
-          message_id: string | null
           reason: string
           reported_user_id: string | null
           reporter_id: string
@@ -637,7 +594,6 @@ export type Database = {
           comment_id?: string | null
           created_at?: string | null
           id?: string
-          message_id?: string | null
           reason: string
           reported_user_id?: string | null
           reporter_id: string
@@ -649,7 +605,6 @@ export type Database = {
           comment_id?: string | null
           created_at?: string | null
           id?: string
-          message_id?: string | null
           reason?: string
           reported_user_id?: string | null
           reporter_id?: string
@@ -670,13 +625,6 @@ export type Database = {
             columns: ["reported_user_id"]
             isOneToOne: false
             referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "reports_message_id_fkey"
-            columns: ["message_id"]
-            isOneToOne: false
-            referencedRelation: "messages"
             referencedColumns: ["id"]
           },
           {
@@ -763,45 +711,6 @@ export type Database = {
             columns: ["video_id"]
             isOneToOne: false
             referencedRelation: "videos"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      user_blocks: {
-        Row: {
-          blocked_id: string
-          blocker_id: string
-          created_at: string
-          id: string
-          reason: string | null
-        }
-        Insert: {
-          blocked_id: string
-          blocker_id: string
-          created_at?: string
-          id?: string
-          reason?: string | null
-        }
-        Update: {
-          blocked_id?: string
-          blocker_id?: string
-          created_at?: string
-          id?: string
-          reason?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "user_blocks_blocked_id_fkey"
-            columns: ["blocked_id"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "user_blocks_blocker_id_fkey"
-            columns: ["blocker_id"]
-            isOneToOne: false
-            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -920,10 +829,6 @@ export type Database = {
         Returns: boolean
       }
       increment_video_views: { Args: { _video_id: string }; Returns: undefined }
-      is_blocked_between: {
-        Args: { _a: string; _b: string }
-        Returns: boolean
-      }
       is_conversation_participant: {
         Args: { _conversation_id: string; _user_id: string }
         Returns: boolean
@@ -935,10 +840,6 @@ export type Database = {
       mark_live_message_read: {
         Args: { _live_id: string; _user_id: string }
         Returns: undefined
-      }
-      profile_allows_notification: {
-        Args: { _type: string; _user_id: string }
-        Returns: boolean
       }
       refresh_daily_xp: { Args: { _profile_id: string }; Returns: undefined }
     }

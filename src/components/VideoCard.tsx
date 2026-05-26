@@ -410,24 +410,6 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
         <motion.button
           type="button"
           whileTap={{ scale: 0.9 }}
-          onClick={() => seekBy(-5)}
-          className="glass grid h-10 w-10 place-items-center rounded-full"
-          aria-label="Reculer de 5 secondes"
-        >
-          <SkipForward className="h-4 w-4 rotate-180 text-foreground" />
-        </motion.button>
-        <motion.button
-          type="button"
-          whileTap={{ scale: 0.9 }}
-          onClick={() => seekBy(5)}
-          className="glass grid h-10 w-10 place-items-center rounded-full"
-          aria-label="Avancer de 5 secondes"
-        >
-          <SkipForward className="h-4 w-4 text-foreground" />
-        </motion.button>
-        <motion.button
-          type="button"
-          whileTap={{ scale: 0.9 }}
           onClick={() => setFitMode((mode) => mode === "contain" ? "cover" : "contain")}
           className="glass hidden h-10 items-center gap-1 rounded-full px-3 text-[11px] font-semibold text-foreground sm:flex"
           aria-label={fitMode === "contain" ? "Remplir l'ecran" : "Ajuster sans zoom"}
