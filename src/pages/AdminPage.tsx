@@ -81,6 +81,7 @@ export default function AdminPage() {
     setSendingAdminMessage(true);
     let sent = 0;
     let failed = 0;
+    let lastError = "";
     for (const target of targets) {
       try {
         const { data: conversationId, error: rpcError } = await supabase.rpc("find_or_create_direct_conversation", { _other_user_id: target.id } as any);
@@ -93,8 +94,9 @@ export default function AdminPage() {
         });
         if (error) throw error;
         sent += 1;
-      } catch {
+      } catch (error: any) {
         failed += 1;
+        lastError = error?.message || "Erreur inconnue";
       }
     }
     setSendingAdminMessage(false);
@@ -104,7 +106,7 @@ export default function AdminPage() {
       if (!broadcast) setAdminTargetId("");
       fetchAll();
     } else {
-      toast.error("Aucun message envoye");
+      toast.error(lastError ? `Aucun message envoye: ${lastError}` : "Aucun message envoye");
     }
   };
 
