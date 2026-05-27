@@ -53,6 +53,97 @@ export type Database = {
           },
         ]
       }
+      chat_preferences: {
+        Row: {
+          background: string
+          conversation_id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          background: string
+          conversation_id: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          background?: string
+          conversation_id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "chat_preferences_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "chat_preferences_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      chat_streaks: {
+        Row: {
+          conversation_id: string
+          last_message_date: string | null
+          points_total: number
+          reward_tier: string
+          streak_count: number
+          updated_at: string
+          user_a: string
+          user_b: string
+        }
+        Insert: {
+          conversation_id: string
+          last_message_date?: string | null
+          points_total?: number
+          reward_tier?: string
+          streak_count?: number
+          updated_at?: string
+          user_a: string
+          user_b: string
+        }
+        Update: {
+          conversation_id?: string
+          last_message_date?: string | null
+          points_total?: number
+          reward_tier?: string
+          streak_count?: number
+          updated_at?: string
+          user_a?: string
+          user_b?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "chat_streaks_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: true
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "chat_streaks_user_a_fkey"
+            columns: ["user_a"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "chat_streaks_user_b_fkey"
+            columns: ["user_b"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       comment_likes: {
         Row: {
           comment_id: string
@@ -201,6 +292,116 @@ export type Database = {
         }
         Relationships: []
       }
+      direct_call_sessions: {
+        Row: {
+          call_type: string
+          caller_id: string
+          conversation_id: string
+          created_at: string
+          ended_at: string | null
+          id: string
+          recipient_id: string
+          started_at: string
+          status: string
+        }
+        Insert: {
+          call_type: string
+          caller_id: string
+          conversation_id: string
+          created_at?: string
+          ended_at?: string | null
+          id?: string
+          recipient_id: string
+          started_at?: string
+          status?: string
+        }
+        Update: {
+          call_type?: string
+          caller_id?: string
+          conversation_id?: string
+          created_at?: string
+          ended_at?: string | null
+          id?: string
+          recipient_id?: string
+          started_at?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "direct_call_sessions_caller_id_fkey"
+            columns: ["caller_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "direct_call_sessions_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "direct_call_sessions_recipient_id_fkey"
+            columns: ["recipient_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      direct_call_signals: {
+        Row: {
+          call_id: string
+          created_at: string
+          id: string
+          payload: Json
+          recipient_id: string
+          sender_id: string
+          signal_type: string
+        }
+        Insert: {
+          call_id: string
+          created_at?: string
+          id?: string
+          payload: Json
+          recipient_id: string
+          sender_id: string
+          signal_type: string
+        }
+        Update: {
+          call_id?: string
+          created_at?: string
+          id?: string
+          payload?: Json
+          recipient_id?: string
+          sender_id?: string
+          signal_type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "direct_call_signals_call_id_fkey"
+            columns: ["call_id"]
+            isOneToOne: false
+            referencedRelation: "direct_call_sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "direct_call_signals_recipient_id_fkey"
+            columns: ["recipient_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "direct_call_signals_sender_id_fkey"
+            columns: ["sender_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       direct_shares: {
         Row: {
           created_at: string
@@ -233,6 +434,58 @@ export type Database = {
           video_id?: string | null
         }
         Relationships: []
+      }
+      flame_events: {
+        Row: {
+          conversation_id: string
+          created_at: string
+          id: string
+          points: number
+          reason: string
+          recipient_id: string
+          sender_id: string
+        }
+        Insert: {
+          conversation_id: string
+          created_at?: string
+          id?: string
+          points?: number
+          reason?: string
+          recipient_id: string
+          sender_id: string
+        }
+        Update: {
+          conversation_id?: string
+          created_at?: string
+          id?: string
+          points?: number
+          reason?: string
+          recipient_id?: string
+          sender_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "flame_events_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "flame_events_recipient_id_fkey"
+            columns: ["recipient_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "flame_events_sender_id_fkey"
+            columns: ["sender_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       follows: {
         Row: {
@@ -363,7 +616,10 @@ export type Database = {
           ended_at: string | null
           id: string
           is_active: boolean | null
+          last_frame_at: string | null
+          quality_profile: string
           started_at: string | null
+          stream_health: string
           title: string | null
           user_id: string
           viewers_count: number | null
@@ -374,7 +630,10 @@ export type Database = {
           ended_at?: string | null
           id?: string
           is_active?: boolean | null
+          last_frame_at?: string | null
+          quality_profile?: string
           started_at?: string | null
+          stream_health?: string
           title?: string | null
           user_id: string
           viewers_count?: number | null
@@ -385,7 +644,10 @@ export type Database = {
           ended_at?: string | null
           id?: string
           is_active?: boolean | null
+          last_frame_at?: string | null
+          quality_profile?: string
           started_at?: string | null
+          stream_health?: string
           title?: string | null
           user_id?: string
           viewers_count?: number | null
@@ -404,8 +666,10 @@ export type Database = {
       messages: {
         Row: {
           content: string | null
+          content_version: string
           conversation_id: string
           created_at: string | null
+          encrypted_content: boolean
           id: string
           is_read: boolean | null
           media_type: string | null
@@ -414,8 +678,10 @@ export type Database = {
         }
         Insert: {
           content?: string | null
+          content_version?: string
           conversation_id: string
           created_at?: string | null
+          encrypted_content?: boolean
           id?: string
           is_read?: boolean | null
           media_type?: string | null
@@ -424,8 +690,10 @@ export type Database = {
         }
         Update: {
           content?: string | null
+          content_version?: string
           conversation_id?: string
           created_at?: string | null
+          encrypted_content?: boolean
           id?: string
           is_read?: boolean | null
           media_type?: string | null
@@ -520,15 +788,27 @@ export type Database = {
       }
       profiles: {
         Row: {
+          allow_profile_views: boolean
           avatar_url: string | null
           bio: string | null
           created_at: string | null
           display_name: string
+          hide_following: boolean
           hide_likes: boolean | null
           hide_saves: boolean | null
           id: string
           invisible_mode: boolean | null
           is_private: boolean | null
+          notification_quiet_hours_enabled: boolean
+          notification_quiet_hours_end: string
+          notification_quiet_hours_start: string
+          notification_sound: string
+          notify_comments: boolean
+          notify_follows: boolean
+          notify_likes: boolean
+          notify_mentions: boolean
+          notify_messages: boolean
+          notify_shares: boolean
           push_notifications: boolean | null
           sound_notifications: boolean | null
           updated_at: string | null
@@ -539,15 +819,27 @@ export type Database = {
           xp_total: number
         }
         Insert: {
+          allow_profile_views?: boolean
           avatar_url?: string | null
           bio?: string | null
           created_at?: string | null
           display_name?: string
+          hide_following?: boolean
           hide_likes?: boolean | null
           hide_saves?: boolean | null
           id: string
           invisible_mode?: boolean | null
           is_private?: boolean | null
+          notification_quiet_hours_enabled?: boolean
+          notification_quiet_hours_end?: string
+          notification_quiet_hours_start?: string
+          notification_sound?: string
+          notify_comments?: boolean
+          notify_follows?: boolean
+          notify_likes?: boolean
+          notify_mentions?: boolean
+          notify_messages?: boolean
+          notify_shares?: boolean
           push_notifications?: boolean | null
           sound_notifications?: boolean | null
           updated_at?: string | null
@@ -558,15 +850,27 @@ export type Database = {
           xp_total?: number
         }
         Update: {
+          allow_profile_views?: boolean
           avatar_url?: string | null
           bio?: string | null
           created_at?: string | null
           display_name?: string
+          hide_following?: boolean
           hide_likes?: boolean | null
           hide_saves?: boolean | null
           id?: string
           invisible_mode?: boolean | null
           is_private?: boolean | null
+          notification_quiet_hours_enabled?: boolean
+          notification_quiet_hours_end?: string
+          notification_quiet_hours_start?: string
+          notification_sound?: string
+          notify_comments?: boolean
+          notify_follows?: boolean
+          notify_likes?: boolean
+          notify_mentions?: boolean
+          notify_messages?: boolean
+          notify_shares?: boolean
           push_notifications?: boolean | null
           sound_notifications?: boolean | null
           updated_at?: string | null
@@ -715,6 +1019,45 @@ export type Database = {
           },
         ]
       }
+      user_blocks: {
+        Row: {
+          blocked_id: string
+          blocker_id: string
+          created_at: string
+          id: string
+          reason: string | null
+        }
+        Insert: {
+          blocked_id: string
+          blocker_id: string
+          created_at?: string
+          id?: string
+          reason?: string | null
+        }
+        Update: {
+          blocked_id?: string
+          blocker_id?: string
+          created_at?: string
+          id?: string
+          reason?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_blocks_blocked_id_fkey"
+            columns: ["blocked_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "user_blocks_blocker_id_fkey"
+            columns: ["blocker_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       user_roles: {
         Row: {
           created_at: string | null
@@ -738,15 +1081,26 @@ export type Database = {
       }
       videos: {
         Row: {
+          allow_downloads: boolean
+          allow_duet: boolean
+          allow_stitch: boolean
+          audience: string
+          auto_captions: boolean
+          brand_disclosure: boolean
           comments_count: number | null
           comments_enabled: boolean
+          cover_note: string | null
+          create_options: Json
           created_at: string | null
           description: string | null
           hashtags: string[] | null
           id: string
           is_published: boolean | null
           likes_count: number | null
+          location_tag: string | null
+          promote_after_publish: boolean
           saves_count: number | null
+          scheduled_at: string | null
           shares_count: number | null
           sound_artist: string | null
           sound_name: string | null
@@ -757,15 +1111,26 @@ export type Database = {
           views_count: number | null
         }
         Insert: {
+          allow_downloads?: boolean
+          allow_duet?: boolean
+          allow_stitch?: boolean
+          audience?: string
+          auto_captions?: boolean
+          brand_disclosure?: boolean
           comments_count?: number | null
           comments_enabled?: boolean
+          cover_note?: string | null
+          create_options?: Json
           created_at?: string | null
           description?: string | null
           hashtags?: string[] | null
           id?: string
           is_published?: boolean | null
           likes_count?: number | null
+          location_tag?: string | null
+          promote_after_publish?: boolean
           saves_count?: number | null
+          scheduled_at?: string | null
           shares_count?: number | null
           sound_artist?: string | null
           sound_name?: string | null
@@ -776,15 +1141,26 @@ export type Database = {
           views_count?: number | null
         }
         Update: {
+          allow_downloads?: boolean
+          allow_duet?: boolean
+          allow_stitch?: boolean
+          audience?: string
+          auto_captions?: boolean
+          brand_disclosure?: boolean
           comments_count?: number | null
           comments_enabled?: boolean
+          cover_note?: string | null
+          create_options?: Json
           created_at?: string | null
           description?: string | null
           hashtags?: string[] | null
           id?: string
           is_published?: boolean | null
           likes_count?: number | null
+          location_tag?: string | null
+          promote_after_publish?: boolean
           saves_count?: number | null
+          scheduled_at?: string | null
           shares_count?: number | null
           sound_artist?: string | null
           sound_name?: string | null
@@ -829,6 +1205,7 @@ export type Database = {
         Returns: boolean
       }
       increment_video_views: { Args: { _video_id: string }; Returns: undefined }
+      is_blocked_between: { Args: { _a: string; _b: string }; Returns: boolean }
       is_conversation_participant: {
         Args: { _conversation_id: string; _user_id: string }
         Returns: boolean
