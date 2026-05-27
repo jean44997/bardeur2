@@ -478,7 +478,7 @@ export default function WatchLivePage() {
   const showOverlay = streamerStatus === "paused" || streamerStatus === "reconnecting" || streamerStatus === "starting" || !hasFrame;
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-background touch-manipulation select-none" onPointerUp={handleStreamTap}>
+    <div className="app-shell-height fixed inset-x-0 top-0 z-50 flex flex-col bg-background touch-manipulation select-none" onPointerUp={handleStreamTap}>
       {/* Live frame */}
       {frameSrc && !paused && (
         <img
@@ -571,7 +571,7 @@ export default function WatchLivePage() {
       </AnimatePresence>
 
       {/* Top bar */}
-      <div className="relative z-10 flex items-center justify-between px-4 pt-[max(1rem,env(safe-area-inset-top))]">
+      <div className="fullscreen-safe-top relative z-10 flex items-center justify-between px-4">
         <motion.button whileTap={{ scale: 0.9 }} onClick={() => navigate(-1)} className="glass rounded-full p-2" aria-label="Retour">
           <ArrowLeft className="h-5 w-5 text-foreground" />
         </motion.button>
@@ -602,7 +602,7 @@ export default function WatchLivePage() {
       </div>
 
       {/* Right action rail: Like / Comment / Share */}
-      <div className="absolute right-3 bottom-44 z-20 flex flex-col items-center gap-4">
+      <div className="absolute right-3 bottom-[calc(9.5rem+var(--app-safe-bottom))] z-20 flex flex-col items-center gap-4">
         <motion.button whileTap={{ scale: 0.85 }} onClick={sendHeart} className="flex flex-col items-center gap-1" aria-label="J'aime">
           <span className="glass rounded-full p-3">
             <Heart className={`h-6 w-6 ${liked ? "fill-primary text-primary" : "text-foreground"}`} />
@@ -637,7 +637,7 @@ export default function WatchLivePage() {
             {(typing || isRecordingAudio || sendState !== "idle") && <p className="px-2 text-[11px] text-muted-foreground">{isRecordingAudio ? "Vocal en cours… (appuie longuement sur ✕ pour annuler)" : sendState === "sending" ? "Envoi…" : typing ? "En train d'écrire…" : "Livré"}</p>}
             <div ref={chatEndRef} />
           </div>
-          <div className="flex items-center gap-2 px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pr-20">
+          <div className="fullscreen-safe-bottom flex items-center gap-2 px-4 pr-20">
             <div className="glass flex flex-1 items-center rounded-full px-4 py-2">
               <input id="live-comment-input" value={newMsg} onFocus={() => setTyping(true)} onBlur={() => setTyping(false)} onChange={e => { setNewMsg(e.target.value); setTyping(e.target.value.length > 0); }} onKeyDown={e => e.key === "Enter" && sendMessage()} placeholder="Commenter..." className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none" />
               {isRecordingAudio && (

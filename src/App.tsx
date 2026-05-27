@@ -8,6 +8,7 @@ import BottomNav from "@/components/BottomNav";
 import DesktopSidebar from "@/components/DesktopSidebar";
 import AuthGuard from "@/components/AuthGuard";
 import GlobalCallListener from "@/components/GlobalCallListener";
+import { useViewportInsets } from "@/hooks/useViewportInsets";
 import Index from "./pages/Index";
 import ExplorePage from "./pages/ExplorePage";
 import ProfilePage from "./pages/ProfilePage";
@@ -27,6 +28,11 @@ import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
 
+function ViewportRuntime() {
+  useViewportInsets();
+  return null;
+}
+
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
@@ -34,6 +40,7 @@ const App = () => (
       <Sonner />
       <BrowserRouter>
         <AuthProvider>
+          <ViewportRuntime />
           <GlobalCallListener />
           <Routes>
             <Route path="/auth" element={<AuthPage />} />

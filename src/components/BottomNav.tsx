@@ -64,20 +64,27 @@ export default function BottomNav() {
     navigate(path);
   };
 
+  const isActive = (path: string) => {
+    if (path === "/") return location.pathname === "/";
+    if (path === "/profile") return location.pathname.startsWith("/profile");
+    if (path === "/inbox") return location.pathname.startsWith("/inbox") || location.pathname.startsWith("/chat");
+    return location.pathname === path || location.pathname.startsWith(`${path}/`);
+  };
+
   return (
-    <nav className="pwa-bottom-nav fixed left-2 right-2 z-50 rounded-t-[1.35rem] border border-b-0 border-border/40 bg-background/62 shadow-2xl shadow-black/30 backdrop-blur-2xl supports-[backdrop-filter]:bg-background/50 md:hidden">
-      <div className="flex items-center justify-around px-2 pb-[max(0.2rem,calc(env(safe-area-inset-bottom)*0.24))] pt-2">
+    <nav className="pwa-bottom-nav fixed z-50 rounded-t-[1.35rem] border border-b-0 border-border/40 bg-background/62 shadow-2xl shadow-black/30 backdrop-blur-2xl supports-[backdrop-filter]:bg-background/50 md:hidden" aria-label="Navigation principale">
+      <div className="grid grid-cols-[1fr_1fr_4.15rem_1fr_1fr] items-center gap-1 px-2 pt-2">
         {navItems.map(item => {
-          const active = location.pathname === item.path;
+          const active = isActive(item.path);
           if (item.isCreate) {
             return (
-              <motion.button key={item.path} whileTap={{ scale: 0.9 }} onClick={() => handleNav(item.path, item.requiresAuth)} className="relative flex h-11 w-14 items-center justify-center rounded-2xl gradient-primary pulse-glow" aria-label="Créer">
+              <motion.button key={item.path} type="button" whileTap={{ scale: 0.9 }} onClick={() => handleNav(item.path, item.requiresAuth)} className="relative mx-auto flex h-12 w-16 items-center justify-center rounded-2xl gradient-primary pulse-glow" aria-label="Creer">
                 <Plus className="h-6 w-6 text-primary-foreground" strokeWidth={2.5} />
               </motion.button>
             );
           }
           return (
-            <motion.button key={item.path} whileTap={{ scale: 0.9 }} onClick={() => handleNav(item.path, item.requiresAuth)} className={`flex min-w-12 flex-col items-center gap-0.5 rounded-2xl px-2 py-1 ${active ? "bg-foreground/10" : ""}`}>
+            <motion.button key={item.path} type="button" whileTap={{ scale: 0.9 }} onClick={() => handleNav(item.path, item.requiresAuth)} aria-label={item.label} aria-current={active ? "page" : undefined} className={`flex min-w-0 flex-col items-center gap-0.5 rounded-2xl px-1 py-1.5 ${active ? "bg-foreground/10" : ""}`}>
               <span className="relative">
                 <item.icon className={`h-6 w-6 transition-colors ${active ? "text-foreground" : "text-muted-foreground"}`} strokeWidth={active ? 2.5 : 2} />
                 {!!item.badge && item.badge > 0 && (
@@ -86,7 +93,7 @@ export default function BottomNav() {
                   </span>
                 )}
               </span>
-              <span className={`text-[10px] font-medium ${active ? "text-foreground" : "text-muted-foreground"}`}>{item.label}</span>
+              <span className={`max-w-[3.4rem] truncate text-[10px] font-medium leading-3 max-[340px]:text-[9px] ${active ? "text-foreground" : "text-muted-foreground"}`}>{item.label}</span>
             </motion.button>
           );
         })}

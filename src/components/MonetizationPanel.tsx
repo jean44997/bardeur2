@@ -241,6 +241,18 @@ export default function MonetizationPanel({ stats, username }: MonetizationPanel
           <Metric icon={<Sparkles className="h-3.5 w-3.5" />} label="Posts" value={stats.videos} />
           <Metric icon={<BadgeDollarSign className="h-3.5 w-3.5" />} label="Est." value={Math.round(estimatedMonthly)} suffix="$" />
         </div>
+        <div className="mt-3 grid grid-cols-3 gap-2">
+          {[
+            { icon: ShieldCheck, label: "2FA/KYC", ok: completed.m30 || completed.m01 },
+            { icon: Gift, label: "Gifts live", ok: completed.m22 || completed.s08 },
+            { icon: Rocket, label: "Promote", ok: completed.m17 || completed.m18 },
+          ].map(item => (
+            <div key={item.label} className={`rounded-xl px-2 py-2 text-center ${item.ok ? "bg-primary/15" : "bg-card"}`}>
+              <item.icon className={`mx-auto mb-1 h-4 w-4 ${item.ok ? "text-primary" : "text-muted-foreground"}`} />
+              <p className="truncate text-[10px] font-bold text-foreground">{item.label}</p>
+            </div>
+          ))}
+        </div>
       </div>
 
       <div className="glass rounded-2xl p-4">

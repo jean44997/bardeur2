@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { motion } from "framer-motion";
-import { Radio, Search, Flame, Clock, Users, Plus } from "lucide-react";
+import { Radio, Search, Flame, Clock, Users, Plus, RefreshCw, ShieldCheck, SignalHigh, Sparkles } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -27,6 +27,7 @@ export default function LivesListPage() {
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<"now" | "recent">("now");
   const [tagFilter, setTagFilter] = useState<string | null>(null);
+  const [thumbnailErrors, setThumbnailErrors] = useState<Record<string, boolean>>({});
 
   const fetchLives = useCallback(async () => {
     setLoading(true);
@@ -76,7 +77,7 @@ export default function LivesListPage() {
 
   return (
     <div className="min-h-[100svh] bg-background mobile-page-bottom-safe md:pb-8 md:pl-[var(--sidebar-width,260px)]">
-      <div className="mx-auto max-w-3xl px-4 pt-[max(1.5rem,env(safe-area-inset-top))]">
+      <div className="mobile-page-top-safe mx-auto max-w-3xl px-4">
         <div className="mb-4 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <div className="grid h-10 w-10 place-items-center rounded-xl gradient-primary">
@@ -87,11 +88,27 @@ export default function LivesListPage() {
               <p className="text-xs text-muted-foreground">{lives.length} en direct maintenant</p>
             </div>
           </div>
+          <motion.button whileTap={{ scale: 0.95 }} onClick={fetchLives} className="tap-target-lg glass-action grid place-items-center rounded-full" aria-label="Actualiser les lives">
+            <RefreshCw className="h-4 w-4 text-foreground" />
+          </motion.button>
           {user && (
             <motion.button whileTap={{ scale: 0.95 }} onClick={() => navigate("/live")} className="flex items-center gap-1.5 rounded-full gradient-primary px-3 py-2 text-xs font-bold text-primary-foreground pulse-glow">
               <Plus className="h-4 w-4" /> Démarrer
             </motion.button>
           )}
+        </div>
+
+        <div className="mb-3 grid grid-cols-3 gap-2">
+          {[
+            { icon: SignalHigh, label: "Flux adaptatif" },
+            { icon: ShieldCheck, label: "Anti-spam chat" },
+            { icon: Sparkles, label: "Effets live" },
+          ].map((item) => (
+            <div key={item.label} className="rounded-2xl bg-card/70 px-2 py-2 text-center">
+              <item.icon className="mx-auto mb-1 h-4 w-4 text-primary" />
+              <p className="truncate text-[10px] font-bold text-foreground">{item.label}</p>
+            </div>
+          ))}
         </div>
 
         <div className="glass mb-3 flex items-center gap-2 rounded-2xl px-4 py-2.5">
@@ -148,12 +165,19 @@ export default function LivesListPage() {
                 className="group relative flex aspect-[3/4] flex-col overflow-hidden rounded-2xl glass text-left"
               >
                 <div className="absolute inset-0 bg-card">
-                  <img
-                    src={live.thumbnailUrl}
-                    alt={live.title}
-                    className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
-                    onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
-                  />
+                  {!thumbnailErrors[live.id] ? (
+                    <img
+                      src={live.thumbnailUrl}
+                      alt={live.title}
+                      className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+                      onError={() => setThumbnailErrors(prev => ({ ...prev, [live.id]: true }))}
+                    />
+                  ) : (
+                    <div className="flex h-full w-full flex-col items-center justify-center gap-2 bg-gradient-to-br from-card via-background to-card">
+                      <Radio className="h-8 w-8 text-primary" />
+                      <p className="px-4 text-center text-[11px] font-bold text-foreground">Flux en preparation</p>
+                    </div>
+                  )}
                   <div className="absolute inset-0 bg-gradient-to-t from-background via-background/40 to-transparent" />
                 </div>
 

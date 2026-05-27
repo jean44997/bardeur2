@@ -135,7 +135,7 @@ export default function VideoFeed() {
 
   return (
     <div className="relative min-h-[100svh] bg-background md:min-h-[100dvh] md:pl-[var(--sidebar-width,260px)] md:pr-6">
-      <div className="fixed left-4 top-[max(1rem,env(safe-area-inset-top))] z-40 md:left-[calc(var(--sidebar-width,260px)+1.5rem)]">
+      <div className="fixed left-4 top-[calc(max(1rem,var(--app-safe-top))+.2rem)] z-40 md:left-[calc(var(--sidebar-width,260px)+1.5rem)]">
         <motion.button
           whileTap={{ scale: 0.9 }}
           onClick={() => navigate("/lives")}
@@ -151,7 +151,7 @@ export default function VideoFeed() {
           )}
         </motion.button>
       </div>
-      <div className="fixed top-[max(1rem,env(safe-area-inset-top))] right-4 z-40 flex items-center gap-2 md:right-8">
+      <div className="fixed right-4 top-[calc(max(1rem,var(--app-safe-top))+.2rem)] z-40 flex items-center gap-2 md:right-8">
         <motion.button whileTap={{ scale: 0.9 }} onClick={() => { fetchVideos(); fetchLivesCount(); }} className="glass rounded-full p-2" aria-label="Actualiser">
           <RefreshCw className="h-4 w-4 text-foreground" />
         </motion.button>
@@ -163,7 +163,7 @@ export default function VideoFeed() {
 
       <div
         ref={containerRef}
-        className="pwa-feed-scroll h-[100svh] w-full snap-y snap-mandatory overflow-y-scroll no-scrollbar md:mx-auto md:my-4 md:h-[calc(100dvh-2rem)] md:w-full md:max-w-[460px] md:rounded-[24px] md:bg-black"
+        className="pwa-feed-scroll app-shell-height w-full snap-y snap-mandatory overflow-y-scroll no-scrollbar md:mx-auto md:my-4 md:h-[calc(100dvh-2rem)] md:w-full md:max-w-[460px] md:rounded-[24px] md:bg-black"
       >
         {videos.map((video, i) => (
           <VideoCard

@@ -112,6 +112,10 @@ export function useLiveBroadcast({
         await supabase.storage
           .from("media")
           .upload(`live-stream/${liveId}/frame.jpg`, blob, { contentType: "image/jpeg", upsert: true, cacheControl: "0" });
+        void (supabase as any)
+          .from("lives")
+          .update({ stream_health: "live", last_frame_at: new Date().toISOString() })
+          .eq("id", liveId);
         consecutiveErrorsRef.current = 0;
         if (status === "reconnecting") setStatus("live");
         // Event-driven: tell viewers a fresh frame is up so they can refresh immediately.

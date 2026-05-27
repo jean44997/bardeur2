@@ -65,7 +65,6 @@ export default function ChatPage() {
   const [blockedByThem, setBlockedByThem] = useState(false);
   const [showSafetyMenu, setShowSafetyMenu] = useState(false);
   const [chatBackground, setChatBackground] = useState(chatBackgrounds[0].value);
-  const [customBackgroundUrl, setCustomBackgroundUrl] = useState("");
   const [streakDays, setStreakDays] = useState(0);
   const [streakNeedsReply, setStreakNeedsReply] = useState(false);
   const [callState, setCallState] = useState<CallState | null>(null);
@@ -82,6 +81,11 @@ export default function ChatPage() {
   const audioChunksRef = useRef<Blob[]>([]);
   const audioStreamRef = useRef<MediaStream | null>(null);
   const callStreamRef = useRef<MediaStream | null>(null);
+  const peerRef = useRef<RTCPeerConnection | null>(null);
+  const remoteStreamRef = useRef<MediaStream | null>(null);
+  const signalChannelRef = useRef<any>(null);
+  const remoteVideoRef = useRef<HTMLVideoElement>(null);
+  const remoteAudioRef = useRef<HTMLAudioElement>(null);
   const callSessionRef = useRef<string | null>(null);
   const callFacingModeRef = useRef<"user" | "environment">("user");
   const ringtoneCtxRef = useRef<AudioContext | null>(null);
@@ -90,6 +94,7 @@ export default function ChatPage() {
   const callMeterFrameRef = useRef<number | null>(null);
   const cancelledAudioRef = useRef(false);
   const recentTextRef = useRef<string[]>([]);
+  const [remoteConnected, setRemoteConnected] = useState(false);
 
   useEffect(() => {
     if (conversationId && user) {
@@ -166,6 +171,17 @@ export default function ChatPage() {
     localVideoRef.current.srcObject = callStreamRef.current;
     localVideoRef.current.play().catch(() => {});
   }, [callState]);
+
+  useEffect(() => {
+    if (remoteVideoRef.current) {
+      remoteVideoRef.current.srcObject = remoteStreamRef.current;
+      remoteVideoRef.current.play().catch(() => {});
+    }
+    if (remoteAudioRef.current) {
+      remoteAudioRef.current.srcObject = remoteStreamRef.current;
+      remoteAudioRef.current.play().catch(() => {});
+    }
+  }, [callState, remoteConnected]);
 
   useEffect(() => {
     return () => {
@@ -491,6 +507,21 @@ export default function ChatPage() {
     setShowSafetyMenu(false);
   };
 
+  const closePeer = () => {
+    if (signalChannelRef.current) {
+      supabase.removeChannel(signalChannelRef.current);
+      signalChannelRef.current = null;
+    }
+    peerRef.current?.getSenders().forEach(sender => {
+      try { sender.track?.stop(); } catch { /* noop */ }
+    });
+    peerRef.current?.close();
+    peerRef.current = null;
+    remoteStreamRef.current?.getTracks().forEach(track => track.stop());
+    remoteStreamRef.current = null;
+    setRemoteConnected(false);
+  };
+
   const clearCallAutoEnd = () => {
     if (callAutoEndTimerRef.current) window.clearTimeout(callAutoEndTimerRef.current);
     callAutoEndTimerRef.current = null;
@@ -499,6 +530,7 @@ export default function ChatPage() {
   const cleanupCallUi = (message?: string) => {
     stopRingtone();
     clearCallAutoEnd();
+    closePeer();
     if (callMeterFrameRef.current) cancelAnimationFrame(callMeterFrameRef.current);
     callMeterFrameRef.current = null;
     setCallAudioLevel(0);
@@ -588,6 +620,93 @@ export default function ChatPage() {
     tick();
   };
 
+  const sendCallSignal = async (callId: string, recipientId: string, signalType: "offer" | "answer" | "candidate", payload: any) => {
+    if (!user) return;
+    await (supabase as any).from("direct_call_signals").insert({
+      call_id: callId,
+      sender_id: user.id,
+      recipient_id: recipientId,
+      signal_type: signalType,
+      payload,
+    });
+  };
+
+  const applyCallSignal = async (signal: any, pc: RTCPeerConnection, remoteUserId: string) => {
+    if (!signal || signal.sender_id === user?.id) return;
+    try {
+      if (signal.signal_type === "offer") {
+        await pc.setRemoteDescription(new RTCSessionDescription(signal.payload));
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        await sendCallSignal(signal.call_id, remoteUserId, "answer", answer);
+      } else if (signal.signal_type === "answer") {
+        await pc.setRemoteDescription(new RTCSessionDescription(signal.payload));
+      } else if (signal.signal_type === "candidate" && signal.payload) {
+        await pc.addIceCandidate(new RTCIceCandidate(signal.payload));
+      }
+    } catch {
+      toast.error("Signal d'appel instable, relance l'appel");
+    }
+  };
+
+  const setupPeerCall = async (callId: string, type: "audio" | "video", media: MediaStream, remoteUserId: string, isCaller: boolean) => {
+    closePeer();
+    const pc = new RTCPeerConnection({
+      iceServers: [
+        { urls: "stun:stun.l.google.com:19302" },
+        { urls: "stun:global.stun.twilio.com:3478" },
+      ],
+    });
+    peerRef.current = pc;
+    remoteStreamRef.current = new MediaStream();
+    setRemoteConnected(false);
+
+    media.getTracks().forEach(track => pc.addTrack(track, media));
+    pc.ontrack = (event) => {
+      const incoming = event.streams?.[0] || remoteStreamRef.current;
+      if (incoming) remoteStreamRef.current = incoming;
+      event.track.onunmute = () => setRemoteConnected(true);
+      setRemoteConnected(true);
+    };
+    pc.onicecandidate = (event) => {
+      if (event.candidate) void sendCallSignal(callId, remoteUserId, "candidate", event.candidate.toJSON());
+    };
+    pc.onconnectionstatechange = () => {
+      const state = pc.connectionState;
+      if (state === "connected") setRemoteConnected(true);
+      if (state === "failed" || state === "disconnected") {
+        setRemoteConnected(false);
+        toast.info("Connexion appel instable, tentative de reprise");
+      }
+    };
+
+    const channel = supabase
+      .channel(`direct-call-signals-${callId}-${user?.id}`)
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "direct_call_signals", filter: `call_id=eq.${callId}` }, (payload) => {
+        void applyCallSignal(payload.new as any, pc, remoteUserId);
+      })
+      .subscribe();
+    signalChannelRef.current = channel;
+
+    const { data: existingSignals } = await (supabase as any)
+      .from("direct_call_signals")
+      .select("*")
+      .eq("call_id", callId)
+      .order("created_at", { ascending: true });
+    for (const signal of existingSignals || []) {
+      await applyCallSignal(signal, pc, remoteUserId);
+    }
+
+    if (isCaller) {
+      const offer = await pc.createOffer({
+        offerToReceiveAudio: true,
+        offerToReceiveVideo: type === "video",
+      });
+      await pc.setLocalDescription(offer);
+      await sendCallSignal(callId, remoteUserId, "offer", offer);
+    }
+  };
+
   const saveChatBackground = async (background: string) => {
     if (!conversationId || !user) return;
     setChatBackground(background);
@@ -620,17 +739,6 @@ export default function ChatPage() {
     }
   };
 
-  const applyCustomBackground = () => {
-    const url = customBackgroundUrl.trim();
-    if (!url) return;
-    if (!/^https?:\/\//i.test(url)) {
-      toast.error("Colle une URL d'image https");
-      return;
-    }
-    saveChatBackground(`linear-gradient(180deg, rgba(0,0,0,.58), rgba(0,0,0,.78)), url("${url.split('"').join("%22")}") center / cover`);
-    setCustomBackgroundUrl("");
-  };
-
   const startCall = async (type: "audio" | "video") => {
     if (!user || !conversationId || !otherUserId || isBlocked || blockedByThem) return;
     try {
@@ -652,6 +760,7 @@ export default function ChatPage() {
         .single();
       if (error || !data?.id) throw error || new Error("call signaling unavailable");
       callSessionRef.current = data?.id || null;
+      await setupPeerCall(data.id, type, media, otherUserId, true);
       await supabase.from("notifications").insert({
         user_id: otherUserId,
         from_user_id: user.id,
@@ -696,6 +805,7 @@ export default function ChatPage() {
       });
       callStreamRef.current = media;
       startAudioMeter(media);
+      await setupPeerCall(callToAccept.id, type, media, callToAccept.callerId, false);
       stopRingtone();
       setIncomingCall(null);
       await (supabase as any).from("direct_call_sessions").update({ status: "connected", started_at: new Date().toISOString() }).eq("id", callToAccept.id);
@@ -715,6 +825,7 @@ export default function ChatPage() {
   const endCall = async () => {
     stopRingtone();
     clearCallAutoEnd();
+    closePeer();
     if (callMeterFrameRef.current) cancelAnimationFrame(callMeterFrameRef.current);
     setCallAudioLevel(0);
     callStreamRef.current?.getTracks().forEach(t => t.stop());
@@ -785,8 +896,8 @@ export default function ChatPage() {
   };
 
   return (
-    <div className="flex h-[100svh] h-[100dvh] flex-col overflow-hidden bg-background md:pl-[var(--sidebar-width,260px)]">
-      <div className="glass z-10 flex shrink-0 items-center gap-1.5 border-b border-border px-2 py-2 pt-[max(0.75rem,env(safe-area-inset-top))] sm:gap-3 sm:px-4 sm:py-3">
+    <div className="app-shell-height flex flex-col overflow-hidden bg-background md:pl-[var(--sidebar-width,260px)]">
+      <div className="glass mobile-chat-header-safe z-10 flex shrink-0 items-center gap-1.5 border-b border-border px-2 py-2 sm:gap-3 sm:px-4 sm:py-3">
         <motion.button whileTap={{ scale: 0.9 }} onClick={() => navigate("/inbox")} className="tap-target grid place-items-center rounded-full">
           <ArrowLeft className="h-5 w-5 text-foreground" />
         </motion.button>
@@ -823,7 +934,7 @@ export default function ChatPage() {
       <AnimatePresence>
         {showSafetyMenu && (
           <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="z-10 overflow-hidden border-b border-border bg-card/95 px-4 py-3">
-            <div className="mx-auto grid max-w-lg grid-cols-3 gap-2">
+            <div className="mx-auto grid max-w-lg grid-cols-2 gap-2 min-[390px]:grid-cols-3">
               <button onClick={reportConversation} className="flex items-center justify-center gap-2 rounded-xl bg-destructive/15 px-3 py-2 text-xs font-semibold text-destructive">
                 <Flag className="h-4 w-4" /> Signaler
               </button>
@@ -858,12 +969,8 @@ export default function ChatPage() {
                   </button>
                 ))}
               </div>
-              <div className="mt-2 flex gap-2">
-                <input value={customBackgroundUrl} onChange={e => setCustomBackgroundUrl(e.target.value)} placeholder="URL image https..." className="min-w-0 flex-1 rounded-xl bg-card px-3 py-2 text-xs text-foreground outline-none" />
-                <button type="button" onClick={applyCustomBackground} className="rounded-xl gradient-primary px-3 py-2 text-xs font-bold text-primary-foreground">OK</button>
-              </div>
-              <button type="button" onClick={() => backgroundInputRef.current?.click()} className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl bg-card px-3 py-2 text-xs font-bold text-foreground">
-                <Upload className="h-3.5 w-3.5 text-primary" /> Uploader une image
+              <button type="button" onClick={() => backgroundInputRef.current?.click()} className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl gradient-primary px-3 py-2.5 text-xs font-bold text-primary-foreground">
+                <Upload className="h-3.5 w-3.5 text-primary-foreground" /> Uploader une image
               </button>
             </div>
           </motion.div>
@@ -896,13 +1003,26 @@ export default function ChatPage() {
             <motion.div initial={{ scale: 0.94, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.94, y: 20 }} className="w-full max-w-sm overflow-hidden rounded-3xl border border-border bg-card shadow-2xl">
               <div className="relative aspect-[3/4] bg-black">
                 {callState.type === "video" && !callState.cameraOff ? (
-                  <video ref={localVideoRef} className="h-full w-full object-cover" muted playsInline autoPlay />
+                  <>
+                    <video ref={remoteVideoRef} className="h-full w-full object-cover" playsInline autoPlay />
+                    {!remoteConnected && (
+                      <div className="absolute inset-0 grid place-items-center bg-background/72 text-center backdrop-blur-sm">
+                        <div className="px-5">
+                          <SignalHigh className="mx-auto mb-2 h-6 w-6 text-primary" />
+                          <p className="text-sm font-bold text-foreground">Connexion video...</p>
+                          <p className="mt-1 text-[11px] text-muted-foreground">Le flux de l'autre utilisateur arrive automatiquement.</p>
+                        </div>
+                      </div>
+                    )}
+                    <video ref={localVideoRef} className="absolute bottom-3 right-3 h-28 w-20 rounded-2xl border border-border bg-black object-cover shadow-2xl" muted playsInline autoPlay />
+                  </>
                 ) : (
                   <div className="flex h-full w-full flex-col items-center justify-center gap-3 bg-gradient-to-br from-background via-card to-background">
                     <div className="grid h-24 w-24 place-items-center rounded-full gradient-primary text-3xl font-bold text-primary-foreground">{otherUserName[0]}</div>
                     <p className="text-sm font-semibold text-foreground">{callState.type === "video" ? "Camera coupée" : "Appel audio"}</p>
                   </div>
                 )}
+                <audio ref={remoteAudioRef} autoPlay playsInline />
                 <div className="absolute left-4 top-4 flex items-center gap-2 rounded-full bg-background/70 px-3 py-1 text-xs font-bold text-foreground backdrop-blur">
                   {callState.status === "ringing" ? <BellRing className="h-3.5 w-3.5 text-primary" /> : <SignalHigh className="h-3.5 w-3.5 text-accent" />}
                   {callState.status === "requesting" ? "Permissions" : callState.status === "ringing" ? callState.direction === "outgoing" ? "En attente" : "Sonnerie" : fmtTime(callSeconds)}
@@ -911,7 +1031,7 @@ export default function ChatPage() {
               <div className="space-y-2 border-b border-border px-4 py-3">
                 <div className="flex items-center justify-between text-[11px] font-bold text-muted-foreground">
                   <span className="flex items-center gap-1"><SignalHigh className="h-3.5 w-3.5 text-primary" /> {callState.type === "video" ? "Video 1080p/60" : "Audio 48 kHz"}</span>
-                  <span>{callState.quality}</span>
+                  <span>{remoteConnected ? "Pair a pair" : callState.quality}</span>
                 </div>
                 <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
                   <Activity className="h-3.5 w-3.5 text-accent" />
@@ -1001,7 +1121,7 @@ export default function ChatPage() {
         )}
       </AnimatePresence>
 
-      <div className="shrink-0 border-t border-border px-2 py-2 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-4 sm:py-3">
+      <div className="mobile-chat-composer-safe shrink-0 border-t border-border px-2 py-2 sm:px-4 sm:py-3">
         <input ref={imageInputRef} type="file" accept="image/*" className="hidden" onChange={e => sendImage(e.target.files?.[0])} />
 
         {(isBlocked || blockedByThem) && (

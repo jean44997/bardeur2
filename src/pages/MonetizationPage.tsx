@@ -33,9 +33,9 @@ export default function MonetizationPage() {
 
   return (
     <div className="min-h-[100svh] bg-background mobile-page-bottom-safe md:pb-8 md:pl-[var(--sidebar-width,260px)]">
-      <div className="mx-auto max-w-lg px-4 pt-[max(1.5rem,env(safe-area-inset-top))]">
+      <div className="mobile-page-top-safe mx-auto max-w-lg px-4">
         <div className="mb-5 flex items-center gap-3">
-          <motion.button whileTap={{ scale: 0.9 }} onClick={() => navigate("/settings")} className="tap-target grid place-items-center rounded-full glass">
+          <motion.button whileTap={{ scale: 0.9 }} onClick={() => navigate("/settings")} className="tap-target-lg glass-action grid place-items-center rounded-full">
             <ArrowLeft className="h-5 w-5 text-foreground" />
           </motion.button>
           <div>

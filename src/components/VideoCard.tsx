@@ -421,7 +421,7 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
 
       <div className="gradient-overlay absolute inset-x-0 bottom-0 h-[45%] pointer-events-none" />
 
-      {isActive && <div className="pointer-events-auto absolute right-3 top-[max(3.65rem,calc(env(safe-area-inset-top)+3.1rem))] z-30 flex items-center gap-2 md:right-4 md:top-4">
+      {isActive && <div className="pointer-events-auto absolute right-3 top-[max(3.65rem,calc(var(--app-safe-top)+3.1rem))] z-30 flex items-center gap-2 md:right-4 md:top-4">
         <motion.button
           type="button"
           whileTap={{ scale: 0.9 }}
@@ -444,7 +444,7 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
       </div>}
 
       {/* Progress Bar */}
-      <div className="absolute bottom-[calc(4rem+env(safe-area-inset-bottom))] left-0 right-0 z-30 h-[3px] bg-foreground/10 md:bottom-0">
+      <div className="absolute bottom-[calc(4rem+var(--app-safe-bottom))] left-0 right-0 z-30 h-[3px] bg-foreground/10 md:bottom-0">
         <div className="absolute inset-y-0 left-0 bg-foreground/25" style={{ width: `${buffered}%` }} />
         <motion.div className="h-full gradient-primary" style={{ width: `${progress}%` }} transition={{ duration: 0.1 }} />
       </div>
@@ -468,7 +468,7 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
       )}
 
       {/* Bottom Info */}
-      <div className="absolute bottom-[calc(5.9rem+env(safe-area-inset-bottom))] left-4 right-20 z-20 text-shadow-video md:bottom-5">
+      <div className="absolute bottom-[calc(5.9rem+var(--app-safe-bottom))] left-4 right-20 z-20 text-shadow-video md:bottom-5">
         <div className="flex items-center gap-2 mb-2">
           <button type="button" onClick={() => navigate(`/profile/${video.user.username}`)} className="flex min-w-0 max-w-[70vw] items-center gap-1.5 rounded-full bg-background/18 pr-2 text-left backdrop-blur-sm">
             <div className="h-9 w-9 rounded-full gradient-primary flex items-center justify-center text-xs font-bold text-primary-foreground overflow-hidden">
@@ -510,7 +510,7 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
       </div>
 
       {/* Right Action Bar */}
-      <div className="absolute right-3 bottom-[calc(8.6rem+env(safe-area-inset-bottom))] z-20 flex flex-col items-center gap-3 md:bottom-8 md:gap-4">
+      <div className="absolute right-3 bottom-[calc(8.6rem+var(--app-safe-bottom))] z-20 flex flex-col items-center gap-3 md:bottom-8 md:gap-4">
         <ActionButton
           icon={<Heart className={`h-7 w-7 ${liked ? "fill-primary text-primary" : "text-foreground"}`} />}
           label={formatCount(likeCount)}

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Flame, Star, Trophy, Target, Gift, Zap, Award, Crown, X, BadgeDollarSign, Megaphone, ShieldCheck } from "lucide-react";
 import confetti from "canvas-confetti";
+import { flameRewardSteps, flameRules } from "@/data/flameRules";
 
 interface Badge {
   icon: React.ReactNode;
@@ -157,6 +158,31 @@ export default function GamificationPanel({ isOpen, onClose }: GamificationPanel
                   </div>
                 </div>
                 <span className="text-3xl font-extrabold text-foreground tabular-nums">{streak}</span>
+              </div>
+
+              <div className="glass rounded-2xl p-4">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <div>
+                    <h3 className="flex items-center gap-2 text-sm font-bold text-foreground">
+                      <Flame className="h-4 w-4 text-primary" /> Regles flammes
+                    </h3>
+                    <p className="mt-1 text-xs text-muted-foreground">Points fun, reciproques et anti-triche.</p>
+                  </div>
+                  <span className="rounded-full bg-primary/15 px-2 py-1 text-[10px] font-bold text-primary">test OK</span>
+                </div>
+                <div className="grid grid-cols-5 gap-1.5">
+                  {flameRewardSteps.map(step => (
+                    <div key={step.days} className="rounded-xl bg-card px-2 py-2 text-center">
+                      <p className="text-xs font-black text-foreground">{step.days}j</p>
+                      <p className="truncate text-[9px] font-bold text-primary">{step.label}</p>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-3 space-y-1">
+                  {flameRules.slice(0, 5).map(rule => (
+                    <p key={rule} className="rounded-xl bg-background/55 px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">{rule}</p>
+                  ))}
+                </div>
               </div>
 
               <div className="glass rounded-2xl p-4">

@@ -269,9 +269,9 @@ export default function SettingsPage() {
 
   return (
     <div className="min-h-[100svh] bg-background mobile-page-bottom-safe md:pb-8 md:pl-[var(--sidebar-width,260px)]">
-      <div className="mx-auto max-w-lg px-4 pt-6">
+      <div className="mobile-page-top-safe mx-auto max-w-lg px-4">
         <div className="flex items-center gap-3 mb-6">
-          <motion.button whileTap={{ scale: 0.9 }} onClick={() => navigate(-1)}>
+          <motion.button type="button" whileTap={{ scale: 0.9 }} onClick={() => navigate(-1)} className="tap-target-lg glass-action grid place-items-center rounded-full" aria-label="Retour">
             <ArrowLeft className="h-5 w-5 text-foreground" />
           </motion.button>
           <h1 className="text-xl font-bold text-foreground">Paramètres</h1>

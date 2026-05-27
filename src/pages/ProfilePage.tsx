@@ -383,19 +383,19 @@ export default function ProfilePage() {
 
   return (
     <div className="min-h-[100svh] bg-background mobile-page-bottom-safe md:pb-8 md:pl-[var(--sidebar-width,260px)]">
-      <div className="mx-auto max-w-lg px-4 pt-8">
+      <div className="mobile-page-top-safe mx-auto max-w-lg px-4">
         {/* Header */}
-        <div className="flex items-center justify-between mb-6">
-          <h1 className="text-xl font-bold text-foreground">@{currentProfile.username}</h1>
+        <div className="mb-6 flex items-center justify-between gap-3">
+          <h1 className="min-w-0 truncate text-lg font-bold text-foreground sm:text-xl">@{currentProfile.username}</h1>
           {isOwnProfile && (
-            <div className="flex items-center gap-2">
-              <motion.button whileTap={{ scale: 0.9 }} onClick={() => { fetchProfileViewers(); setShowProfileViews(true); }} aria-label="Voir les visites du profil">
+            <div className="flex shrink-0 items-center gap-1.5">
+              <motion.button type="button" whileTap={{ scale: 0.9 }} onClick={() => { fetchProfileViewers(); setShowProfileViews(true); }} aria-label="Voir les visites du profil" className="tap-target-lg glass-action grid place-items-center rounded-full">
                 <Eye className="h-5 w-5 text-muted-foreground" />
               </motion.button>
-              <motion.button whileTap={{ scale: 0.9 }} onClick={openQR}>
+              <motion.button type="button" whileTap={{ scale: 0.9 }} onClick={openQR} aria-label="Afficher le QR profil" className="tap-target-lg glass-action grid place-items-center rounded-full">
                 <QrCode className="h-5 w-5 text-muted-foreground" />
               </motion.button>
-              <motion.button whileTap={{ scale: 0.9 }} onClick={() => navigate("/settings")}>
+              <motion.button type="button" whileTap={{ scale: 0.9 }} onClick={() => navigate("/settings")} aria-label="Ouvrir les paramètres" className="tap-target-lg glass-action grid place-items-center rounded-full">
                 <Settings className="h-5 w-5 text-muted-foreground" />
               </motion.button>
             </div>
@@ -501,9 +501,11 @@ export default function ProfilePage() {
                 </motion.button>
               </>
             )}
+            {!isOwnProfile && (
             <motion.button whileTap={{ scale: 0.95 }} className="glass rounded-lg px-4 py-2" onClick={() => { navigator.clipboard.writeText(shareUrl); toast.success("Lien copié ! 🔗"); }}>
               <Link2 className="h-4 w-4 text-foreground" />
             </motion.button>
+            )}
           </div>
         </div>
 
