@@ -63,23 +63,45 @@ export default function GlobalCallListener() {
       return;
     }
 
+    if ("Notification" in window && Notification.permission === "default") {
+      Notification.requestPermission().catch(() => {});
+    }
+
     const channel = supabase
       .channel(`global-calls-${user.id}`)
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "direct_call_sessions", filter: `recipient_id=eq.${user.id}` }, async (payload) => {
         const call = payload.new as any;
         if (!call || call.status !== "ringing" || call.caller_id === user.id) return;
         if (window.location.pathname === `/chat/${call.conversation_id}`) return;
-        const { data: caller } = await supabase.from("profiles").select("username, display_name").eq("id", call.caller_id).maybeSingle();
+        const { data: caller } = await supabase.from("profiles").select("username, display_name, avatar_url").eq("id", call.caller_id).maybeSingle();
+        const callerName = (caller as any)?.display_name || (caller as any)?.username || "Utilisateur";
         setIncoming({
           id: call.id,
           conversationId: call.conversation_id,
           callerId: call.caller_id,
           callType: call.call_type === "video" ? "video" : "audio",
-          callerName: (caller as any)?.display_name || (caller as any)?.username || "Utilisateur",
+          callerName,
         });
         startRing();
-        navigator.vibrate?.([180, 80, 180, 80, 180]);
+        navigator.vibrate?.([220, 90, 220, 90, 220, 90, 220]);
+        if (document.hidden && "Notification" in window && Notification.permission === "granted") {
+          try {
+            const reg = await navigator.serviceWorker?.getRegistration();
+            const title = call.call_type === "video" ? "Appel vidéo entrant" : "Appel audio entrant";
+            const opts: NotificationOptions = {
+              body: `${callerName} t'appelle`,
+              icon: (caller as any)?.avatar_url || "/icon-192.png",
+              badge: "/icon-192.png",
+              tag: `call-${call.id}`,
+              requireInteraction: true,
+              data: { url: `/chat/${call.conversation_id}?call=${call.id}&answer=1` },
+            };
+            if (reg && (reg as any).showNotification) await (reg as any).showNotification(title, opts);
+            else new Notification(title, opts);
+          } catch {}
+        }
       })
+
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "direct_call_sessions", filter: `recipient_id=eq.${user.id}` }, (payload) => {
         const call = payload.new as any;
         if (incomingIdRef.current === call?.id && call.status !== "ringing") {
