@@ -1117,8 +1117,10 @@ export default function ChatPage() {
                 )}
               </div>
             </motion.div>
-          ))
+            );
+          })
         )}
+
         <div ref={bottomRef} />
       </div>
 
