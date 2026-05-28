@@ -89,9 +89,11 @@ export default function AdminPage() {
         const { error } = await (supabase as any).from("messages").insert({
           conversation_id: conversationId,
           sender_id: user.id,
-          content: `[Admin] ${content}`,
+          content: `[BARDEUR · Équipe officielle]\n${content}`,
           content_version: "plain",
         });
+        if (error) throw error;
+
         if (error) throw error;
         sent += 1;
       } catch (error: any) {

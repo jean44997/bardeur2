@@ -156,14 +156,14 @@
   .pwa-bottom-nav {
     left: max(0.5rem, var(--app-safe-left));
     right: max(0.5rem, var(--app-safe-right));
-    bottom: max(0.2rem, calc(var(--app-safe-bottom) * 0.16));
+    bottom: max(0px, calc(var(--app-safe-bottom) * 0.05));
     min-height: var(--app-nav-height);
-    padding-bottom: max(0.25rem, calc(var(--app-safe-bottom) * 0.22));
+    padding-bottom: max(0.15rem, calc(var(--app-safe-bottom) * 0.18));
     transform: translate3d(0, 0, 0);
     transition: transform 180ms var(--spring-bezier), opacity 180ms ease, bottom 180ms ease;
   }
   .mobile-page-bottom-safe {
-    padding-bottom: calc(var(--app-nav-height) + max(1.35rem, var(--app-safe-bottom)) + 0.75rem);
+    padding-bottom: calc(var(--app-nav-height) + max(1rem, var(--app-safe-bottom)) + 0.4rem);
   }
   .mobile-page-top-safe {
     padding-top: calc(max(1.15rem, var(--app-safe-top)) + 0.65rem);
@@ -172,8 +172,10 @@
     padding-top: calc(max(0.8rem, var(--app-safe-top)) + 0.15rem);
   }
   .mobile-chat-composer-safe {
-    padding-bottom: max(0.85rem, var(--app-safe-bottom));
+    padding-bottom: max(0.6rem, env(keyboard-inset-height, 0px), var(--app-safe-bottom));
+    transition: padding-bottom 160ms ease;
   }
+
   .fullscreen-safe-top {
     padding-top: calc(max(1rem, var(--app-safe-top)) + 0.25rem);
   }

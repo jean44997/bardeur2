@@ -1075,10 +1075,20 @@ export default function ChatPage() {
         ) : messages.length === 0 ? (
           <p className="text-center text-sm text-muted-foreground py-8">Dis bonjour ! 👋</p>
         ) : (
-          messages.map(msg => (
+          messages.map(msg => {
+            const isOfficial = !msg.fromMe && msg.text?.startsWith("[BARDEUR · Équipe officielle]");
+            const officialBody = isOfficial ? msg.text.replace("[BARDEUR · Équipe officielle]", "").trim() : msg.text;
+            return (
             <motion.div key={msg.id} initial={{ opacity: 0, y: 10, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} className={`flex ${msg.fromMe ? "justify-end" : "justify-start"} group`}>
               <div className="max-w-[82%] relative sm:max-w-[75%]">
-                <div className={`px-4 py-2.5 text-sm ${msg.fromMe ? "gradient-primary text-primary-foreground rounded-2xl rounded-br-sm" : "glass text-foreground rounded-2xl rounded-bl-sm"}`}>
+                {isOfficial && (
+                  <div className="mb-1 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-primary">
+                    <span className="grid h-5 w-5 place-items-center rounded-full gradient-primary text-[10px] font-black text-primary-foreground">B</span>
+                    BARDEUR · Officiel
+                    <ShieldCheck className="h-3 w-3 text-primary" />
+                  </div>
+                )}
+                <div className={`px-4 py-2.5 text-sm ${msg.fromMe ? "gradient-primary text-primary-foreground rounded-2xl rounded-br-sm" : isOfficial ? "border border-primary/40 bg-primary/10 text-foreground rounded-2xl rounded-bl-sm" : "glass text-foreground rounded-2xl rounded-bl-sm"}`}>
                   {msg.mediaUrl && msg.mediaType?.startsWith("image") && (
                     <img src={msg.mediaUrl} alt="" className="mb-2 max-h-64 w-full rounded-xl object-cover" loading="lazy" />
                   )}
@@ -1088,8 +1098,9 @@ export default function ChatPage() {
                   {msg.mediaUrl && msg.mediaType?.startsWith("audio") && (
                     <div className="mb-1"><AudioBubble src={msg.mediaUrl} /></div>
                   )}
-                  {msg.text && msg.text !== "Message supprimé" ? msg.text : msg.text === "Message supprimé" ? <span className="italic opacity-60">{msg.text}</span> : null}
+                  {officialBody && officialBody !== "Message supprimé" ? officialBody : officialBody === "Message supprimé" ? <span className="italic opacity-60">{officialBody}</span> : null}
                 </div>
+
                 <div className={`flex items-center gap-1 mt-0.5 ${msg.fromMe ? "justify-end" : "justify-start"}`}>
                   <span className="text-[10px] text-muted-foreground">{msg.time}</span>
                   {msg.fromMe && <StatusIcon status={msg.status} />}
@@ -1106,8 +1117,10 @@ export default function ChatPage() {
                 )}
               </div>
             </motion.div>
-          ))
+            );
+          })
         )}
+
         <div ref={bottomRef} />
       </div>
 
@@ -1161,8 +1174,9 @@ export default function ChatPage() {
               <ImageIcon className="h-5 w-5 text-muted-foreground" />
             </motion.button>
             <div className="glass flex min-w-0 flex-1 items-center rounded-full px-4 py-2.5">
-              <input type="text" value={newMsg} onChange={e => setNewMsg(e.target.value)} onKeyDown={e => e.key === "Enter" && sendMessage()} placeholder={isBlocked || blockedByThem ? "Conversation bloquee" : "Message..."} disabled={isBlocked || blockedByThem} maxLength={500} className="min-w-0 flex-1 bg-transparent text-base leading-5 text-foreground placeholder:text-muted-foreground outline-none disabled:opacity-50" />
+              <input type="text" value={newMsg} onChange={e => setNewMsg(e.target.value)} onKeyDown={e => e.key === "Enter" && sendMessage()} onFocus={() => { setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" }), 280); }} placeholder={isBlocked || blockedByThem ? "Conversation bloquee" : "Message..."} disabled={isBlocked || blockedByThem} maxLength={500} enterKeyHint="send" autoComplete="off" className="min-w-0 flex-1 bg-transparent text-base leading-5 text-foreground placeholder:text-muted-foreground outline-none disabled:opacity-50" />
             </div>
+
             {newMsg.trim() ? (
               <motion.button whileTap={{ scale: 0.85 }} onClick={sendMessage} disabled={isBlocked || blockedByThem} className="tap-target grid shrink-0 place-items-center rounded-full gradient-primary disabled:opacity-40">
                 <Send className="h-4 w-4 text-primary-foreground" />
