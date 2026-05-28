@@ -19,6 +19,8 @@ import ChatPage from "./pages/ChatPage";
 import SettingsPage from "./pages/SettingsPage";
 import MonetizationPage from "./pages/MonetizationPage";
 import AdminPage from "./pages/AdminPage";
+import AdminDiagnosticPage from "./pages/AdminDiagnosticPage";
+
 import ResetPasswordPage from "./pages/ResetPasswordPage";
 import LivePage from "./pages/LivePage";
 import WatchLivePage from "./pages/WatchLivePage";
@@ -66,6 +68,8 @@ const App = () => (
                       <Route path="/monetization" element={<AuthGuard><MonetizationPage /></AuthGuard>} />
                       <Route path="/settings/live-debug" element={<AuthGuard><LiveDebugPage /></AuthGuard>} />
                       <Route path="/admin" element={<AuthGuard><AdminPage /></AuthGuard>} />
+                      <Route path="/admin/diagnostic" element={<AuthGuard><AdminDiagnosticPage /></AuthGuard>} />
+
                       <Route path="/notifications" element={<AuthGuard><Navigate to="/inbox?tab=activity" replace /></AuthGuard>} />
                       <Route path="*" element={<NotFound />} />
                     </Routes>
