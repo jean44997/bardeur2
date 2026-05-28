@@ -161,6 +161,9 @@ export default function AdminPage() {
           <Shield className="h-5 w-5 text-primary" />
           <h1 className="text-xl font-bold text-foreground">Administration</h1>
           <div className="ml-auto flex items-center gap-2">
+            <button type="button" onClick={() => navigate("/admin/diagnostic")} className="glass rounded-full p-2" aria-label="Diagnostic">
+              <Stethoscope className="h-4 w-4 text-foreground" />
+            </button>
             <button type="button" onClick={fetchAll} className="glass rounded-full p-2" aria-label="Actualiser">
               <RefreshCw className="h-4 w-4 text-foreground" />
             </button>
@@ -169,6 +172,7 @@ export default function AdminPage() {
             </button>
             <span className="text-xs font-medium text-primary">{role === "super_admin" ? "Super Admin" : "Admin"}</span>
           </div>
+
         </div>
 
         <div className="flex gap-1 glass rounded-xl p-1 mb-6">
