@@ -314,6 +314,7 @@ export default function ProfilePage() {
         expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
       });
       toast.success(storyAudienceRef.current === "private" ? "Story privee publiee" : "Story publique publiee");
+      if (targetUserId) fetchActiveStories(targetUserId);
     } catch (err: any) {
       toast.error(err?.message || "Story impossible a publier");
     } finally {
@@ -539,6 +540,17 @@ export default function ProfilePage() {
             )}
           </div>
         </div>
+
+        {/* Pensée du jour */}
+        {targetUserId && (
+          <ThoughtOfDay
+            ownerId={targetUserId}
+            ownerName={currentProfile.username}
+            isOwn={isOwnProfile}
+            initialThought={(currentProfile as any)?.thought_of_day || ""}
+            initialUpdatedAt={(currentProfile as any)?.thought_updated_at || null}
+          />
+        )}
 
         {/* Tabs */}
         <div className="flex border-b border-border mb-4">
