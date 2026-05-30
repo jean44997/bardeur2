@@ -39,6 +39,8 @@ export default function ProfilePage() {
   const [profileViewers, setProfileViewers] = useState<any[]>([]);
   const [showProfileViews, setShowProfileViews] = useState(false);
   const [uploadingStory, setUploadingStory] = useState(false);
+  const [activeStories, setActiveStories] = useState<any[]>([]);
+  const [storyViewerIndex, setStoryViewerIndex] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const storyInputRef = useRef<HTMLInputElement>(null);
   const storyAudienceRef = useRef<"public" | "private">("public");
