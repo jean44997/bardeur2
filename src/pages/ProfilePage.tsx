@@ -9,6 +9,8 @@ import AppLogo from "@/components/AppLogo";
 import QRCode from "qrcode";
 import { sanitizeHashtags, validateUploadFile, validateUserText } from "@/lib/contentSafety";
 import ProfileViewsPanel from "@/components/ProfileViewsPanel";
+import StoryRing from "@/components/StoryRing";
+import ThoughtOfDay from "@/components/ThoughtOfDay";
 
 export default function ProfilePage() {
   const navigate = useNavigate();
