@@ -143,6 +143,20 @@ export default function ProfilePage() {
     else setVideos([]);
   };
 
+  const fetchActiveStories = async (userId: string) => {
+    try {
+      const { data } = await (supabase as any)
+        .from("stories")
+        .select("*")
+        .eq("user_id", userId)
+        .gt("expires_at", new Date().toISOString())
+        .order("created_at", { ascending: true });
+      setActiveStories(data || []);
+    } catch {
+      setActiveStories([]);
+    }
+  };
+
   const fetchLikedVideos = async (profileId = user?.id) => {
     if (!profileId) return;
     const { data } = await supabase
