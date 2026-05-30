@@ -138,15 +138,29 @@ export default function SettingsPage() {
       setMfaMessage("Ajoute un numéro complet avec indicatif pays (ex : +2250102030405).");
       return;
     }
-    const enrollOptions = mfaMethod === "phone"
-      ? ({ factorType: "phone", phone: mfaPhone.trim() } as any)
-      : ({ factorType: "totp" } as const);
+    // Nettoie les facteurs non vérifiés (cause #1 d'erreur "factor already exists")
+    try {
+      const existing = await supabase.auth.mfa.listFactors();
+      const all = [...(((existing as any).data?.totp) || []), ...(((existing as any).data?.phone) || [])];
+      for (const f of all) {
+        if (f.status !== "verified") {
+          await supabase.auth.mfa.unenroll({ factorId: f.id });
+        }
+      }
+    } catch { /* ignore */ }
+
+    const friendlyName = `BARDEUR YK ${mfaMethod === "phone" ? "Numéro" : "App"} ${Date.now().toString(36)}`;
+    const enrollOptions: any = mfaMethod === "phone"
+      ? { factorType: "phone", phone: mfaPhone.trim(), friendlyName }
+      : { factorType: "totp", issuer: "BARDEUR YK", friendlyName };
     const { data, error } = await supabase.auth.mfa.enroll(enrollOptions);
     if (error) {
       setMfaStatus("error");
       const msg = (error.message || "").toLowerCase();
       if (mfaMethod === "phone" && (msg.includes("provider") || msg.includes("sms") || msg.includes("not enabled") || msg.includes("phone") || msg.includes("twilio"))) {
-        setMfaMessage("SMS 2FA indisponible sur ce backend : opérateur/SMS non configuré ou refusé. Solution immédiate : choisis « Email/app » puis scanne le QR code avec Google Authenticator/Authy. Tu peux réessayer le numéro plus tard sans bloquer ton compte.");
+        setMfaMessage("SMS 2FA indisponible (opérateur SMS non configuré). Bascule sur « Email/app » et scanne le QR avec Google Authenticator/Authy.");
+      } else if (msg.includes("aal") || msg.includes("level")) {
+        setMfaMessage("Reconnecte-toi puis réessaie : le niveau d'authentification est trop ancien pour activer la 2FA.");
       } else {
         setMfaMessage(error.message || "Double authentification indisponible.");
       }

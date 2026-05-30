@@ -84,16 +84,10 @@ export default function AdminPage() {
     let lastError = "";
     for (const target of targets) {
       try {
-        const { data: conversationId, error: rpcError } = await supabase.rpc("find_or_create_direct_conversation", { _other_user_id: target.id } as any);
-        if (rpcError || !conversationId) throw rpcError || new Error("Conversation indisponible");
-        const { error } = await (supabase as any).from("messages").insert({
-          conversation_id: conversationId,
-          sender_id: user.id,
-          content: `[BARDEUR · Équipe officielle]\n${content}`,
-          content_version: "plain",
+        const { error } = await (supabase as any).rpc("send_admin_official_message", {
+          _recipient_id: target.id,
+          _content: `[BARDEUR · Équipe officielle]\n${content}`,
         });
-        if (error) throw error;
-
         if (error) throw error;
         sent += 1;
       } catch (error: any) {
