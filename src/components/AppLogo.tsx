@@ -5,16 +5,56 @@ interface AppLogoProps {
   markClassName?: string;
 }
 
+/**
+ * BYK monogram – minimal, premium, no childish gradients.
+ * Black squircle, single thin accent stroke, sharp "B" mark with a YK suffix.
+ */
 export default function AppLogo({ className, markClassName }: AppLogoProps) {
   return (
-    <div className={cn("relative grid place-items-center overflow-hidden rounded-2xl border border-white/15 bg-black shadow-2xl shadow-primary/20", className)} aria-label="BARDEUR YK">
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_25%_15%,rgba(0,212,255,.45),transparent_28%),linear-gradient(135deg,rgba(255,51,153,.95),rgba(0,212,255,.88))]" />
-      <div className="absolute inset-[10%] rounded-[1rem] border border-white/20 bg-black/28 backdrop-blur-[2px]" />
-      <div className={cn("relative flex items-end gap-0.5 font-black tracking-tight text-white", markClassName)}>
-        <span className="text-[1.15em] leading-none">B</span>
-        <span className="mb-[0.08em] h-[0.72em] w-[0.18em] rounded-full bg-white/90" />
-        <span className="mb-[0.02em] text-[0.68em] leading-none text-white/90">YK</span>
-      </div>
+    <div
+      className={cn(
+        "relative grid place-items-center overflow-hidden rounded-[28%] bg-[#0a0a0c] shadow-[0_8px_28px_-12px_rgba(255,51,153,0.45)] ring-1 ring-white/10",
+        className,
+      )}
+      aria-label="BARDEUR YK"
+    >
+      {/* Subtle pink-to-cyan accent arc, very faint */}
+      <div className="pointer-events-none absolute -left-1/3 -top-1/3 h-[160%] w-[160%] rotate-[18deg] bg-[conic-gradient(from_220deg,transparent_0deg,rgba(255,51,153,.35)_70deg,rgba(0,212,255,.28)_140deg,transparent_220deg)] opacity-60 blur-2xl" />
+      {/* Hairline frame */}
+      <div className="absolute inset-[8%] rounded-[22%] border border-white/8" />
+
+      <svg
+        viewBox="0 0 64 64"
+        className={cn("relative h-[62%] w-[62%] drop-shadow-[0_1px_0_rgba(0,0,0,.6)]", markClassName)}
+        aria-hidden
+      >
+        <defs>
+          <linearGradient id="bykStroke" x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse">
+            <stop offset="0" stopColor="#ffffff" />
+            <stop offset="1" stopColor="#ffd6e7" />
+          </linearGradient>
+        </defs>
+        {/* B shape */}
+        <path
+          d="M14 10 H30 a10 10 0 0 1 0 20 H14 Z M14 30 H32 a11 11 0 0 1 0 22 H14 Z"
+          fill="url(#bykStroke)"
+        />
+        {/* YK micro-mark */}
+        <text
+          x="42"
+          y="50"
+          fontFamily="'Plus Jakarta Sans', system-ui, sans-serif"
+          fontWeight="900"
+          fontSize="14"
+          letterSpacing="-0.04em"
+          fill="#ffffff"
+          opacity="0.92"
+        >
+          YK
+        </text>
+        {/* Bottom accent dot */}
+        <circle cx="48" cy="14" r="2.6" fill="#ff3399" />
+      </svg>
     </div>
   );
 }

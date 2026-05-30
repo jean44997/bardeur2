@@ -811,6 +811,8 @@ export type Database = {
           notify_shares: boolean
           push_notifications: boolean | null
           sound_notifications: boolean | null
+          thought_of_day: string | null
+          thought_updated_at: string | null
           updated_at: string | null
           username: string
           website: string | null
@@ -842,6 +844,8 @@ export type Database = {
           notify_shares?: boolean
           push_notifications?: boolean | null
           sound_notifications?: boolean | null
+          thought_of_day?: string | null
+          thought_updated_at?: string | null
           updated_at?: string | null
           username: string
           website?: string | null
@@ -873,6 +877,8 @@ export type Database = {
           notify_shares?: boolean
           push_notifications?: boolean | null
           sound_notifications?: boolean | null
+          thought_of_day?: string | null
+          thought_updated_at?: string | null
           updated_at?: string | null
           username?: string
           website?: string | null
@@ -1018,6 +1024,63 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      stories: {
+        Row: {
+          audience: string
+          caption: string | null
+          created_at: string
+          expires_at: string
+          id: string
+          media_type: string
+          media_url: string
+          user_id: string
+          views_count: number
+        }
+        Insert: {
+          audience?: string
+          caption?: string | null
+          created_at?: string
+          expires_at?: string
+          id?: string
+          media_type?: string
+          media_url: string
+          user_id: string
+          views_count?: number
+        }
+        Update: {
+          audience?: string
+          caption?: string | null
+          created_at?: string
+          expires_at?: string
+          id?: string
+          media_type?: string
+          media_url?: string
+          user_id?: string
+          views_count?: number
+        }
+        Relationships: []
+      }
+      story_views: {
+        Row: {
+          id: string
+          story_id: string
+          viewed_at: string
+          viewer_id: string
+        }
+        Insert: {
+          id?: string
+          story_id: string
+          viewed_at?: string
+          viewer_id: string
+        }
+        Update: {
+          id?: string
+          story_id?: string
+          viewed_at?: string
+          viewer_id?: string
+        }
+        Relationships: []
       }
       user_blocks: {
         Row: {
@@ -1219,6 +1282,11 @@ export type Database = {
         Returns: undefined
       }
       refresh_daily_xp: { Args: { _profile_id: string }; Returns: undefined }
+      send_admin_official_message: {
+        Args: { _content: string; _recipient_id: string }
+        Returns: string
+      }
+      set_thought_of_day: { Args: { _thought: string }; Returns: undefined }
     }
     Enums: {
       app_role: "super_admin" | "admin" | "user"

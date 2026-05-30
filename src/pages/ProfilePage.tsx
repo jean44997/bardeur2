@@ -9,6 +9,8 @@ import AppLogo from "@/components/AppLogo";
 import QRCode from "qrcode";
 import { sanitizeHashtags, validateUploadFile, validateUserText } from "@/lib/contentSafety";
 import ProfileViewsPanel from "@/components/ProfileViewsPanel";
+import StoryRing from "@/components/StoryRing";
+import ThoughtOfDay from "@/components/ThoughtOfDay";
 
 export default function ProfilePage() {
   const navigate = useNavigate();
@@ -37,6 +39,8 @@ export default function ProfilePage() {
   const [profileViewers, setProfileViewers] = useState<any[]>([]);
   const [showProfileViews, setShowProfileViews] = useState(false);
   const [uploadingStory, setUploadingStory] = useState(false);
+  const [activeStories, setActiveStories] = useState<any[]>([]);
+  const [storyViewerIndex, setStoryViewerIndex] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const storyInputRef = useRef<HTMLInputElement>(null);
   const storyAudienceRef = useRef<"public" | "private">("public");
@@ -60,6 +64,7 @@ export default function ProfilePage() {
     if (targetUserId) {
       fetchStats(targetUserId);
       fetchVideos(targetUserId);
+      fetchActiveStories(targetUserId);
       if (user && (isOwnProfile || currentProfile?.hide_likes === false)) {
         fetchLikedVideos(targetUserId);
       }
@@ -136,6 +141,20 @@ export default function ProfilePage() {
       .order("created_at", { ascending: false });
     if (!error) setVideos(data || []);
     else setVideos([]);
+  };
+
+  const fetchActiveStories = async (userId: string) => {
+    try {
+      const { data } = await (supabase as any)
+        .from("stories")
+        .select("*")
+        .eq("user_id", userId)
+        .gt("expires_at", new Date().toISOString())
+        .order("created_at", { ascending: true });
+      setActiveStories(data || []);
+    } catch {
+      setActiveStories([]);
+    }
   };
 
   const fetchLikedVideos = async (profileId = user?.id) => {
@@ -295,6 +314,7 @@ export default function ProfilePage() {
         expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
       });
       toast.success(storyAudienceRef.current === "private" ? "Story privee publiee" : "Story publique publiee");
+      if (targetUserId) fetchActiveStories(targetUserId);
     } catch (err: any) {
       toast.error(err?.message || "Story impossible a publier");
     } finally {
@@ -405,13 +425,25 @@ export default function ProfilePage() {
         {/* Profile info */}
         <div className="flex flex-col items-center mb-6">
           <div className="relative mb-3">
-            <div className="h-24 w-24 rounded-full gradient-primary flex items-center justify-center text-3xl font-bold text-primary-foreground ring-4 ring-background overflow-hidden">
-              {currentProfile.avatar_url ? (
-                <img src={currentProfile.avatar_url} alt="" className="h-full w-full object-cover" />
-              ) : (
-                currentProfile.display_name?.[0] || "?"
-              )}
-            </div>
+            <button
+              type="button"
+              onClick={() => {
+                if (activeStories.length > 0) setStoryViewerIndex(0);
+                else if (isOwnProfile) openStoryUpload("public");
+              }}
+              className="block"
+              aria-label={activeStories.length ? "Voir les stories" : isOwnProfile ? "Ajouter une story" : "Profil"}
+            >
+              <StoryRing hasUnseen={activeStories.length > 0} isOwn={isOwnProfile} size={104}>
+                <div className="grid h-full w-full place-items-center overflow-hidden rounded-full gradient-primary text-3xl font-bold text-primary-foreground">
+                  {currentProfile.avatar_url ? (
+                    <img src={currentProfile.avatar_url} alt="" className="h-full w-full object-cover" />
+                  ) : (
+                    currentProfile.display_name?.[0] || "?"
+                  )}
+                </div>
+              </StoryRing>
+            </button>
             {isOwnProfile && (
               <>
                 <motion.button whileTap={{ scale: 0.9 }} onClick={() => fileInputRef.current?.click()} className="absolute bottom-0 right-0 h-8 w-8 rounded-full bg-primary flex items-center justify-center ring-2 ring-background">
@@ -508,6 +540,17 @@ export default function ProfilePage() {
             )}
           </div>
         </div>
+
+        {/* Pensée du jour */}
+        {targetUserId && (
+          <ThoughtOfDay
+            ownerId={targetUserId}
+            ownerName={currentProfile.username}
+            isOwn={isOwnProfile}
+            initialThought={(currentProfile as any)?.thought_of_day || ""}
+            initialUpdatedAt={(currentProfile as any)?.thought_updated_at || null}
+          />
+        )}
 
         {/* Tabs */}
         <div className="flex border-b border-border mb-4">
