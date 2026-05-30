@@ -424,13 +424,25 @@ export default function ProfilePage() {
         {/* Profile info */}
         <div className="flex flex-col items-center mb-6">
           <div className="relative mb-3">
-            <div className="h-24 w-24 rounded-full gradient-primary flex items-center justify-center text-3xl font-bold text-primary-foreground ring-4 ring-background overflow-hidden">
-              {currentProfile.avatar_url ? (
-                <img src={currentProfile.avatar_url} alt="" className="h-full w-full object-cover" />
-              ) : (
-                currentProfile.display_name?.[0] || "?"
-              )}
-            </div>
+            <button
+              type="button"
+              onClick={() => {
+                if (activeStories.length > 0) setStoryViewerIndex(0);
+                else if (isOwnProfile) openStoryUpload("public");
+              }}
+              className="block"
+              aria-label={activeStories.length ? "Voir les stories" : isOwnProfile ? "Ajouter une story" : "Profil"}
+            >
+              <StoryRing hasUnseen={activeStories.length > 0} isOwn={isOwnProfile} size={104}>
+                <div className="grid h-full w-full place-items-center overflow-hidden rounded-full gradient-primary text-3xl font-bold text-primary-foreground">
+                  {currentProfile.avatar_url ? (
+                    <img src={currentProfile.avatar_url} alt="" className="h-full w-full object-cover" />
+                  ) : (
+                    currentProfile.display_name?.[0] || "?"
+                  )}
+                </div>
+              </StoryRing>
+            </button>
             {isOwnProfile && (
               <>
                 <motion.button whileTap={{ scale: 0.9 }} onClick={() => fileInputRef.current?.click()} className="absolute bottom-0 right-0 h-8 w-8 rounded-full bg-primary flex items-center justify-center ring-2 ring-background">
