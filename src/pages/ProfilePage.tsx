@@ -64,6 +64,7 @@ export default function ProfilePage() {
     if (targetUserId) {
       fetchStats(targetUserId);
       fetchVideos(targetUserId);
+      fetchActiveStories(targetUserId);
       if (user && (isOwnProfile || currentProfile?.hide_likes === false)) {
         fetchLikedVideos(targetUserId);
       }
