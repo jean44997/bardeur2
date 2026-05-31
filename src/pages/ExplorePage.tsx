@@ -5,6 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
+import StoriesRail from "@/components/StoriesRail";
 
 const categories = [
   { icon: Flame, label: "pourtoi", color: "from-primary to-pink-400" },
@@ -72,7 +73,8 @@ export default function ExplorePage() {
   return (
     <div className="min-h-[100svh] bg-background mobile-page-bottom-safe md:pb-8 md:pl-[var(--sidebar-width,260px)]">
       <div className="mobile-page-top-safe mx-auto max-w-3xl px-4">
-        <div className="glass flex items-center gap-3 rounded-2xl px-4 py-3 mb-4">
+        <StoriesRail />
+        <div className="glass flex items-center gap-3 rounded-2xl px-4 py-3 mb-4 mt-1">
           <Search className="h-5 w-5 text-muted-foreground" />
           <input type="text" placeholder="Rechercher utilisateurs, hashtags..." value={query} onChange={e => setQuery(e.target.value)} className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none" />
         </div>

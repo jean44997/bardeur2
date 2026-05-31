@@ -679,6 +679,9 @@ export default function ProfilePage() {
           )}
         </AnimatePresence>
       </div>
+      {storyViewerIndex !== null && activeStories.length > 0 && (
+        <StoryViewer stories={activeStories as any} initialIndex={storyViewerIndex} onClose={() => setStoryViewerIndex(null)} />
+      )}
     </div>
   );
 }
