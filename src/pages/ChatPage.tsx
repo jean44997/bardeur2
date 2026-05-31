@@ -104,7 +104,9 @@ export default function ChatPage() {
 
       const channel = supabase
         .channel(`messages-${conversationId}`)
-        .on("postgres_changes", { event: "*", schema: "public", table: "messages", filter: `conversation_id=eq.${conversationId}` }, () => {
+        .on("postgres_changes", { event: "*", schema: "public", table: "messages", filter: `conversation_id=eq.${conversationId}` }, (payload: any) => {
+          // Avoid full refetch flash when our own INSERT echoes back — we already appended optimistically.
+          if (payload?.eventType === "INSERT" && payload?.new?.sender_id === user?.id) return;
           fetchMessages();
           markAsRead();
         })
@@ -344,20 +346,36 @@ export default function ChatPage() {
     }
 
     const encryptedContent = await encryptMessageContent(validation.value, conversationId);
-    const { error } = await (supabase as any).from("messages").insert({
+    const optimisticId = `optim-${Date.now()}`;
+    const now = new Date();
+    // Optimistic append → no visible reload after send
+    setMessages(prev => [...prev, {
+      id: optimisticId,
+      text: validation.value,
+      fromMe: true,
+      time: now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      status: "sent",
+      senderId: user.id,
+      createdAt: now.toISOString(),
+    }]);
+    setNewMsg("");
+    setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" }), 40);
+
+    const { data, error } = await (supabase as any).from("messages").insert({
       conversation_id: conversationId,
       sender_id: user.id,
       content: encryptedContent,
       encrypted_content: encryptedContent !== validation.value,
       content_version: encryptedContent !== validation.value ? "bdenc_v1" : "plain",
-    });
+    }).select("id").single();
     if (error) {
+      setMessages(prev => prev.filter(m => m.id !== optimisticId));
+      setNewMsg(validation.value);
       toast.error(error.message?.includes("rate") ? "Rate-limit serveur atteint" : "Message impossible");
       return;
     }
-
+    if (data?.id) setMessages(prev => prev.map(m => m.id === optimisticId ? { ...m, id: data.id } : m));
     recentTextRef.current = [validation.value, ...recentTextRef.current].slice(0, 6);
-    setNewMsg("");
   };
 
   const sendImage = async (file?: File | null) => {

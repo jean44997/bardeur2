@@ -35,7 +35,7 @@ export default function StoryRing({ hasUnseen, isOwn, isLive, size = 64, classNa
         </span>
       )}
       {isOwn && !hasUnseen && !isLive && (
-        <span className="absolute -bottom-1 -right-1 grid h-5 w-5 place-items-center rounded-full border-[2px] border-background bg-primary text-[11px] font-black text-primary-foreground">
+        <span className="pointer-events-none absolute -top-1 -right-1 grid h-5 w-5 place-items-center rounded-full border-[2px] border-background bg-primary text-[11px] font-black text-primary-foreground shadow-md">
           +
         </span>
       )}
