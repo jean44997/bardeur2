@@ -10,6 +10,7 @@ import QRCode from "qrcode";
 import { sanitizeHashtags, validateUploadFile, validateUserText } from "@/lib/contentSafety";
 import ProfileViewsPanel from "@/components/ProfileViewsPanel";
 import StoryRing from "@/components/StoryRing";
+import StoryViewer from "@/components/StoryViewer";
 import ThoughtOfDay from "@/components/ThoughtOfDay";
 
 export default function ProfilePage() {
@@ -147,11 +148,15 @@ export default function ProfilePage() {
     try {
       const { data } = await (supabase as any)
         .from("stories")
-        .select("*")
+        .select("id, user_id, media_url, media_type, caption, created_at, profiles:user_id(username, display_name, avatar_url)")
         .eq("user_id", userId)
         .gt("expires_at", new Date().toISOString())
         .order("created_at", { ascending: true });
-      setActiveStories(data || []);
+      const mapped = (data || []).map((s: any) => ({
+        id: s.id, user_id: s.user_id, media_url: s.media_url, media_type: s.media_type, caption: s.caption, created_at: s.created_at,
+        author: { username: s.profiles?.username, display_name: s.profiles?.display_name, avatar_url: s.profiles?.avatar_url },
+      }));
+      setActiveStories(mapped);
     } catch {
       setActiveStories([]);
     }
