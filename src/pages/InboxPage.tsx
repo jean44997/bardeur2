@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Archive, AtSign, Bell, CheckCircle2, Heart, MessageCircle, Pin, Search, Share2, ShieldCheck, UserPlus, Video } from "lucide-react";
+import { Archive, AtSign, Bell, CheckCircle2, Heart, Inbox as InboxIcon, MessageCircle, Pin, Search, Share2, ShieldCheck, UserPlus, Video } from "lucide-react";
 import { motion } from "framer-motion";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
@@ -32,7 +32,7 @@ interface InboxNotification {
   reference_id?: string | null;
 }
 
-type InboxTab = "all" | "pinned" | "activity" | "requests" | "archived";
+type InboxTab = "all" | "todo" | "pinned" | "activity" | "requests" | "archived";
 
 const notificationIcons: Record<string, any> = {
   follow: UserPlus,
@@ -73,7 +73,7 @@ export default function InboxPage() {
 
   useEffect(() => {
     const tab = searchParams.get("tab") as InboxTab | null;
-    if (tab && ["all", "pinned", "activity", "requests", "archived"].includes(tab)) setActiveTab(tab);
+    if (tab && ["all", "todo", "pinned", "activity", "requests", "archived"].includes(tab)) setActiveTab(tab);
   }, [searchParams]);
 
   useEffect(() => {
@@ -225,6 +225,7 @@ export default function InboxPage() {
       if (activeTab === "pinned") return c.pinned && !c.archived;
       if (activeTab === "archived") return c.archived;
       if (activeTab === "requests") return c.request;
+      if (activeTab === "todo") return c.unread > 0 && !c.archived;
       return !c.archived;
     }), [activeTab, conversations, searchQuery]);
 
@@ -233,9 +234,12 @@ export default function InboxPage() {
     return base.filter(n => `${n.content} ${n.from_username}`.toLowerCase().includes(searchQuery.toLowerCase()));
   }, [notificationFilter, notifications, searchQuery]);
 
+  const todoCount = conversations.filter(c => c.unread > 0 && !c.archived).length + notifications.filter(n => !n.is_read).length;
+
   const tabs = [
     { id: "all" as const, label: "Tous", count: conversations.filter(c => !c.archived).length, icon: Bell },
-    { id: "pinned" as const, label: "Epingles", count: conversations.filter(c => c.pinned && !c.archived).length, icon: Pin },
+    { id: "todo" as const, label: "À traiter", count: todoCount, icon: InboxIcon, accent: true },
+    { id: "pinned" as const, label: "Épinglés", count: conversations.filter(c => c.pinned && !c.archived).length, icon: Pin },
     { id: "activity" as const, label: "Actu", count: notifications.filter(n => !n.is_read).length, icon: Heart },
     { id: "requests" as const, label: "Demandes", count: conversations.filter(c => c.request).length, icon: UserPlus },
     { id: "archived" as const, label: "Archives", count: conversations.filter(c => c.archived).length, icon: Archive },
@@ -262,14 +266,23 @@ export default function InboxPage() {
           />
         </div>
 
-        <div className="mb-4 grid grid-cols-5 gap-2">
-          {tabs.map(tab => (
-            <button key={tab.id} type="button" onClick={() => setActiveTab(tab.id)} className={`rounded-2xl px-2 py-2 text-[11px] font-bold ${activeTab === tab.id ? "gradient-primary text-primary-foreground" : "glass text-foreground"}`}>
-              <tab.icon className="mx-auto mb-1 h-4 w-4" />
-              <span>{tab.label}</span>
-              <span className="ml-1 tabular-nums">{tab.count > 99 ? "99+" : tab.count}</span>
-            </button>
-          ))}
+        <div className="mb-4 grid grid-cols-6 gap-1.5">
+          {tabs.map(tab => {
+            const isActive = activeTab === tab.id;
+            const hasBadge = tab.count > 0 && (tab.id === "todo" || tab.id === "activity");
+            return (
+              <button key={tab.id} type="button" onClick={() => setActiveTab(tab.id)} className={`relative rounded-2xl px-1.5 py-2 text-[10.5px] font-bold leading-tight ${isActive ? "gradient-primary text-primary-foreground shadow-[0_4px_16px_-6px_hsl(var(--primary)/0.6)]" : (tab as any).accent ? "glass text-foreground ring-1 ring-primary/40" : "glass text-foreground"}`}>
+                <tab.icon className="mx-auto mb-0.5 h-4 w-4" />
+                <span className="block truncate">{tab.label}</span>
+                <span className="ml-0.5 tabular-nums opacity-80">{tab.count > 99 ? "99+" : tab.count}</span>
+                {hasBadge && !isActive && (
+                  <span className="absolute -top-1 -right-1 grid h-5 min-w-5 place-items-center rounded-full bg-destructive px-1 text-[10px] font-black text-destructive-foreground shadow-lg ring-2 ring-background animate-[pulseGlow_1.5s_ease-in-out_infinite_alternate]">
+                    {tab.count > 99 ? "99+" : tab.count}
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </div>
 
         <div className="mb-3 grid grid-cols-3 gap-2">
