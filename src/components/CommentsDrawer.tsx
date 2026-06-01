@@ -40,6 +40,8 @@ export default function CommentsDrawer({ isOpen, onClose, commentCount, videoId,
   const [loading, setLoading] = useState(false);
   const [isRecordingAudio, setIsRecordingAudio] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
+  const [mutuals, setMutuals] = useState<Array<{ id: string; username: string; display_name: string; avatar_url: string }>>([]);
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const audioRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -51,7 +53,10 @@ export default function CommentsDrawer({ isOpen, onClose, commentCount, videoId,
     if (isOpen && videoId) {
       fetchComments();
     }
-  }, [isOpen, videoId]);
+    if (isOpen && user) {
+      fetchMutuals();
+    }
+  }, [isOpen, videoId, user?.id]);
 
   useEffect(() => {
     if (!isRecordingAudio) { setRecordingTime(0); return; }
@@ -66,6 +71,63 @@ export default function CommentsDrawer({ isOpen, onClose, commentCount, videoId,
   useEffect(() => {
     return () => audioStreamRef.current?.getTracks().forEach(t => t.stop());
   }, []);
+
+  // Mutual followers only (DMs/mentions require mutual follow per project rule).
+  const fetchMutuals = async () => {
+    if (!user) return;
+    const [follows1, follows2] = await Promise.all([
+      supabase.from("follows").select("following_id").eq("follower_id", user.id),
+      supabase.from("follows").select("follower_id").eq("following_id", user.id),
+    ]);
+    const followingSet = new Set((follows1.data || []).map((r: any) => r.following_id));
+    const followerSet = new Set((follows2.data || []).map((r: any) => r.follower_id));
+    const mutualIds = Array.from(followingSet).filter(id => followerSet.has(id));
+    if (!mutualIds.length) { setMutuals([]); return; }
+    const { data: profs } = await supabase
+      .from("profiles")
+      .select("id, username, display_name, avatar_url")
+      .in("id", mutualIds as string[]);
+    setMutuals((profs || []).map((p: any) => ({
+      id: p.id,
+      username: p.username || "user",
+      display_name: p.display_name || p.username || "Ami",
+      avatar_url: p.avatar_url || "",
+    })));
+  };
+
+  // Detect "@partial" being typed at the caret position to drive autocomplete.
+  const updateMentionQuery = (value: string) => {
+    const caret = inputRef.current?.selectionStart ?? value.length;
+    const before = value.slice(0, caret);
+    const match = before.match(/(?:^|\s)@([\p{L}0-9_.-]{0,24})$/u);
+    setMentionQuery(match ? match[1].toLowerCase() : null);
+  };
+
+  const handleCommentChange = (value: string) => {
+    setNewComment(value);
+    updateMentionQuery(value);
+  };
+
+  const insertMention = (username: string) => {
+    const input = inputRef.current;
+    const caret = input?.selectionStart ?? newComment.length;
+    const before = newComment.slice(0, caret).replace(/@([\p{L}0-9_.-]*)$/u, `@${username} `);
+    const after = newComment.slice(caret);
+    const next = `${before}${after}`.slice(0, 280);
+    setNewComment(next);
+    setMentionQuery(null);
+    requestAnimationFrame(() => {
+      input?.focus();
+      const pos = before.length;
+      input?.setSelectionRange(pos, pos);
+    });
+  };
+
+  const filteredMutuals = mentionQuery === null
+    ? []
+    : mutuals
+        .filter(m => !mentionQuery || m.username.toLowerCase().includes(mentionQuery) || m.display_name.toLowerCase().includes(mentionQuery))
+        .slice(0, 5);
 
   const fetchComments = async () => {
     if (!videoId) return;
@@ -319,6 +381,37 @@ export default function CommentsDrawer({ isOpen, onClose, commentCount, videoId,
                   </div>
                 </div>
               )}
+
+              {/* @mention autocomplete — mutual friends only */}
+              {mentionQuery !== null && (
+                <div className="mb-2 max-h-44 overflow-y-auto rounded-2xl border border-border bg-card shadow-lg">
+                  {filteredMutuals.length === 0 ? (
+                    <div className="px-3 py-2 text-[11px] text-muted-foreground">
+                      Aucun ami mutuel à mentionner. Suis-le et qu'il te suive en retour pour le taguer.
+                    </div>
+                  ) : (
+                    filteredMutuals.map(m => (
+                      <button
+                        key={m.id}
+                        type="button"
+                        onMouseDown={(e) => { e.preventDefault(); insertMention(m.username); }}
+                        className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-secondary/40"
+                      >
+                        <div className="h-7 w-7 shrink-0 overflow-hidden rounded-full bg-secondary">
+                          {m.avatar_url ? <img src={m.avatar_url} alt="" className="h-full w-full object-cover" /> : (
+                            <div className="grid h-full w-full place-items-center text-[10px] font-bold text-foreground">{m.display_name[0]}</div>
+                          )}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="truncate text-xs font-semibold text-foreground">@{m.username}</p>
+                          <p className="truncate text-[10px] text-muted-foreground">{m.display_name}</p>
+                        </div>
+                      </button>
+                    ))
+                  )}
+                </div>
+              )}
+
               {isRecordingAudio ? (
                 <div className="flex items-center gap-2">
                   <button type="button" onClick={cancelAudioRecording} className="grid h-10 w-10 place-items-center rounded-full bg-destructive/10 text-destructive">
@@ -343,10 +436,12 @@ export default function CommentsDrawer({ isOpen, onClose, commentCount, videoId,
                     ref={inputRef}
                     type="text"
                     value={newComment}
-                    onChange={e => setNewComment(e.target.value)}
-                    onKeyDown={e => e.key === "Enter" && addComment()}
+                    onChange={e => handleCommentChange(e.target.value)}
+                    onKeyUp={e => updateMentionQuery((e.target as HTMLInputElement).value)}
+                    onClick={e => updateMentionQuery((e.target as HTMLInputElement).value)}
+                    onKeyDown={e => { if (e.key === "Enter" && mentionQuery === null) addComment(); if (e.key === "Escape") setMentionQuery(null); }}
                     maxLength={280}
-                    placeholder={user ? "Ajouter un commentaire..." : "Connecte-toi pour commenter"}
+                    placeholder={user ? "Ajouter un commentaire, @ pour taguer un ami..." : "Connecte-toi pour commenter"}
                     disabled={!user}
                     className="min-w-0 flex-1 bg-transparent text-base leading-5 text-foreground placeholder:text-muted-foreground outline-none disabled:opacity-50"
                   />
