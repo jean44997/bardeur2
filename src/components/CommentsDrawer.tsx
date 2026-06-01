@@ -381,6 +381,37 @@ export default function CommentsDrawer({ isOpen, onClose, commentCount, videoId,
                   </div>
                 </div>
               )}
+
+              {/* @mention autocomplete — mutual friends only */}
+              {mentionQuery !== null && (
+                <div className="mb-2 max-h-44 overflow-y-auto rounded-2xl border border-border bg-card shadow-lg">
+                  {filteredMutuals.length === 0 ? (
+                    <div className="px-3 py-2 text-[11px] text-muted-foreground">
+                      Aucun ami mutuel à mentionner. Suis-le et qu'il te suive en retour pour le taguer.
+                    </div>
+                  ) : (
+                    filteredMutuals.map(m => (
+                      <button
+                        key={m.id}
+                        type="button"
+                        onMouseDown={(e) => { e.preventDefault(); insertMention(m.username); }}
+                        className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-secondary/40"
+                      >
+                        <div className="h-7 w-7 shrink-0 overflow-hidden rounded-full bg-secondary">
+                          {m.avatar_url ? <img src={m.avatar_url} alt="" className="h-full w-full object-cover" /> : (
+                            <div className="grid h-full w-full place-items-center text-[10px] font-bold text-foreground">{m.display_name[0]}</div>
+                          )}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="truncate text-xs font-semibold text-foreground">@{m.username}</p>
+                          <p className="truncate text-[10px] text-muted-foreground">{m.display_name}</p>
+                        </div>
+                      </button>
+                    ))
+                  )}
+                </div>
+              )}
+
               {isRecordingAudio ? (
                 <div className="flex items-center gap-2">
                   <button type="button" onClick={cancelAudioRecording} className="grid h-10 w-10 place-items-center rounded-full bg-destructive/10 text-destructive">
@@ -405,10 +436,12 @@ export default function CommentsDrawer({ isOpen, onClose, commentCount, videoId,
                     ref={inputRef}
                     type="text"
                     value={newComment}
-                    onChange={e => setNewComment(e.target.value)}
-                    onKeyDown={e => e.key === "Enter" && addComment()}
+                    onChange={e => handleCommentChange(e.target.value)}
+                    onKeyUp={e => updateMentionQuery((e.target as HTMLInputElement).value)}
+                    onClick={e => updateMentionQuery((e.target as HTMLInputElement).value)}
+                    onKeyDown={e => { if (e.key === "Enter" && mentionQuery === null) addComment(); if (e.key === "Escape") setMentionQuery(null); }}
                     maxLength={280}
-                    placeholder={user ? "Ajouter un commentaire..." : "Connecte-toi pour commenter"}
+                    placeholder={user ? "Ajouter un commentaire, @ pour taguer un ami..." : "Connecte-toi pour commenter"}
                     disabled={!user}
                     className="min-w-0 flex-1 bg-transparent text-base leading-5 text-foreground placeholder:text-muted-foreground outline-none disabled:opacity-50"
                   />
