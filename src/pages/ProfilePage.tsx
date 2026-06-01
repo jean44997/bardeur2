@@ -279,14 +279,18 @@ export default function ProfilePage() {
     const file = e.target.files?.[0];
     if (!file || !user) return;
     const fileCheck = validateUploadFile(file, { maxBytes: 4 * 1024 * 1024, acceptedPrefixes: ["image/"] });
-    if (!fileCheck.ok) { toast.error(fileCheck.reason); return; }
-    const ext = file.name.split(".").pop();
+    if (!fileCheck.ok) { toast.error(fileCheck.reason || "Fichier refusé"); return; }
+    const ext = (file.name.split(".").pop() || "jpg").toLowerCase();
     const path = `${user.id}/avatar_${Date.now()}.${ext}`;
-    const { error: uploadError } = await supabase.storage.from("avatars").upload(path, file, { upsert: true, contentType: file.type });
-    if (uploadError) { toast.error("Erreur d'upload"); return; }
+    const { error: uploadError } = await supabase.storage.from("avatars").upload(path, file, { upsert: true, contentType: file.type, cacheControl: "3600" });
+    if (uploadError) { toast.error(uploadError.message || "Erreur d'upload"); return; }
     const { data: urlData } = supabase.storage.from("avatars").getPublicUrl(path);
-    await updateProfile({ avatar_url: urlData.publicUrl });
+    // Cache-bust so the new avatar appears immediately across the app
+    const fresh = `${urlData.publicUrl}?v=${Date.now()}`;
+    const { error: updateErr } = await updateProfile({ avatar_url: fresh });
+    if (updateErr) { toast.error("Profil non mis à jour"); return; }
     toast.success("Photo de profil mise à jour ! 📸");
+    if (e.target) e.target.value = "";
   };
 
   const handleRemoveAvatar = async () => {
@@ -332,7 +336,13 @@ export default function ProfilePage() {
     if (!currentProfile) return;
     const url = `${window.location.origin}/profile/${currentProfile.username}`;
     try {
-      const dataUrl = await QRCode.toDataURL(url, { width: 256, color: { dark: "#ffffff", light: "#00000000" }, margin: 2 });
+      // High-contrast (dark on white) so it scans reliably from any camera app.
+      const dataUrl = await QRCode.toDataURL(url, {
+        width: 320,
+        margin: 2,
+        errorCorrectionLevel: "H",
+        color: { dark: "#0a0a0a", light: "#ffffff" },
+      });
       setQrDataUrl(dataUrl);
     } catch { setQrDataUrl(""); }
   }, [currentProfile]);
