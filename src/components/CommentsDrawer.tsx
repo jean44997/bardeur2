@@ -40,6 +40,8 @@ export default function CommentsDrawer({ isOpen, onClose, commentCount, videoId,
   const [loading, setLoading] = useState(false);
   const [isRecordingAudio, setIsRecordingAudio] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
+  const [mutuals, setMutuals] = useState<Array<{ id: string; username: string; display_name: string; avatar_url: string }>>([]);
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const audioRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -51,7 +53,10 @@ export default function CommentsDrawer({ isOpen, onClose, commentCount, videoId,
     if (isOpen && videoId) {
       fetchComments();
     }
-  }, [isOpen, videoId]);
+    if (isOpen && user) {
+      fetchMutuals();
+    }
+  }, [isOpen, videoId, user?.id]);
 
   useEffect(() => {
     if (!isRecordingAudio) { setRecordingTime(0); return; }
@@ -66,6 +71,63 @@ export default function CommentsDrawer({ isOpen, onClose, commentCount, videoId,
   useEffect(() => {
     return () => audioStreamRef.current?.getTracks().forEach(t => t.stop());
   }, []);
+
+  // Mutual followers only (DMs/mentions require mutual follow per project rule).
+  const fetchMutuals = async () => {
+    if (!user) return;
+    const [follows1, follows2] = await Promise.all([
+      supabase.from("follows").select("following_id").eq("follower_id", user.id),
+      supabase.from("follows").select("follower_id").eq("following_id", user.id),
+    ]);
+    const followingSet = new Set((follows1.data || []).map((r: any) => r.following_id));
+    const followerSet = new Set((follows2.data || []).map((r: any) => r.follower_id));
+    const mutualIds = Array.from(followingSet).filter(id => followerSet.has(id));
+    if (!mutualIds.length) { setMutuals([]); return; }
+    const { data: profs } = await supabase
+      .from("profiles")
+      .select("id, username, display_name, avatar_url")
+      .in("id", mutualIds as string[]);
+    setMutuals((profs || []).map((p: any) => ({
+      id: p.id,
+      username: p.username || "user",
+      display_name: p.display_name || p.username || "Ami",
+      avatar_url: p.avatar_url || "",
+    })));
+  };
+
+  // Detect "@partial" being typed at the caret position to drive autocomplete.
+  const updateMentionQuery = (value: string) => {
+    const caret = inputRef.current?.selectionStart ?? value.length;
+    const before = value.slice(0, caret);
+    const match = before.match(/(?:^|\s)@([\p{L}0-9_.-]{0,24})$/u);
+    setMentionQuery(match ? match[1].toLowerCase() : null);
+  };
+
+  const handleCommentChange = (value: string) => {
+    setNewComment(value);
+    updateMentionQuery(value);
+  };
+
+  const insertMention = (username: string) => {
+    const input = inputRef.current;
+    const caret = input?.selectionStart ?? newComment.length;
+    const before = newComment.slice(0, caret).replace(/@([\p{L}0-9_.-]*)$/u, `@${username} `);
+    const after = newComment.slice(caret);
+    const next = `${before}${after}`.slice(0, 280);
+    setNewComment(next);
+    setMentionQuery(null);
+    requestAnimationFrame(() => {
+      input?.focus();
+      const pos = before.length;
+      input?.setSelectionRange(pos, pos);
+    });
+  };
+
+  const filteredMutuals = mentionQuery === null
+    ? []
+    : mutuals
+        .filter(m => !mentionQuery || m.username.toLowerCase().includes(mentionQuery) || m.display_name.toLowerCase().includes(mentionQuery))
+        .slice(0, 5);
 
   const fetchComments = async () => {
     if (!videoId) return;
