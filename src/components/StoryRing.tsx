@@ -13,12 +13,14 @@ interface StoryRingProps {
  * Gradient ring around an avatar – TikTok / IG story style.
  * Shows different states: unseen (vivid), seen (muted), live (red pulse).
  */
-export default function StoryRing({ hasUnseen, isOwn, isLive, size = 64, className, children }: StoryRingProps) {
+export default function StoryRing({ hasUnseen, isOwn, isLive, isOwnPosted, size = 64, className, children }: StoryRingProps & { isOwnPosted?: boolean }) {
   const ring = isLive
     ? "bg-[conic-gradient(from_0deg,#ff2d55,#ff3399,#ff2d55)] animate-[pulseGlow_1.4s_ease-in-out_infinite_alternate]"
-    : hasUnseen
-      ? "bg-[conic-gradient(from_140deg,#ff3399,#ff8a3c,#00d4ff,#ff3399)]"
-      : "bg-border";
+    : isOwnPosted
+      ? "bg-[conic-gradient(from_120deg,#00aaff,#3b82f6,#00d4ff,#00aaff)]"
+      : hasUnseen
+        ? "bg-[conic-gradient(from_140deg,#ff3399,#ff8a3c,#00d4ff,#ff3399)]"
+        : "bg-border";
   return (
     <div
       className={cn("relative grid place-items-center rounded-full p-[2px]", ring, className)}

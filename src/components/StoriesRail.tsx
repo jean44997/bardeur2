@@ -152,7 +152,7 @@ export default function StoriesRail() {
             className="flex w-16 shrink-0 flex-col items-center gap-1"
             aria-label={myGroup ? "Voir ma story" : "Ajouter une story"}
           >
-            <StoryRing hasUnseen={!!myGroup && myGroup.hasUnseen} isOwn={!myGroup} size={64}>
+            <StoryRing hasUnseen={!!myGroup && myGroup.hasUnseen} isOwn={!myGroup} isOwnPosted={!!myGroup} size={64}>
               <div className="grid h-full w-full place-items-center overflow-hidden rounded-full gradient-primary text-base font-bold text-primary-foreground">
                 {myGroup?.avatar_url ? (
                   <img src={myGroup.avatar_url} alt="" className="h-full w-full object-cover" />

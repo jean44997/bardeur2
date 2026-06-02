@@ -9,11 +9,13 @@ interface AudioBubbleProps {
 
 export default function AudioBubble({ src, compact = false }: AudioBubbleProps) {
   const audioRef = useRef<HTMLAudioElement>(null);
+  const barRef = useRef<HTMLDivElement>(null);
   const [playing, setPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
   const [duration, setDuration] = useState(0);
   const [volume, setVolume] = useState(0.85);
   const [buffered, setBuffered] = useState(0);
+  const [scrubbing, setScrubbing] = useState(false);
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -42,8 +44,30 @@ export default function AudioBubble({ src, compact = false }: AudioBubbleProps) 
     }
   };
 
+  const seekFromClientX = (clientX: number) => {
+    const bar = barRef.current;
+    const audio = audioRef.current;
+    if (!bar || !audio || !audio.duration || Number.isNaN(audio.duration)) return;
+    const rect = bar.getBoundingClientRect();
+    const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    audio.currentTime = ratio * audio.duration;
+    setProgress(ratio * 100);
+  };
+
+  const onPointerDown: React.PointerEventHandler<HTMLDivElement> = (e) => {
+    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+    setScrubbing(true);
+    seekFromClientX(e.clientX);
+  };
+  const onPointerMove: React.PointerEventHandler<HTMLDivElement> = (e) => {
+    if (!scrubbing) return;
+    seekFromClientX(e.clientX);
+  };
+  const onPointerUp: React.PointerEventHandler<HTMLDivElement> = () => setScrubbing(false);
 
   const fmt = (s: number) => `${Math.floor(s / 60)}:${Math.floor(s % 60).toString().padStart(2, "0")}`;
+
+  const bars = compact ? 16 : 24;
 
   return (
     <div className="min-w-[210px] max-w-full rounded-2xl bg-background/30 px-3 py-2 shadow-sm">
@@ -62,7 +86,10 @@ export default function AudioBubble({ src, compact = false }: AudioBubbleProps) 
             setBuffered((audio.buffered.end(audio.buffered.length - 1) / audio.duration) * 100);
           }
         }}
-        onTimeUpdate={(e) => setProgress(e.currentTarget.duration ? (e.currentTarget.currentTime / e.currentTarget.duration) * 100 : 0)}
+        onTimeUpdate={(e) => {
+          if (scrubbing) return;
+          setProgress(e.currentTarget.duration ? (e.currentTarget.currentTime / e.currentTarget.duration) * 100 : 0);
+        }}
         onEnded={() => { setPlaying(false); setProgress(0); }}
         onError={() => setPlaying(false)}
       />
@@ -70,10 +97,30 @@ export default function AudioBubble({ src, compact = false }: AudioBubbleProps) 
         <motion.button whileTap={{ scale: 0.9 }} onClick={toggle} className="grid h-9 w-9 place-items-center rounded-full bg-primary text-primary-foreground">
           {playing ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
         </motion.button>
-        <div className="flex min-w-0 flex-1 items-end gap-0.5">
-          {Array.from({ length: compact ? 16 : 24 }).map((_, i) => (
-            <span key={i} className="w-1 rounded-full bg-foreground/70" style={{ height: 8 + ((i * 7) % 18), opacity: i < (progress / 100) * (compact ? 16 : 24) ? 1 : 0.35 }} />
+        <div
+          ref={barRef}
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          onPointerCancel={onPointerUp}
+          className="relative flex min-w-0 flex-1 cursor-pointer touch-none items-end gap-0.5 py-1"
+          role="slider"
+          aria-label="Position de lecture"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={Math.round(progress)}
+        >
+          {Array.from({ length: bars }).map((_, i) => (
+            <span
+              key={i}
+              className="w-1 rounded-full bg-foreground/70 pointer-events-none transition-opacity"
+              style={{ height: 8 + ((i * 7) % 18), opacity: i < (progress / 100) * bars ? 1 : 0.35 }}
+            />
           ))}
+          <span
+            className="pointer-events-none absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary shadow ring-2 ring-background"
+            style={{ left: `${progress}%`, opacity: scrubbing ? 1 : 0.85 }}
+          />
         </div>
         <span className="w-9 text-right text-[10px] tabular-nums text-foreground/70">{fmt(duration)}</span>
       </div>

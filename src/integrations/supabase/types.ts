@@ -186,6 +186,8 @@ export type Database = {
           created_at: string | null
           id: string
           likes_count: number | null
+          media_type: string | null
+          media_url: string | null
           parent_id: string | null
           user_id: string
           video_id: string
@@ -195,6 +197,8 @@ export type Database = {
           created_at?: string | null
           id?: string
           likes_count?: number | null
+          media_type?: string | null
+          media_url?: string | null
           parent_id?: string | null
           user_id: string
           video_id: string
@@ -204,6 +208,8 @@ export type Database = {
           created_at?: string | null
           id?: string
           likes_count?: number | null
+          media_type?: string | null
+          media_url?: string | null
           parent_id?: string | null
           user_id?: string
           video_id?: string
