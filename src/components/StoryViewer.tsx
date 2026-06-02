@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Pause, Play, Volume2, VolumeX } from "lucide-react";
+import { X, Pause, Play, Volume2, VolumeX, Trash2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
+import { toast } from "sonner";
 
 export interface StoryItem {
   id: string;
@@ -83,6 +84,28 @@ export default function StoryViewer({ stories, initialIndex = 0, onClose }: Prop
   };
   const prev = () => setIndex(i => Math.max(0, i - 1));
 
+  const deleteCurrent = async () => {
+    if (!current || !user) return;
+    if (!window.confirm("Supprimer cette story ?")) return;
+    const { error } = await (supabase as any).from("stories").delete().eq("id", current.id);
+    if (error) { toast.error("Suppression impossible"); return; }
+    toast.success("Story supprimée");
+    if (stories.length <= 1) { onClose(); return; }
+    stories.splice(index, 1);
+    setIndex(i => Math.min(i, stories.length - 1));
+  };
+
+  const seekProgress = (clientX: number, rect: DOMRect) => {
+    const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    if (isVideo && videoRef.current && videoRef.current.duration) {
+      videoRef.current.currentTime = ratio * videoRef.current.duration;
+    } else {
+      elapsedAtPauseRef.current = ratio * IMAGE_DURATION_MS;
+      startedAtRef.current = Date.now();
+    }
+    setProgress(ratio);
+  };
+
   const togglePause = () => {
     setPaused(p => {
       const np = !p;
@@ -140,14 +163,30 @@ export default function StoryViewer({ stories, initialIndex = 0, onClose }: Prop
           )}
         </div>
 
-        {/* Progress bars */}
-        <div className="absolute left-0 right-0 top-0 z-20 flex gap-1 px-3 pt-[calc(max(0.6rem,var(--app-safe-top))+0.2rem)]">
+        {/* Progress bars (draggable to seek) */}
+        <div className="absolute left-0 right-0 top-0 z-30 flex gap-1 px-3 pt-[calc(max(0.6rem,var(--app-safe-top))+0.2rem)]">
           {stories.map((_, i) => (
-            <div key={i} className="h-[3px] flex-1 overflow-hidden rounded-full bg-white/25">
-              <div
-                className="h-full bg-white transition-[width] ease-linear"
-                style={{ width: `${i < index ? 100 : i === index ? progress * 100 : 0}%`, transitionDuration: i === index ? "60ms" : "0ms" }}
-              />
+            <div
+              key={i}
+              className="h-2 flex-1 cursor-pointer touch-none py-[3px]"
+              onPointerDown={(e) => {
+                if (i !== index) { setIndex(i); return; }
+                (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+                setPaused(true);
+                seekProgress(e.clientX, e.currentTarget.getBoundingClientRect());
+              }}
+              onPointerMove={(e) => {
+                if (i !== index || e.buttons === 0) return;
+                seekProgress(e.clientX, e.currentTarget.getBoundingClientRect());
+              }}
+              onPointerUp={() => setPaused(false)}
+            >
+              <div className="h-[3px] w-full overflow-hidden rounded-full bg-white/25">
+                <div
+                  className="h-full bg-white transition-[width] ease-linear"
+                  style={{ width: `${i < index ? 100 : i === index ? progress * 100 : 0}%`, transitionDuration: i === index ? "60ms" : "0ms" }}
+                />
+              </div>
             </div>
           ))}
         </div>
@@ -177,6 +216,11 @@ export default function StoryViewer({ stories, initialIndex = 0, onClose }: Prop
           <button type="button" onClick={togglePause} className="grid h-9 w-9 place-items-center rounded-full bg-black/40 text-white">
             {paused ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
           </button>
+          {user?.id === current.user_id && (
+            <button type="button" onClick={deleteCurrent} aria-label="Supprimer la story" className="grid h-9 w-9 place-items-center rounded-full bg-destructive/80 text-destructive-foreground">
+              <Trash2 className="h-4 w-4" />
+            </button>
+          )}
           <button type="button" onClick={onClose} aria-label="Fermer" className="grid h-9 w-9 place-items-center rounded-full bg-black/40 text-white">
             <X className="h-5 w-5" />
           </button>
