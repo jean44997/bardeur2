@@ -32,12 +32,16 @@ export default function AudioBubble({ src, compact = false }: AudioBubbleProps) 
     }
     try {
       audio.volume = volume;
+      if (!audio.duration || Number.isNaN(audio.duration)) {
+        try { audio.load(); } catch {}
+      }
       await audio.play();
       setPlaying(true);
     } catch {
       setPlaying(false);
     }
   };
+
 
   const fmt = (s: number) => `${Math.floor(s / 60)}:${Math.floor(s % 60).toString().padStart(2, "0")}`;
 
@@ -47,6 +51,10 @@ export default function AudioBubble({ src, compact = false }: AudioBubbleProps) 
         ref={audioRef}
         src={src}
         preload="metadata"
+        crossOrigin="anonymous"
+        playsInline
+        // @ts-ignore — iOS Safari hint
+        webkit-playsinline="true"
         onLoadedMetadata={(e) => setDuration(e.currentTarget.duration || 0)}
         onProgress={(e) => {
           const audio = e.currentTarget;
@@ -56,6 +64,7 @@ export default function AudioBubble({ src, compact = false }: AudioBubbleProps) 
         }}
         onTimeUpdate={(e) => setProgress(e.currentTarget.duration ? (e.currentTarget.currentTime / e.currentTarget.duration) * 100 : 0)}
         onEnded={() => { setPlaying(false); setProgress(0); }}
+        onError={() => setPlaying(false)}
       />
       <div className="flex items-center gap-2">
         <motion.button whileTap={{ scale: 0.9 }} onClick={toggle} className="grid h-9 w-9 place-items-center rounded-full bg-primary text-primary-foreground">
