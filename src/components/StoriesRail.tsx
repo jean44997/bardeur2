@@ -96,6 +96,9 @@ export default function StoriesRail() {
     if (!file || !user) return;
     const check = validateUploadFile(file, { maxBytes: 80 * 1024 * 1024, acceptedPrefixes: ["image/", "video/"] });
     if (!check.ok) { toast.error(check.reason || "Fichier refusé"); return; }
+    const audience = window.confirm("Publier cette story en PUBLIC ?\n\nOK = Public (visible par tout le monde)\nAnnuler = Privé (abonnés uniquement)")
+      ? "public"
+      : "private";
     setUploading(true);
     try {
       const ext = file.name.split(".").pop() || (file.type.startsWith("video") ? "mp4" : "jpg");
@@ -107,12 +110,14 @@ export default function StoriesRail() {
         user_id: user.id,
         media_url: data.publicUrl,
         media_type: file.type,
-        audience: "public",
+        audience,
         expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
       });
       if (insErr) throw insErr;
-      toast.success("Story publiée ✨");
-      fetchStories();
+      toast.success(`Story ${audience === "public" ? "publique" : "privée"} publiée ✨`);
+      // Force-refresh twice to bypass any stale realtime lag on PWA.
+      await fetchStories();
+      setTimeout(() => { fetchStories(); }, 600);
     } catch (err: any) {
       toast.error(err?.message || "Upload impossible");
     } finally {
@@ -120,6 +125,7 @@ export default function StoriesRail() {
       if (fileRef.current) fileRef.current.value = "";
     }
   };
+
 
   if (loading && groups.length === 0) {
     return (
