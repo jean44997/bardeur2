@@ -296,10 +296,22 @@ export default function ChatPage() {
     if (data?.[0]) {
       const targetId = (data[0] as any).user_id;
       setOtherUserId(targetId);
-      setOtherUserName((data[0] as any).profiles?.display_name || "Utilisateur");
+      // If the other user is an admin/super_admin, display the official BARDEUR identity.
+      const { data: roleRow } = await (supabase as any)
+        .from("user_roles")
+        .select("role")
+        .eq("user_id", targetId)
+        .in("role", ["admin", "super_admin"])
+        .maybeSingle();
+      if (roleRow) {
+        setOtherUserName("BARDEUR Officiel ✓");
+      } else {
+        setOtherUserName((data[0] as any).profiles?.display_name || "Utilisateur");
+      }
       checkBlockStatus(targetId);
     }
   };
+
 
   const checkBlockStatus = async (targetId = otherUserId) => {
     if (!user || !targetId) return;
