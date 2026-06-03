@@ -443,10 +443,39 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
         </motion.button>
       </div>}
 
-      {/* Progress Bar */}
-      <div className="absolute bottom-[calc(4rem+var(--app-safe-bottom))] left-0 right-0 z-30 h-[3px] bg-foreground/10 md:bottom-0">
-        <div className="absolute inset-y-0 left-0 bg-foreground/25" style={{ width: `${buffered}%` }} />
-        <motion.div className="h-full gradient-primary" style={{ width: `${progress}%` }} transition={{ duration: 0.1 }} />
+      {/* Progress Bar — scrubbable */}
+      <div
+        className="absolute bottom-[calc(4rem+var(--app-safe-bottom))] left-0 right-0 z-30 h-5 md:bottom-0 cursor-pointer touch-none"
+        onPointerDown={(e) => {
+          (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+          const v = videoRef.current;
+          if (!v?.duration) return;
+          const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+          const ratio = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
+          v.currentTime = ratio * v.duration;
+          setProgress(ratio * 100);
+          setPausedByUser(true);
+          v.pause();
+        }}
+        onPointerMove={(e) => {
+          if (e.buttons === 0 && e.pointerType !== "touch") return;
+          const v = videoRef.current;
+          if (!v?.duration) return;
+          const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+          const ratio = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
+          v.currentTime = ratio * v.duration;
+          setProgress(ratio * 100);
+        }}
+        onPointerUp={() => {
+          const v = videoRef.current;
+          if (v) { setPausedByUser(false); v.play().catch(() => {}); }
+        }}
+      >
+        <div className="absolute inset-x-0 top-1/2 h-[3px] -translate-y-1/2 bg-foreground/10">
+          <div className="absolute inset-y-0 left-0 bg-foreground/25" style={{ width: `${buffered}%` }} />
+          <motion.div className="h-full gradient-primary" style={{ width: `${progress}%` }} transition={{ duration: 0.1 }} />
+          <span className="absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary shadow ring-2 ring-background" style={{ left: `${progress}%` }} />
+        </div>
       </div>
 
       {isActive && (

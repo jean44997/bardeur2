@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from "react";
-import { Plus } from "lucide-react";
+import { Plus, Globe2, Users, X } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import StoryRing from "@/components/StoryRing";
@@ -27,6 +28,7 @@ export default function StoriesRail() {
   const [loading, setLoading] = useState(true);
   const [viewer, setViewer] = useState<{ stories: StoryItem[]; index: number } | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -91,14 +93,19 @@ export default function StoriesRail() {
 
   const myGroup = groups.find(g => g.user_id === user?.id);
 
-  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFilePicked = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !user) return;
     const check = validateUploadFile(file, { maxBytes: 80 * 1024 * 1024, acceptedPrefixes: ["image/", "video/"] });
-    if (!check.ok) { toast.error(check.reason || "Fichier refusé"); return; }
-    const audience = window.confirm("Publier cette story en PUBLIC ?\n\nOK = Public (visible par tout le monde)\nAnnuler = Privé (abonnés uniquement)")
-      ? "public"
-      : "private";
+    if (!check.ok) { toast.error(check.reason || "Fichier refusé"); if (fileRef.current) fileRef.current.value = ""; return; }
+    setPendingFile(file);
+    if (fileRef.current) fileRef.current.value = "";
+  };
+
+  const publishStory = async (audience: "public" | "private") => {
+    if (!pendingFile || !user) return;
+    const file = pendingFile;
+    setPendingFile(null);
     setUploading(true);
     try {
       const ext = file.name.split(".").pop() || (file.type.startsWith("video") ? "mp4" : "jpg");
@@ -114,15 +121,15 @@ export default function StoriesRail() {
         expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
       });
       if (insErr) throw insErr;
-      toast.success(`Story ${audience === "public" ? "publique" : "privée"} publiée ✨`);
-      // Force-refresh twice to bypass any stale realtime lag on PWA.
+      toast.success(`Story ${audience === "public" ? "publique 🌍" : "privée 👥"} publiée`);
       await fetchStories();
-      setTimeout(() => { fetchStories(); }, 600);
+      setTimeout(() => { fetchStories(); }, 700);
+      setTimeout(() => { fetchStories(); }, 2200);
     } catch (err: any) {
-      toast.error(err?.message || "Upload impossible");
+      console.error("[stories] publish failed", err);
+      toast.error(err?.message || "Publication impossible");
     } finally {
       setUploading(false);
-      if (fileRef.current) fileRef.current.value = "";
     }
   };
 
@@ -188,10 +195,57 @@ export default function StoriesRail() {
           <p className="self-center pl-2 text-xs text-muted-foreground">Sois le premier à publier une story aujourd'hui ✨</p>
         )}
       </div>
-      <input ref={fileRef} type="file" accept="image/*,video/*" className="hidden" onChange={handleUpload} />
+      <input ref={fileRef} type="file" accept="image/*,video/*" className="hidden" onChange={handleFilePicked} />
       {viewer && (
         <StoryViewer stories={viewer.stories} initialIndex={viewer.index} onClose={() => setViewer(null)} />
       )}
+
+      <AnimatePresence>
+        {pendingFile && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              onClick={() => setPendingFile(null)}
+              className="fixed inset-0 z-[80] bg-background/70 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }}
+              transition={{ type: "spring", stiffness: 320, damping: 32 }}
+              className="fixed inset-x-0 bottom-0 z-[81] rounded-t-3xl border-t border-border bg-card p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]"
+            >
+              <div className="mb-4 flex items-center justify-between">
+                <div>
+                  <h3 className="text-base font-bold text-foreground">Qui peut voir ta story ?</h3>
+                  <p className="text-xs text-muted-foreground">Disparait automatiquement après 24h</p>
+                </div>
+                <button onClick={() => setPendingFile(null)} aria-label="Annuler" className="grid h-9 w-9 place-items-center rounded-full bg-secondary">
+                  <X className="h-4 w-4 text-foreground" />
+                </button>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => publishStory("public")}
+                  className="flex flex-col items-start gap-2 rounded-2xl border border-primary/40 bg-gradient-to-br from-primary/15 to-accent/10 p-4 text-left active:scale-[0.98] transition-transform"
+                >
+                  <Globe2 className="h-5 w-5 text-primary" />
+                  <span className="text-sm font-bold text-foreground">Public</span>
+                  <span className="text-[11px] text-muted-foreground">Visible par tout le monde sur BARDEUR</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => publishStory("private")}
+                  className="flex flex-col items-start gap-2 rounded-2xl border border-border bg-secondary/40 p-4 text-left active:scale-[0.98] transition-transform"
+                >
+                  <Users className="h-5 w-5 text-foreground" />
+                  <span className="text-sm font-bold text-foreground">Amis</span>
+                  <span className="text-[11px] text-muted-foreground">Visible uniquement par tes abonnés</span>
+                </button>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
     </>
   );
 }
