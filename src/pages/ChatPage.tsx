@@ -47,6 +47,24 @@ const chatBackgrounds = [
   { label: "Sobre", value: "linear-gradient(180deg, #0b0b0f, #111827)" },
 ];
 
+const getTurnIceServers = (): RTCIceServer[] => {
+  const urls = String(import.meta.env.VITE_TURN_URLS || "").split(",").map((url) => url.trim()).filter(Boolean);
+  const username = import.meta.env.VITE_TURN_USERNAME;
+  const credential = import.meta.env.VITE_TURN_CREDENTIAL;
+  return urls.length && username && credential ? [{ urls, username, credential }] : [];
+};
+
+const getCallProfile = () => {
+  const info = getConnectionInfo();
+  if (info.saveData || info.effectiveType === "2g" || info.effectiveType === "slow-2g" || (info.downlink > 0 && info.downlink < 1.2)) {
+    return { label: "Eco" as const, width: 640, height: 360, frameRate: 24, bitrate: 420_000 };
+  }
+  if (info.effectiveType === "3g" || info.rtt > 350 || (info.downlink > 0 && info.downlink < 3)) {
+    return { label: "Auto" as const, width: 1280, height: 720, frameRate: 30, bitrate: 1_200_000 };
+  }
+  return { label: "HD" as const, width: 1920, height: 1080, frameRate: 30, bitrate: 2_200_000 };
+};
+
 export default function ChatPage() {
   const navigate = useNavigate();
   const { id: conversationId } = useParams();
