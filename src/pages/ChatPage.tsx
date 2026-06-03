@@ -701,10 +701,29 @@ export default function ChatPage() {
     }
   };
 
+  const applyAdaptiveVideoQuality = async (pc: RTCPeerConnection) => {
+    const profile = getCallProfile();
+    const videoSender = pc.getSenders().find((sender) => sender.track?.kind === "video");
+    if (!videoSender) return;
+    try {
+      const params = videoSender.getParameters();
+      (params as any).encodings = [{ ...(params.encodings?.[0] || {}), maxBitrate: profile.bitrate, maxFramerate: profile.frameRate }];
+      await videoSender.setParameters(params);
+      const track = videoSender.track;
+      await track?.applyConstraints({ width: { ideal: profile.width }, height: { ideal: profile.height }, frameRate: { ideal: profile.frameRate, max: profile.frameRate } });
+      setCallState((current) => current ? { ...current, quality: profile.label } : current);
+    } catch {
+      setCallState((current) => current ? { ...current, quality: "Auto" } : current);
+    }
+  };
+
   const setupPeerCall = async (callId: string, type: "audio" | "video", media: MediaStream, remoteUserId: string, isCaller: boolean) => {
     closePeer();
     const pc = new RTCPeerConnection({
+      bundlePolicy: "max-bundle",
+      iceCandidatePoolSize: 4,
       iceServers: [
+        ...getTurnIceServers(),
         { urls: "stun:stun.l.google.com:19302" },
         { urls: "stun:global.stun.twilio.com:3478" },
       ],
@@ -729,8 +748,27 @@ export default function ChatPage() {
       if (state === "failed" || state === "disconnected") {
         setRemoteConnected(false);
         toast.info("Connexion appel instable, tentative de reprise");
+        if (callReconnectTimerRef.current) window.clearTimeout(callReconnectTimerRef.current);
+        callReconnectTimerRef.current = window.setTimeout(async () => {
+          try {
+            pc.restartIce?.();
+            if (isCaller && pc.signalingState === "stable") {
+              const offer = await pc.createOffer({ iceRestart: true, offerToReceiveAudio: true, offerToReceiveVideo: type === "video" });
+              await pc.setLocalDescription(offer);
+              await sendCallSignal(callId, remoteUserId, "offer", offer);
+            }
+          } catch {
+            toast.error("Reconnexion appel impossible");
+          }
+        }, 1200);
       }
     };
+
+    if (type === "video") {
+      await applyAdaptiveVideoQuality(pc);
+      if (callQualityTimerRef.current) window.clearInterval(callQualityTimerRef.current);
+      callQualityTimerRef.current = window.setInterval(() => void applyAdaptiveVideoQuality(pc), 8000);
+    }
 
     const channel = supabase
       .channel(`direct-call-signals-${callId}-${user?.id}`)
