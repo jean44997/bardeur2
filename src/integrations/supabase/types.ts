@@ -1262,6 +1262,7 @@ export type Database = {
         Args: { _owner_id: string; _viewer_id: string }
         Returns: boolean
       }
+      cleanup_expired_stories: { Args: never; Returns: number }
       find_or_create_direct_conversation: {
         Args: { _other_user_id: string }
         Returns: string
