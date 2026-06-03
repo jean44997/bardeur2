@@ -97,17 +97,6 @@ export default function StoryViewer({ stories, initialIndex = 0, onClose }: Prop
     setIndex(i => Math.min(i, stories.length - 1));
   };
 
-  const seekProgress = (clientX: number, rect: DOMRect) => {
-    const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
-    if (isVideo && videoRef.current && videoRef.current.duration) {
-      videoRef.current.currentTime = ratio * videoRef.current.duration;
-    } else {
-      elapsedAtPauseRef.current = ratio * IMAGE_DURATION_MS;
-      startedAtRef.current = Date.now();
-    }
-    setProgress(ratio);
-  };
-
   const togglePause = () => {
     setPaused(p => {
       const np = !p;
