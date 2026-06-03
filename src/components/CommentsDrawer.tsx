@@ -7,7 +7,7 @@ import { toast } from "sonner";
 import { checkClientRateLimit, formatRetryAfter } from "@/lib/clientRateLimit";
 import { validateUserText } from "@/lib/contentSafety";
 import { getBestAudioRecorderOptions } from "@/lib/mediaCapabilities";
-import AudioBubble from "@/components/AudioBubble";
+import CommentVoiceNote from "@/components/CommentVoiceNote";
 
 interface Comment {
   id: string;
@@ -250,8 +250,9 @@ export default function CommentsDrawer({ isOpen, onClose, commentCount, videoId,
       if (error) throw error;
       toast.success("Commentaire vocal envoyé");
       fetchComments();
-    } catch {
-      toast.error("Erreur envoi vocal");
+    } catch (err: any) {
+      console.error("[voice-comment] send failed", err);
+      toast.error(err?.message ? `Vocal: ${err.message}` : "Erreur envoi vocal");
     }
   };
 
@@ -325,7 +326,7 @@ export default function CommentsDrawer({ isOpen, onClose, commentCount, videoId,
                       </div>
                       <p className="text-sm text-foreground/90 mb-1">{comment.text}</p>
                       {comment.mediaUrl && comment.mediaType?.startsWith("audio") && (
-                        <div className="mb-2 max-w-[260px]"><AudioBubble src={comment.mediaUrl} compact /></div>
+                        <div className="mb-2 max-w-[300px]"><CommentVoiceNote src={comment.mediaUrl} /></div>
                       )}
                       <div className="flex items-center gap-4">
                         <button onClick={() => toggleLike(comment.id)} className="flex items-center gap-1">
