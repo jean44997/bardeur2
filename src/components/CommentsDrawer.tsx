@@ -198,7 +198,7 @@ export default function CommentsDrawer({ isOpen, onClose, commentCount, videoId,
     const rate = checkClientRateLimit({ key: `comment-audio:${videoId}:${user.id}`, limit: 4, windowMs: 60_000, cooldownMs: 1500, blockMs: 45_000 });
     if (!rate.allowed) { toast.error(`Vocaux ralentis, réessaie dans ${formatRetryAfter(rate.retryAfterMs)}`); return; }
     try {
-      const recorderOptions = getBestAudioRecorderOptions(128000);
+      const recorderOptions = getBestAudioRecorderOptions(96000);
       const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, sampleRate: 48000, channelCount: 1 } });
       audioStreamRef.current = stream;
       audioChunksRef.current = [];
@@ -208,14 +208,16 @@ export default function CommentsDrawer({ isOpen, onClose, commentCount, videoId,
       mr.onstop = async () => {
         stream.getTracks().forEach(t => t.stop());
         if (cancelledAudioRef.current) { audioChunksRef.current = []; cancelledAudioRef.current = false; return; }
-        const blob = new Blob(audioChunksRef.current, { type: recorderOptions.contentType });
+        const finalType = recorderOptions.contentType || audioChunksRef.current[0]?.type || "audio/webm";
+        const blob = new Blob(audioChunksRef.current, { type: finalType });
         if (blob.size < 1000) { toast.info("Audio trop court"); return; }
-        await sendAudioComment(blob, recorderOptions.extension, recorderOptions.contentType);
+        await sendAudioComment(blob, recorderOptions.extension, finalType);
       };
       mr.start(250);
       audioRecorderRef.current = mr;
       setIsRecordingAudio(true);
-    } catch {
+    } catch (err) {
+      console.error("[voice-comment] record failed", err);
       toast.error("Autorise le micro pour commenter en vocal");
     }
   };
@@ -236,16 +238,18 @@ export default function CommentsDrawer({ isOpen, onClose, commentCount, videoId,
   const sendAudioComment = async (blob: Blob, extension = "webm", contentType = "audio/webm") => {
     if (!user || !videoId) return;
     try {
-      const path = `${user.id}/comment-audio/${crypto.randomUUID()}.${extension}`;
-      const { error: uploadError } = await supabase.storage.from("media").upload(path, blob, { contentType });
+      const safeType = contentType || blob.type || "audio/webm";
+      const safeExt = safeType.includes("mp4") || safeType.includes("aac") ? "m4a" : extension || "webm";
+      const path = `${user.id}/comment-audio/${crypto.randomUUID()}.${safeExt}`;
+      const { error: uploadError } = await supabase.storage.from("media").upload(path, blob, { contentType: safeType, upsert: false });
       if (uploadError) throw uploadError;
       const { data } = supabase.storage.from("media").getPublicUrl(path);
       const { error } = await (supabase as any).from("comments").insert({
         user_id: user.id,
         video_id: videoId,
-        content: "Commentaire vocal",
+        content: "🎙️ Vocal commentaire",
         media_url: data.publicUrl,
-        media_type: contentType,
+        media_type: safeType,
       });
       if (error) throw error;
       toast.success("Commentaire vocal envoyé");
