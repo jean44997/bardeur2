@@ -6,7 +6,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
 import AudioBubble from "@/components/AudioBubble";
-import { getBestAudioRecorderOptions } from "@/lib/mediaCapabilities";
+import { getBestAudioRecorderOptions, getConnectionInfo } from "@/lib/mediaCapabilities";
 import { checkClientRateLimit, formatRetryAfter } from "@/lib/clientRateLimit";
 import { looksLikeRepeatedSpam, validateUploadFile, validateUserText } from "@/lib/contentSafety";
 import { decryptMessageContent, encryptMessageContent, isEncryptedContent } from "@/lib/messageCrypto";
@@ -46,6 +46,24 @@ const chatBackgrounds = [
   { label: "Studio", value: "linear-gradient(145deg, rgba(250,204,21,.16), rgba(34,197,94,.12)), #080808" },
   { label: "Sobre", value: "linear-gradient(180deg, #0b0b0f, #111827)" },
 ];
+
+const getTurnIceServers = (): RTCIceServer[] => {
+  const urls = String(import.meta.env.VITE_TURN_URLS || "").split(",").map((url) => url.trim()).filter(Boolean);
+  const username = import.meta.env.VITE_TURN_USERNAME;
+  const credential = import.meta.env.VITE_TURN_CREDENTIAL;
+  return urls.length && username && credential ? [{ urls, username, credential }] : [];
+};
+
+const getCallProfile = () => {
+  const info = getConnectionInfo();
+  if (info.saveData || info.effectiveType === "2g" || info.effectiveType === "slow-2g" || (info.downlink > 0 && info.downlink < 1.2)) {
+    return { label: "Eco" as const, width: 640, height: 360, frameRate: 24, bitrate: 420_000 };
+  }
+  if (info.effectiveType === "3g" || info.rtt > 350 || (info.downlink > 0 && info.downlink < 3)) {
+    return { label: "Auto" as const, width: 1280, height: 720, frameRate: 30, bitrate: 1_200_000 };
+  }
+  return { label: "HD" as const, width: 1920, height: 1080, frameRate: 30, bitrate: 2_200_000 };
+};
 
 export default function ChatPage() {
   const navigate = useNavigate();
@@ -92,6 +110,8 @@ export default function ChatPage() {
   const ringtoneTimerRef = useRef<number | null>(null);
   const callAutoEndTimerRef = useRef<number | null>(null);
   const callMeterFrameRef = useRef<number | null>(null);
+  const callQualityTimerRef = useRef<number | null>(null);
+  const callReconnectTimerRef = useRef<number | null>(null);
   const cancelledAudioRef = useRef(false);
   const recentTextRef = useRef<string[]>([]);
   const [remoteConnected, setRemoteConnected] = useState(false);
@@ -191,6 +211,8 @@ export default function ChatPage() {
       stopRingtone();
       clearCallAutoEnd();
       if (callMeterFrameRef.current) cancelAnimationFrame(callMeterFrameRef.current);
+      if (callQualityTimerRef.current) window.clearInterval(callQualityTimerRef.current);
+      if (callReconnectTimerRef.current) window.clearTimeout(callReconnectTimerRef.current);
     };
   }, []);
 
@@ -538,6 +560,10 @@ export default function ChatPage() {
   };
 
   const closePeer = () => {
+    if (callQualityTimerRef.current) window.clearInterval(callQualityTimerRef.current);
+    if (callReconnectTimerRef.current) window.clearTimeout(callReconnectTimerRef.current);
+    callQualityTimerRef.current = null;
+    callReconnectTimerRef.current = null;
     if (signalChannelRef.current) {
       supabase.removeChannel(signalChannelRef.current);
       signalChannelRef.current = null;
@@ -679,10 +705,29 @@ export default function ChatPage() {
     }
   };
 
+  const applyAdaptiveVideoQuality = async (pc: RTCPeerConnection) => {
+    const profile = getCallProfile();
+    const videoSender = pc.getSenders().find((sender) => sender.track?.kind === "video");
+    if (!videoSender) return;
+    try {
+      const params = videoSender.getParameters();
+      (params as any).encodings = [{ ...(params.encodings?.[0] || {}), maxBitrate: profile.bitrate, maxFramerate: profile.frameRate }];
+      await videoSender.setParameters(params);
+      const track = videoSender.track;
+      await track?.applyConstraints({ width: { ideal: profile.width }, height: { ideal: profile.height }, frameRate: { ideal: profile.frameRate, max: profile.frameRate } });
+      setCallState((current) => current ? { ...current, quality: profile.label } : current);
+    } catch {
+      setCallState((current) => current ? { ...current, quality: "Auto" } : current);
+    }
+  };
+
   const setupPeerCall = async (callId: string, type: "audio" | "video", media: MediaStream, remoteUserId: string, isCaller: boolean) => {
     closePeer();
     const pc = new RTCPeerConnection({
+      bundlePolicy: "max-bundle",
+      iceCandidatePoolSize: 4,
       iceServers: [
+        ...getTurnIceServers(),
         { urls: "stun:stun.l.google.com:19302" },
         { urls: "stun:global.stun.twilio.com:3478" },
       ],
@@ -707,8 +752,27 @@ export default function ChatPage() {
       if (state === "failed" || state === "disconnected") {
         setRemoteConnected(false);
         toast.info("Connexion appel instable, tentative de reprise");
+        if (callReconnectTimerRef.current) window.clearTimeout(callReconnectTimerRef.current);
+        callReconnectTimerRef.current = window.setTimeout(async () => {
+          try {
+            pc.restartIce?.();
+            if (isCaller && pc.signalingState === "stable") {
+              const offer = await pc.createOffer({ iceRestart: true, offerToReceiveAudio: true, offerToReceiveVideo: type === "video" });
+              await pc.setLocalDescription(offer);
+              await sendCallSignal(callId, remoteUserId, "offer", offer);
+            }
+          } catch {
+            toast.error("Reconnexion appel impossible");
+          }
+        }, 1200);
       }
     };
+
+    if (type === "video") {
+      await applyAdaptiveVideoQuality(pc);
+      if (callQualityTimerRef.current) window.clearInterval(callQualityTimerRef.current);
+      callQualityTimerRef.current = window.setInterval(() => void applyAdaptiveVideoQuality(pc), 8000);
+    }
 
     const channel = supabase
       .channel(`direct-call-signals-${callId}-${user?.id}`)
@@ -776,10 +840,11 @@ export default function ChatPage() {
       setCallAudioLevel(0);
       callFacingModeRef.current = "user";
       setCallFacingMode("user");
-      setCallState({ type, status: "requesting", direction: "outgoing", muted: false, cameraOff: false, speakerOn: true, quality: type === "video" ? "HD" : "Auto" });
+      const profile = getCallProfile();
+      setCallState({ type, status: "requesting", direction: "outgoing", muted: false, cameraOff: false, speakerOn: true, quality: type === "video" ? profile.label : "Auto" });
       const media = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, sampleRate: 48000, channelCount: 1 },
-        video: type === "video" ? { facingMode: "user", width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 60, max: 60 } } : false,
+        video: type === "video" ? { facingMode: "user", width: { ideal: profile.width }, height: { ideal: profile.height }, frameRate: { ideal: profile.frameRate, max: profile.frameRate } } : false,
       });
       callStreamRef.current = media;
       startAudioMeter(media);
@@ -799,7 +864,7 @@ export default function ChatPage() {
         reference_id: conversationId,
       });
       startRingtone();
-      setCallState({ type, status: "ringing", direction: "outgoing", muted: false, cameraOff: false, speakerOn: true, quality: type === "video" ? "HD" : "Auto" });
+      setCallState({ type, status: "ringing", direction: "outgoing", muted: false, cameraOff: false, speakerOn: true, quality: type === "video" ? profile.label : "Auto" });
       clearCallAutoEnd();
       callAutoEndTimerRef.current = window.setTimeout(async () => {
         const sessionId = callSessionRef.current;
@@ -828,10 +893,11 @@ export default function ChatPage() {
       setCallAudioLevel(0);
       callFacingModeRef.current = "user";
       setCallFacingMode("user");
-      setCallState({ type, status: "requesting", direction: "incoming", muted: false, cameraOff: false, speakerOn: true, quality: type === "video" ? "HD" : "Auto" });
+      const profile = getCallProfile();
+      setCallState({ type, status: "requesting", direction: "incoming", muted: false, cameraOff: false, speakerOn: true, quality: type === "video" ? profile.label : "Auto" });
       const media = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, sampleRate: 48000, channelCount: 1 },
-        video: type === "video" ? { facingMode: "user", width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 60, max: 60 } } : false,
+        video: type === "video" ? { facingMode: "user", width: { ideal: profile.width }, height: { ideal: profile.height }, frameRate: { ideal: profile.frameRate, max: profile.frameRate } } : false,
       });
       callStreamRef.current = media;
       startAudioMeter(media);
@@ -839,7 +905,7 @@ export default function ChatPage() {
       stopRingtone();
       setIncomingCall(null);
       await (supabase as any).from("direct_call_sessions").update({ status: "connected", started_at: new Date().toISOString() }).eq("id", callToAccept.id);
-      setCallState({ type, status: "connected", direction: "incoming", muted: false, cameraOff: false, speakerOn: true, quality: type === "video" ? "HD" : "Auto" });
+      setCallState({ type, status: "connected", direction: "incoming", muted: false, cameraOff: false, speakerOn: true, quality: type === "video" ? profile.label : "Auto" });
     } catch {
       await (supabase as any).from("direct_call_sessions").update({ status: "declined", ended_at: new Date().toISOString() }).eq("id", callToAccept.id);
       cleanupCallUi("Appel refuse: permission micro/camera manquante");

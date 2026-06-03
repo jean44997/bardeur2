@@ -44,7 +44,7 @@ export default function ProfilePage() {
   const [storyViewerIndex, setStoryViewerIndex] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const storyInputRef = useRef<HTMLInputElement>(null);
-  const storyAudienceRef = useRef<"public" | "private">("public");
+  const storyAudienceRef = useRef<"public" | "friends">("public");
 
   const targetUserId = isOwnProfile ? user?.id : viewedProfile?.id;
   const currentProfile = isOwnProfile ? profile : viewedProfile;
@@ -148,12 +148,12 @@ export default function ProfilePage() {
     try {
       const { data } = await (supabase as any)
         .from("stories")
-        .select("id, user_id, media_url, media_type, caption, created_at, profiles:user_id(username, display_name, avatar_url)")
+        .select("id, user_id, media_url, media_type, caption, created_at, audience, expires_at, profiles:user_id(username, display_name, avatar_url)")
         .eq("user_id", userId)
         .gt("expires_at", new Date().toISOString())
         .order("created_at", { ascending: true });
       const mapped = (data || []).map((s: any) => ({
-        id: s.id, user_id: s.user_id, media_url: s.media_url, media_type: s.media_type, caption: s.caption, created_at: s.created_at,
+        id: s.id, user_id: s.user_id, media_url: s.media_url, media_type: s.media_type, caption: s.caption, created_at: s.created_at, audience: s.audience, expires_at: s.expires_at,
         author: { username: s.profiles?.username, display_name: s.profiles?.display_name, avatar_url: s.profiles?.avatar_url },
       }));
       setActiveStories(mapped);
@@ -298,7 +298,7 @@ export default function ProfilePage() {
     toast.success("Photo supprimée");
   };
 
-  const openStoryUpload = (audience: "public" | "private") => {
+  const openStoryUpload = (audience: "public" | "friends") => {
     storyAudienceRef.current = audience;
     storyInputRef.current?.click();
   };
@@ -315,15 +315,19 @@ export default function ProfilePage() {
       const { error } = await supabase.storage.from("media").upload(path, file, { contentType: file.type, upsert: false });
       if (error) throw error;
       const { data } = supabase.storage.from("media").getPublicUrl(path);
-      await (supabase as any).from("stories").insert({
+      const { error: insertError } = await (supabase as any).from("stories").insert({
         user_id: user.id,
         media_url: data.publicUrl,
         media_type: file.type,
         audience: storyAudienceRef.current,
         expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
       });
-      toast.success(storyAudienceRef.current === "private" ? "Story privee publiee" : "Story publique publiee");
-      if (targetUserId) fetchActiveStories(targetUserId);
+      if (insertError) throw insertError;
+      toast.success(storyAudienceRef.current === "friends" ? "Story amis publiee" : "Story publique publiee");
+      if (targetUserId) {
+        fetchActiveStories(targetUserId);
+        window.setTimeout(() => fetchActiveStories(targetUserId), 700);
+      }
     } catch (err: any) {
       toast.error(err?.message || "Story impossible a publier");
     } finally {
@@ -533,8 +537,8 @@ export default function ProfilePage() {
                   <motion.button whileTap={{ scale: 0.95 }} onClick={() => openStoryUpload("public")} disabled={uploadingStory} className="glass flex items-center gap-2 rounded-lg px-4 py-2 text-sm text-foreground disabled:opacity-60">
                     <PlusCircle className="h-4 w-4" /> Story
                   </motion.button>
-                  <motion.button whileTap={{ scale: 0.95 }} onClick={() => openStoryUpload("private")} disabled={uploadingStory} className="glass flex items-center gap-2 rounded-lg px-4 py-2 text-sm text-foreground disabled:opacity-60">
-                    <Lock className="h-4 w-4" /> Privée
+                  <motion.button whileTap={{ scale: 0.95 }} onClick={() => openStoryUpload("friends")} disabled={uploadingStory} className="glass flex items-center gap-2 rounded-lg px-4 py-2 text-sm text-foreground disabled:opacity-60">
+                    <Lock className="h-4 w-4" /> Amis
                   </motion.button>
                 </>
               )

@@ -23,7 +23,7 @@ interface UserStories {
  * - Resumes after refresh because data is server-backed (stories table).
  */
 export default function StoriesRail() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const [groups, setGroups] = useState<UserStories[]>([]);
   const [loading, setLoading] = useState(true);
   const [viewer, setViewer] = useState<{ stories: StoryItem[]; index: number } | null>(null);
@@ -102,7 +102,7 @@ export default function StoriesRail() {
     if (fileRef.current) fileRef.current.value = "";
   };
 
-  const publishStory = async (audience: "public" | "private") => {
+  const publishStory = async (audience: "public" | "friends") => {
     if (!pendingFile || !user) return;
     const file = pendingFile;
     setPendingFile(null);
@@ -113,15 +113,41 @@ export default function StoriesRail() {
       const { error } = await supabase.storage.from("media").upload(path, file, { contentType: file.type, upsert: false });
       if (error) throw error;
       const { data } = supabase.storage.from("media").getPublicUrl(path);
-      const { error: insErr } = await (supabase as any).from("stories").insert({
+      const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+      const { data: inserted, error: insErr } = await (supabase as any).from("stories").insert({
         user_id: user.id,
         media_url: data.publicUrl,
         media_type: file.type,
         audience,
-        expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-      });
+        expires_at: expiresAt,
+      }).select("id, user_id, media_url, media_type, caption, created_at, audience, expires_at").single();
       if (insErr) throw insErr;
-      toast.success(`Story ${audience === "public" ? "publique 🌍" : "privée 👥"} publiée`);
+      if (inserted) {
+        const item: StoryItem = {
+          id: inserted.id,
+          user_id: user.id,
+          media_url: data.publicUrl,
+          media_type: file.type,
+          caption: inserted.caption,
+          created_at: inserted.created_at,
+          audience,
+          expires_at: inserted.expires_at || expiresAt,
+          author: { username: profile?.username, display_name: profile?.display_name, avatar_url: profile?.avatar_url },
+        };
+        setGroups((prev) => {
+          const others = prev.filter((g) => g.user_id !== user.id);
+          const current = prev.find((g) => g.user_id === user.id);
+          return [{
+            user_id: user.id,
+            username: profile?.username || current?.username || "toi",
+            display_name: profile?.display_name || current?.display_name || "Toi",
+            avatar_url: profile?.avatar_url || current?.avatar_url || "",
+            hasUnseen: false,
+            items: [...(current?.items || []), item],
+          }, ...others];
+        });
+      }
+      toast.success(`Story ${audience === "public" ? "publique 🌍" : "amis 👥"} publiée`);
       await fetchStories();
       setTimeout(() => { fetchStories(); }, 700);
       setTimeout(() => { fetchStories(); }, 2200);
@@ -234,12 +260,12 @@ export default function StoriesRail() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => publishStory("private")}
+                  onClick={() => publishStory("friends")}
                   className="flex flex-col items-start gap-2 rounded-2xl border border-border bg-secondary/40 p-4 text-left active:scale-[0.98] transition-transform"
                 >
                   <Users className="h-5 w-5 text-foreground" />
                   <span className="text-sm font-bold text-foreground">Amis</span>
-                  <span className="text-[11px] text-muted-foreground">Visible uniquement par tes abonnés</span>
+                  <span className="text-[11px] text-muted-foreground">Visible uniquement par tes amis mutuels</span>
                 </button>
               </div>
             </motion.div>

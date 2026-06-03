@@ -12,6 +12,8 @@ export interface StoryItem {
   media_type: string;
   caption?: string | null;
   created_at: string;
+  audience?: string | null;
+  expires_at?: string | null;
   author?: { username?: string | null; display_name?: string | null; avatar_url?: string | null } | null;
 }
 
@@ -95,17 +97,6 @@ export default function StoryViewer({ stories, initialIndex = 0, onClose }: Prop
     setIndex(i => Math.min(i, stories.length - 1));
   };
 
-  const seekProgress = (clientX: number, rect: DOMRect) => {
-    const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
-    if (isVideo && videoRef.current && videoRef.current.duration) {
-      videoRef.current.currentTime = ratio * videoRef.current.duration;
-    } else {
-      elapsedAtPauseRef.current = ratio * IMAGE_DURATION_MS;
-      startedAtRef.current = Date.now();
-    }
-    setProgress(ratio);
-  };
-
   const togglePause = () => {
     setPaused(p => {
       const np = !p;
@@ -163,23 +154,16 @@ export default function StoryViewer({ stories, initialIndex = 0, onClose }: Prop
           )}
         </div>
 
-        {/* Progress bars (draggable to seek) */}
+        {/* Progress bars */}
         <div className="absolute left-0 right-0 top-0 z-30 flex gap-1 px-3 pt-[calc(max(0.6rem,var(--app-safe-top))+0.2rem)]">
           {stories.map((_, i) => (
             <div
               key={i}
-              className="h-2 flex-1 cursor-pointer touch-none py-[3px]"
+              className="h-2 flex-1 cursor-pointer py-[3px]"
               onPointerDown={(e) => {
-                if (i !== index) { setIndex(i); return; }
-                (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
-                setPaused(true);
-                seekProgress(e.clientX, e.currentTarget.getBoundingClientRect());
+                e.stopPropagation();
+                if (i !== index) setIndex(i);
               }}
-              onPointerMove={(e) => {
-                if (i !== index || e.buttons === 0) return;
-                seekProgress(e.clientX, e.currentTarget.getBoundingClientRect());
-              }}
-              onPointerUp={() => setPaused(false)}
             >
               <div className="h-[3px] w-full overflow-hidden rounded-full bg-white/25">
                 <div
