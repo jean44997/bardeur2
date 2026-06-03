@@ -560,6 +560,10 @@ export default function ChatPage() {
   };
 
   const closePeer = () => {
+    if (callQualityTimerRef.current) window.clearInterval(callQualityTimerRef.current);
+    if (callReconnectTimerRef.current) window.clearTimeout(callReconnectTimerRef.current);
+    callQualityTimerRef.current = null;
+    callReconnectTimerRef.current = null;
     if (signalChannelRef.current) {
       supabase.removeChannel(signalChannelRef.current);
       signalChannelRef.current = null;
@@ -836,10 +840,11 @@ export default function ChatPage() {
       setCallAudioLevel(0);
       callFacingModeRef.current = "user";
       setCallFacingMode("user");
-      setCallState({ type, status: "requesting", direction: "outgoing", muted: false, cameraOff: false, speakerOn: true, quality: type === "video" ? "HD" : "Auto" });
+      const profile = getCallProfile();
+      setCallState({ type, status: "requesting", direction: "outgoing", muted: false, cameraOff: false, speakerOn: true, quality: type === "video" ? profile.label : "Auto" });
       const media = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, sampleRate: 48000, channelCount: 1 },
-        video: type === "video" ? { facingMode: "user", width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 60, max: 60 } } : false,
+        video: type === "video" ? { facingMode: "user", width: { ideal: profile.width }, height: { ideal: profile.height }, frameRate: { ideal: profile.frameRate, max: profile.frameRate } } : false,
       });
       callStreamRef.current = media;
       startAudioMeter(media);
@@ -859,7 +864,7 @@ export default function ChatPage() {
         reference_id: conversationId,
       });
       startRingtone();
-      setCallState({ type, status: "ringing", direction: "outgoing", muted: false, cameraOff: false, speakerOn: true, quality: type === "video" ? "HD" : "Auto" });
+      setCallState({ type, status: "ringing", direction: "outgoing", muted: false, cameraOff: false, speakerOn: true, quality: type === "video" ? profile.label : "Auto" });
       clearCallAutoEnd();
       callAutoEndTimerRef.current = window.setTimeout(async () => {
         const sessionId = callSessionRef.current;
@@ -888,10 +893,11 @@ export default function ChatPage() {
       setCallAudioLevel(0);
       callFacingModeRef.current = "user";
       setCallFacingMode("user");
-      setCallState({ type, status: "requesting", direction: "incoming", muted: false, cameraOff: false, speakerOn: true, quality: type === "video" ? "HD" : "Auto" });
+      const profile = getCallProfile();
+      setCallState({ type, status: "requesting", direction: "incoming", muted: false, cameraOff: false, speakerOn: true, quality: type === "video" ? profile.label : "Auto" });
       const media = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, sampleRate: 48000, channelCount: 1 },
-        video: type === "video" ? { facingMode: "user", width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 60, max: 60 } } : false,
+        video: type === "video" ? { facingMode: "user", width: { ideal: profile.width }, height: { ideal: profile.height }, frameRate: { ideal: profile.frameRate, max: profile.frameRate } } : false,
       });
       callStreamRef.current = media;
       startAudioMeter(media);
@@ -899,7 +905,7 @@ export default function ChatPage() {
       stopRingtone();
       setIncomingCall(null);
       await (supabase as any).from("direct_call_sessions").update({ status: "connected", started_at: new Date().toISOString() }).eq("id", callToAccept.id);
-      setCallState({ type, status: "connected", direction: "incoming", muted: false, cameraOff: false, speakerOn: true, quality: type === "video" ? "HD" : "Auto" });
+      setCallState({ type, status: "connected", direction: "incoming", muted: false, cameraOff: false, speakerOn: true, quality: type === "video" ? profile.label : "Auto" });
     } catch {
       await (supabase as any).from("direct_call_sessions").update({ status: "declined", ended_at: new Date().toISOString() }).eq("id", callToAccept.id);
       cleanupCallUi("Appel refuse: permission micro/camera manquante");
