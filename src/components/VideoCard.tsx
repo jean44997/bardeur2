@@ -60,12 +60,15 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
   const [showShareSheet, setShowShareSheet] = useState(false);
   const [shareTargets, setShareTargets] = useState<any[]>([]);
   const [shareSending, setShareSending] = useState<string | null>(null);
+  const [isScrubbing, setIsScrubbing] = useState(false);
+  const [scrubTime, setScrubTime] = useState(0);
   const lastTapRef = useRef(0);
   const singleTapTimer = useRef<number | null>(null);
   const actionCooldowns = useRef<Record<string, number>>({});
   const longPressTimer = useRef<NodeJS.Timeout | null>(null);
   const pointerStartRef = useRef<{ x: number; y: number; moved: boolean } | null>(null);
   const longPressTriggeredRef = useRef(false);
+  const scrubWasPlayingRef = useRef(false);
 
   const allowAction = (key: string, cooldown = 450) => {
     const now = Date.now();
@@ -384,6 +387,24 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
     v.currentTime = Math.min(Math.max(v.currentTime + seconds, 0), v.duration || v.currentTime + seconds);
   };
 
+  const scrubToClientX = (clientX: number, element: HTMLElement) => {
+    const v = videoRef.current;
+    if (!v?.duration) return;
+    const r = element.getBoundingClientRect();
+    const ratio = Math.max(0, Math.min(1, (clientX - r.left) / r.width));
+    const nextTime = ratio * v.duration;
+    v.currentTime = nextTime;
+    setProgress(ratio * 100);
+    setScrubTime(nextTime);
+  };
+
+  const formatVideoTime = (seconds: number) => {
+    if (!Number.isFinite(seconds)) return "0:00";
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60).toString().padStart(2, "0");
+    return `${mins}:${secs}`;
+  };
+
   return (
     <div className="relative h-[100svh] w-full snap-start overflow-hidden bg-background touch-manipulation select-none md:h-[calc(100dvh-2rem)] md:max-h-[900px] md:rounded-[24px] md:border md:border-border/60 md:shadow-2xl md:shadow-black/40">
       <video
@@ -445,36 +466,33 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
 
       {/* Progress Bar — scrubbable */}
       <div
-        className="absolute bottom-[calc(4rem+var(--app-safe-bottom))] left-0 right-0 z-30 h-5 md:bottom-0 cursor-pointer touch-none"
+        className="absolute bottom-[calc(4rem+var(--app-safe-bottom))] left-0 right-0 z-30 h-8 cursor-pointer touch-none md:bottom-0"
         onPointerDown={(e) => {
-          (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+          e.currentTarget.setPointerCapture?.(e.pointerId);
           const v = videoRef.current;
           if (!v?.duration) return;
-          const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-          const ratio = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
-          v.currentTime = ratio * v.duration;
-          setProgress(ratio * 100);
+          scrubWasPlayingRef.current = !v.paused;
+          setIsScrubbing(true);
           setPausedByUser(true);
           v.pause();
+          scrubToClientX(e.clientX, e.currentTarget);
         }}
         onPointerMove={(e) => {
-          if (e.buttons === 0 && e.pointerType !== "touch") return;
-          const v = videoRef.current;
-          if (!v?.duration) return;
-          const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-          const ratio = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
-          v.currentTime = ratio * v.duration;
-          setProgress(ratio * 100);
+          if (!isScrubbing) return;
+          scrubToClientX(e.clientX, e.currentTarget);
         }}
         onPointerUp={() => {
           const v = videoRef.current;
-          if (v) { setPausedByUser(false); v.play().catch(() => {}); }
+          setIsScrubbing(false);
+          if (v && scrubWasPlayingRef.current) { setPausedByUser(false); v.play().catch(() => {}); }
         }}
+        onPointerCancel={() => setIsScrubbing(false)}
       >
-        <div className="absolute inset-x-0 top-1/2 h-[3px] -translate-y-1/2 bg-foreground/10">
+        {isScrubbing && <div className="absolute left-1/2 top-0 -translate-x-1/2 rounded-full bg-background/80 px-2 py-0.5 text-[10px] font-bold text-foreground backdrop-blur">{formatVideoTime(scrubTime)}</div>}
+        <div className="absolute inset-x-0 bottom-2 h-[3px] bg-foreground/10">
           <div className="absolute inset-y-0 left-0 bg-foreground/25" style={{ width: `${buffered}%` }} />
           <motion.div className="h-full gradient-primary" style={{ width: `${progress}%` }} transition={{ duration: 0.1 }} />
-          <span className="absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary shadow ring-2 ring-background" style={{ left: `${progress}%` }} />
+          <span className={`absolute top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary shadow ring-2 ring-background transition-all ${isScrubbing ? "h-4 w-4" : "h-2.5 w-2.5"}`} style={{ left: `${progress}%` }} />
         </div>
       </div>
 
