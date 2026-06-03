@@ -12,6 +12,8 @@ export interface StoryItem {
   media_type: string;
   caption?: string | null;
   created_at: string;
+  audience?: string | null;
+  expires_at?: string | null;
   author?: { username?: string | null; display_name?: string | null; avatar_url?: string | null } | null;
 }
 
