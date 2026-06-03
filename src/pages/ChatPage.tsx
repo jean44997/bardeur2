@@ -6,7 +6,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
 import AudioBubble from "@/components/AudioBubble";
-import { getBestAudioRecorderOptions } from "@/lib/mediaCapabilities";
+import { getBestAudioRecorderOptions, getConnectionInfo } from "@/lib/mediaCapabilities";
 import { checkClientRateLimit, formatRetryAfter } from "@/lib/clientRateLimit";
 import { looksLikeRepeatedSpam, validateUploadFile, validateUserText } from "@/lib/contentSafety";
 import { decryptMessageContent, encryptMessageContent, isEncryptedContent } from "@/lib/messageCrypto";
@@ -92,6 +92,8 @@ export default function ChatPage() {
   const ringtoneTimerRef = useRef<number | null>(null);
   const callAutoEndTimerRef = useRef<number | null>(null);
   const callMeterFrameRef = useRef<number | null>(null);
+  const callQualityTimerRef = useRef<number | null>(null);
+  const callReconnectTimerRef = useRef<number | null>(null);
   const cancelledAudioRef = useRef(false);
   const recentTextRef = useRef<string[]>([]);
   const [remoteConnected, setRemoteConnected] = useState(false);
@@ -191,6 +193,8 @@ export default function ChatPage() {
       stopRingtone();
       clearCallAutoEnd();
       if (callMeterFrameRef.current) cancelAnimationFrame(callMeterFrameRef.current);
+      if (callQualityTimerRef.current) window.clearInterval(callQualityTimerRef.current);
+      if (callReconnectTimerRef.current) window.clearTimeout(callReconnectTimerRef.current);
     };
   }, []);
 
