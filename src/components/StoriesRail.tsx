@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from "react";
-import { Plus } from "lucide-react";
+import { Plus, Globe2, Users, X } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import StoryRing from "@/components/StoryRing";
@@ -27,6 +28,7 @@ export default function StoriesRail() {
   const [loading, setLoading] = useState(true);
   const [viewer, setViewer] = useState<{ stories: StoryItem[]; index: number } | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
