@@ -18,21 +18,27 @@ export type Database = {
         Row: {
           banned_by: string | null
           created_at: string | null
+          expires_at: string | null
           id: string
+          is_permanent: boolean
           reason: string | null
           user_id: string
         }
         Insert: {
           banned_by?: string | null
           created_at?: string | null
+          expires_at?: string | null
           id?: string
+          is_permanent?: boolean
           reason?: string | null
           user_id: string
         }
         Update: {
           banned_by?: string | null
           created_at?: string | null
+          expires_at?: string | null
           id?: string
+          is_permanent?: boolean
           reason?: string | null
           user_id?: string
         }
@@ -969,6 +975,7 @@ export type Database = {
           notify_mentions: boolean
           notify_messages: boolean
           notify_shares: boolean
+          onboarding_completed: boolean
           push_notifications: boolean | null
           sound_notifications: boolean | null
           thought_of_day: string | null
@@ -1002,6 +1009,7 @@ export type Database = {
           notify_mentions?: boolean
           notify_messages?: boolean
           notify_shares?: boolean
+          onboarding_completed?: boolean
           push_notifications?: boolean | null
           sound_notifications?: boolean | null
           thought_of_day?: string | null
@@ -1035,6 +1043,7 @@ export type Database = {
           notify_mentions?: boolean
           notify_messages?: boolean
           notify_shares?: boolean
+          onboarding_completed?: boolean
           push_notifications?: boolean | null
           sound_notifications?: boolean | null
           thought_of_day?: string | null
@@ -1518,6 +1527,15 @@ export type Database = {
         Args: { _conversation_id: string; _user_id: string }
         Returns: boolean
       }
+      is_user_banned: {
+        Args: { _user_id: string }
+        Returns: {
+          banned: boolean
+          expires_at: string
+          is_permanent: boolean
+          reason: string
+        }[]
+      }
       mark_live_chat_seen: {
         Args: { _live_id: string; _viewer_id: string }
         Returns: undefined
@@ -1527,10 +1545,17 @@ export type Database = {
         Returns: undefined
       }
       refresh_daily_xp: { Args: { _profile_id: string }; Returns: undefined }
-      send_admin_official_message: {
-        Args: { _content: string; _recipient_id: string }
-        Returns: string
-      }
+      send_admin_official_message:
+        | { Args: { _content: string; _recipient_id: string }; Returns: string }
+        | {
+            Args: {
+              _content: string
+              _media_type?: string
+              _media_url?: string
+              _recipient_id: string
+            }
+            Returns: string
+          }
       set_thought_of_day: { Args: { _thought: string }; Returns: undefined }
     }
     Enums: {
