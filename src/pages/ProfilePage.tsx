@@ -12,6 +12,8 @@ import ProfileViewsPanel from "@/components/ProfileViewsPanel";
 import StoryRing from "@/components/StoryRing";
 import StoryViewer from "@/components/StoryViewer";
 import ThoughtOfDay from "@/components/ThoughtOfDay";
+import { getProfileUrl } from "@/lib/publicUrl";
+
 
 export default function ProfilePage() {
   const navigate = useNavigate();
@@ -320,9 +322,9 @@ export default function ProfilePage() {
         media_url: data.publicUrl,
         media_type: file.type,
         audience: storyAudienceRef.current,
-        expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
       });
       if (insertError) throw insertError;
+
       toast.success(storyAudienceRef.current === "friends" ? "Story amis publiee" : "Story publique publiee");
       if (targetUserId) {
         fetchActiveStories(targetUserId);
@@ -338,7 +340,8 @@ export default function ProfilePage() {
 
   const generateQR = useCallback(async () => {
     if (!currentProfile) return;
-    const url = `${window.location.origin}/profile/${currentProfile.username}`;
+    const url = getProfileUrl(currentProfile.username);
+
     try {
       // High-contrast (dark on white) so it scans reliably from any camera app.
       const dataUrl = await QRCode.toDataURL(url, {
@@ -408,7 +411,7 @@ export default function ProfilePage() {
     return n.toString();
   };
 
-  const shareUrl = `${window.location.origin}/profile/${currentProfile.username}`;
+  const shareUrl = getProfileUrl(currentProfile.username);
   const tabs = [
     { icon: Grid3X3, label: "Vidéos" },
     { icon: Heart, label: "Aimées" },

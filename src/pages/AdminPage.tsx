@@ -1,10 +1,12 @@
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { ArrowLeft, Shield, Users, Flag, BarChart3, Ban, Search, Download, RefreshCw, ExternalLink, Clock, CheckCircle, MessageCircle, Send, Stethoscope } from "lucide-react";
+import { ArrowLeft, Shield, Users, Flag, BarChart3, Ban, Search, Download, RefreshCw, ExternalLink, Clock, CheckCircle, MessageCircle, Send, Stethoscope, Paperclip, X as XIcon, RotateCcw } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
+import BanUserDialog from "@/components/admin/BanUserDialog";
+
 
 export default function AdminPage() {
   const navigate = useNavigate();
@@ -12,6 +14,7 @@ export default function AdminPage() {
   const [activeTab, setActiveTab] = useState<"stats" | "users" | "reports" | "messages">("stats");
   const [users, setUsers] = useState<any[]>([]);
   const [reports, setReports] = useState<any[]>([]);
+  const [banned, setBanned] = useState<any[]>([]);
   const [stats, setStats] = useState({ users: 0, videos: 0, reports: 0, banned: 0 });
   const [loading, setLoading] = useState(true);
   const [userSearch, setUserSearch] = useState("");
@@ -19,6 +22,10 @@ export default function AdminPage() {
   const [adminMessage, setAdminMessage] = useState("");
   const [adminTargetId, setAdminTargetId] = useState("");
   const [sendingAdminMessage, setSendingAdminMessage] = useState(false);
+  const [banTarget, setBanTarget] = useState<any | null>(null);
+  const [mediaFile, setMediaFile] = useState<File | null>(null);
+  const [uploadingMedia, setUploadingMedia] = useState(false);
+
 
   useEffect(() => {
     if (role === "super_admin" || role === "admin") {
@@ -32,25 +39,30 @@ export default function AdminPage() {
       supabase.from("profiles").select("*"),
       supabase.from("videos").select("*", { count: "exact", head: true }),
       supabase.from("reports").select("*, reporter:reporter_id(username), reported:reported_user_id(username)").order("created_at", { ascending: false }),
-      supabase.from("banned_users").select("*", { count: "exact", head: true }),
+      (supabase as any).from("banned_users").select("user_id, reason, expires_at, is_permanent, created_at"),
     ]);
 
+    const bannedList = (bannedRes.data || []).filter((b: any) =>
+      b.is_permanent || !b.expires_at || new Date(b.expires_at) > new Date()
+    );
     setUsers(usersRes.data || []);
     setReports(reportsRes.data || []);
+    setBanned(bannedList);
     setStats({
       users: usersRes.data?.length || 0,
       videos: videosRes.count || 0,
       reports: reportsRes.data?.length || 0,
-      banned: bannedRes.count || 0,
+      banned: bannedList.length,
     });
     setLoading(false);
   };
 
-  const banUser = async (userId: string, username: string) => {
-    if (!user) return;
-    const { error } = await supabase.from("banned_users").insert({ user_id: userId, banned_by: user.id, reason: "Banni par admin" });
-    if (error) { toast.error("Erreur lors du bannissement"); return; }
-    toast.success(`@${username} a été banni`);
+  const isBanned = (uid: string) => banned.some(b => b.user_id === uid);
+
+  const unbanUser = async (userId: string, username: string) => {
+    const { error } = await (supabase as any).from("banned_users").delete().eq("user_id", userId);
+    if (error) { toast.error("Débannissement impossible"); return; }
+    toast.success(`@${username} débanni`);
     fetchAll();
   };
 
@@ -60,10 +72,29 @@ export default function AdminPage() {
     fetchAll();
   };
 
+  const uploadMediaForMessage = async (): Promise<{ url: string; type: string } | null> => {
+    if (!mediaFile || !user) return null;
+    setUploadingMedia(true);
+    try {
+      const ext = mediaFile.name.split(".").pop() || "bin";
+      const path = `${user.id}/admin-broadcast/${crypto.randomUUID()}.${ext}`;
+      const { error } = await supabase.storage.from("media").upload(path, mediaFile, { contentType: mediaFile.type, upsert: false });
+      if (error) throw error;
+      const { data } = supabase.storage.from("media").getPublicUrl(path);
+      return { url: data.publicUrl, type: mediaFile.type };
+    } catch (err: any) {
+      toast.error(err?.message || "Upload échoué");
+      return null;
+    } finally {
+      setUploadingMedia(false);
+    }
+  };
+
+
   const sendAdminMessage = async (broadcast = false) => {
     if (!user) return;
     const content = adminMessage.trim().slice(0, 600);
-    if (!content) {
+    if (!content && !mediaFile) {
       toast.error("Message vide");
       return;
     }
@@ -73,12 +104,18 @@ export default function AdminPage() {
       : users.filter(u => u.id === adminTargetId && u.id !== user.id);
 
     if (targets.length === 0) {
-      toast.error(broadcast ? "Aucun utilisateur a contacter" : "Choisis un utilisateur");
+      toast.error(broadcast ? "Aucun utilisateur à contacter" : "Choisis un utilisateur");
       return;
     }
-    if (broadcast && !window.confirm(`Envoyer ce message a ${targets.length} utilisateurs ?`)) return;
+    if (broadcast && !window.confirm(`Envoyer ce message à ${targets.length} utilisateurs ?`)) return;
 
     setSendingAdminMessage(true);
+    let media: { url: string; type: string } | null = null;
+    if (mediaFile) {
+      media = await uploadMediaForMessage();
+      if (!media) { setSendingAdminMessage(false); return; }
+    }
+
     let sent = 0;
     let failed = 0;
     let lastError = "";
@@ -86,7 +123,9 @@ export default function AdminPage() {
       try {
         const { error } = await (supabase as any).rpc("send_admin_official_message", {
           _recipient_id: target.id,
-          _content: `[BARDEUR · Équipe officielle]\n${content}`,
+          _content: content ? `[BARDEUR · Équipe officielle]\n${content}` : "[BARDEUR · Équipe officielle]",
+          _media_url: media?.url || null,
+          _media_type: media?.type || null,
         });
         if (error) throw error;
         sent += 1;
@@ -97,14 +136,16 @@ export default function AdminPage() {
     }
     setSendingAdminMessage(false);
     if (sent > 0) {
-      toast.success(failed ? `${sent} envoyes, ${failed} echecs` : `${sent} message${sent > 1 ? "s" : ""} envoye${sent > 1 ? "s" : ""}`);
+      toast.success(failed ? `${sent} envoyés, ${failed} échecs` : `${sent} message${sent > 1 ? "s" : ""} envoyé${sent > 1 ? "s" : ""}`);
       setAdminMessage("");
+      setMediaFile(null);
       if (!broadcast) setAdminTargetId("");
       fetchAll();
     } else {
-      toast.error(lastError ? `Aucun message envoye: ${lastError}` : "Aucun message envoye");
+      toast.error(lastError ? `Aucun message envoyé: ${lastError}` : "Aucun message envoyé");
     }
   };
+
 
   const exportAdminJson = () => {
     const payload = {
@@ -231,14 +272,27 @@ export default function AdminPage() {
                       <ExternalLink className="h-4 w-4 text-muted-foreground" />
                     </motion.button>
                     {u.id !== user?.id && (
-                      <motion.button
-                        whileTap={{ scale: 0.9 }}
-                        onClick={() => banUser(u.id, u.username)}
-                        className="h-8 w-8 rounded-lg bg-destructive/20 flex items-center justify-center"
-                      >
-                        <Ban className="h-4 w-4 text-destructive" />
-                      </motion.button>
+                      isBanned(u.id) ? (
+                        <motion.button
+                          whileTap={{ scale: 0.9 }}
+                          onClick={() => unbanUser(u.id, u.username)}
+                          className="flex items-center gap-1 h-8 px-2 rounded-lg bg-primary/20 text-primary text-[11px] font-bold"
+                          aria-label="Débannir"
+                        >
+                          <RotateCcw className="h-3.5 w-3.5" /> Déban
+                        </motion.button>
+                      ) : (
+                        <motion.button
+                          whileTap={{ scale: 0.9 }}
+                          onClick={() => setBanTarget(u)}
+                          className="h-8 w-8 rounded-lg bg-destructive/20 flex items-center justify-center"
+                          aria-label="Bannir"
+                        >
+                          <Ban className="h-4 w-4 text-destructive" />
+                        </motion.button>
+                      )
                     )}
+
                   </div>
                 ))}
               </div>
@@ -303,34 +357,60 @@ export default function AdminPage() {
                     onChange={e => setAdminMessage(e.target.value)}
                     maxLength={600}
                     rows={5}
-                    placeholder="Message de moderation, aide, recompense ou information..."
+                    placeholder="Message de modération, aide, récompense ou information..."
                     className="mb-3 w-full resize-none rounded-xl bg-card px-3 py-3 text-base text-foreground outline-none placeholder:text-muted-foreground"
                   />
+                  <div className="mb-3">
+                    <label className="flex items-center gap-2 cursor-pointer rounded-xl bg-card px-3 py-3">
+                      <Paperclip className="h-4 w-4 text-primary" />
+                      <span className="text-xs font-medium text-foreground flex-1 truncate">
+                        {mediaFile ? mediaFile.name : "Joindre photo / audio / vidéo (optionnel)"}
+                      </span>
+                      {mediaFile && (
+                        <button type="button" onClick={(e) => { e.preventDefault(); setMediaFile(null); }} className="text-muted-foreground">
+                          <XIcon className="h-4 w-4" />
+                        </button>
+                      )}
+                      <input
+                        type="file"
+                        accept="image/*,audio/*,video/*"
+                        className="hidden"
+                        onChange={e => setMediaFile(e.target.files?.[0] || null)}
+                      />
+                    </label>
+                  </div>
                   <div className="grid grid-cols-2 gap-2">
                     <button
                       type="button"
                       onClick={() => sendAdminMessage(false)}
-                      disabled={sendingAdminMessage || !adminTargetId || !adminMessage.trim()}
+                      disabled={sendingAdminMessage || uploadingMedia || !adminTargetId || (!adminMessage.trim() && !mediaFile)}
                       className="flex items-center justify-center gap-2 rounded-xl gradient-primary px-4 py-3 text-sm font-bold text-primary-foreground disabled:opacity-45"
                     >
-                      <Send className="h-4 w-4" /> Envoyer prive
+                      <Send className="h-4 w-4" /> {uploadingMedia ? "Upload..." : "Envoyer privé"}
                     </button>
                     <button
                       type="button"
                       onClick={() => sendAdminMessage(true)}
-                      disabled={sendingAdminMessage || !adminMessage.trim()}
+                      disabled={sendingAdminMessage || uploadingMedia || (!adminMessage.trim() && !mediaFile)}
                       className="flex items-center justify-center gap-2 rounded-xl bg-card px-4 py-3 text-sm font-bold text-foreground disabled:opacity-45"
                     >
                       <Users className="h-4 w-4" /> Tous
                     </button>
                   </div>
-                  <p className="mt-3 text-[11px] text-muted-foreground">Broadcast limite a 300 users par envoi, avec anti-spam serveur et conversations reutilisees.</p>
+                  <p className="mt-3 text-[11px] text-muted-foreground">Broadcast limité à 300 users par envoi. Médias hébergés dans le bucket sécurisé.</p>
                 </div>
               </div>
             )}
           </>
         )}
       </div>
+      <BanUserDialog
+        open={!!banTarget}
+        target={banTarget}
+        onClose={() => setBanTarget(null)}
+        onBanned={fetchAll}
+      />
     </div>
   );
 }
+

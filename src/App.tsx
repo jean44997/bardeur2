@@ -7,6 +7,8 @@ import { AuthProvider } from "@/hooks/useAuth";
 import BottomNav from "@/components/BottomNav";
 import DesktopSidebar from "@/components/DesktopSidebar";
 import AuthGuard from "@/components/AuthGuard";
+import BanGate from "@/components/BanGate";
+
 import GlobalCallListener from "@/components/GlobalCallListener";
 import { useViewportInsets } from "@/hooks/useViewportInsets";
 import Index from "./pages/Index";
@@ -44,7 +46,9 @@ const App = () => (
         <AuthProvider>
           <ViewportRuntime />
           <GlobalCallListener />
+          <BanGate>
           <Routes>
+
             <Route path="/auth" element={<AuthPage />} />
             <Route path="/reset-password" element={<ResetPasswordPage />} />
             <Route path="/chat/:id" element={<AuthGuard><ChatPage /></AuthGuard>} />
@@ -79,7 +83,9 @@ const App = () => (
               }
             />
           </Routes>
+          </BanGate>
         </AuthProvider>
+
       </BrowserRouter>
     </TooltipProvider>
   </QueryClientProvider>
