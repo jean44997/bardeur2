@@ -110,18 +110,17 @@ export default function StoriesRail() {
     try {
       const ext = file.name.split(".").pop() || (file.type.startsWith("video") ? "mp4" : "jpg");
       const path = `${user.id}/stories/${crypto.randomUUID()}.${ext}`;
-      const { error } = await supabase.storage.from("media").upload(path, file, { contentType: file.type, upsert: false });
-      if (error) throw error;
+      const { error: upErr } = await supabase.storage.from("media").upload(path, file, { contentType: file.type, upsert: false });
+      if (upErr) { console.error("[stories] upload error", upErr); throw upErr; }
       const { data } = supabase.storage.from("media").getPublicUrl(path);
-      const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+      // Let the DB compute expires_at via column default (now() + 24h) to avoid client clock skew.
       const { data: inserted, error: insErr } = await (supabase as any).from("stories").insert({
         user_id: user.id,
         media_url: data.publicUrl,
         media_type: file.type,
         audience,
-        expires_at: expiresAt,
       }).select("id, user_id, media_url, media_type, caption, created_at, audience, expires_at").single();
-      if (insErr) throw insErr;
+      if (insErr) { console.error("[stories] insert error", insErr); throw insErr; }
       if (inserted) {
         const item: StoryItem = {
           id: inserted.id,
@@ -131,7 +130,7 @@ export default function StoriesRail() {
           caption: inserted.caption,
           created_at: inserted.created_at,
           audience,
-          expires_at: inserted.expires_at || expiresAt,
+          expires_at: inserted.expires_at,
           author: { username: profile?.username, display_name: profile?.display_name, avatar_url: profile?.avatar_url },
         };
         setGroups((prev) => {
@@ -147,13 +146,15 @@ export default function StoriesRail() {
           }, ...others];
         });
       }
-      toast.success(`Story ${audience === "public" ? "publique 🌍" : "amis 👥"} publiée`);
+      toast.success(`Story ${audience === "public" ? "publique 🌍 visible par tous" : "amis 👥 visible par tes amis mutuels"}`);
       await fetchStories();
       setTimeout(() => { fetchStories(); }, 700);
       setTimeout(() => { fetchStories(); }, 2200);
     } catch (err: any) {
       console.error("[stories] publish failed", err);
-      toast.error(err?.message || "Publication impossible");
+      const msg = err?.message || err?.error_description || "Publication impossible";
+      toast.error(msg.includes("row-level security") ? "Refusé par la sécurité (vérifie ta connexion)" : msg);
+
     } finally {
       setUploading(false);
     }
