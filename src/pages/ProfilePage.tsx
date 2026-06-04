@@ -411,7 +411,7 @@ export default function ProfilePage() {
     return n.toString();
   };
 
-  const shareUrl = `${window.location.origin}/profile/${currentProfile.username}`;
+  const shareUrl = getProfileUrl(currentProfile.username);
   const tabs = [
     { icon: Grid3X3, label: "Vidéos" },
     { icon: Heart, label: "Aimées" },
