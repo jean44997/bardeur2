@@ -94,7 +94,7 @@ export default function AdminPage() {
   const sendAdminMessage = async (broadcast = false) => {
     if (!user) return;
     const content = adminMessage.trim().slice(0, 600);
-    if (!content) {
+    if (!content && !mediaFile) {
       toast.error("Message vide");
       return;
     }
@@ -104,12 +104,18 @@ export default function AdminPage() {
       : users.filter(u => u.id === adminTargetId && u.id !== user.id);
 
     if (targets.length === 0) {
-      toast.error(broadcast ? "Aucun utilisateur a contacter" : "Choisis un utilisateur");
+      toast.error(broadcast ? "Aucun utilisateur à contacter" : "Choisis un utilisateur");
       return;
     }
-    if (broadcast && !window.confirm(`Envoyer ce message a ${targets.length} utilisateurs ?`)) return;
+    if (broadcast && !window.confirm(`Envoyer ce message à ${targets.length} utilisateurs ?`)) return;
 
     setSendingAdminMessage(true);
+    let media: { url: string; type: string } | null = null;
+    if (mediaFile) {
+      media = await uploadMediaForMessage();
+      if (!media) { setSendingAdminMessage(false); return; }
+    }
+
     let sent = 0;
     let failed = 0;
     let lastError = "";
@@ -117,7 +123,9 @@ export default function AdminPage() {
       try {
         const { error } = await (supabase as any).rpc("send_admin_official_message", {
           _recipient_id: target.id,
-          _content: `[BARDEUR · Équipe officielle]\n${content}`,
+          _content: content ? `[BARDEUR · Équipe officielle]\n${content}` : "[BARDEUR · Équipe officielle]",
+          _media_url: media?.url || null,
+          _media_type: media?.type || null,
         });
         if (error) throw error;
         sent += 1;
@@ -128,14 +136,16 @@ export default function AdminPage() {
     }
     setSendingAdminMessage(false);
     if (sent > 0) {
-      toast.success(failed ? `${sent} envoyes, ${failed} echecs` : `${sent} message${sent > 1 ? "s" : ""} envoye${sent > 1 ? "s" : ""}`);
+      toast.success(failed ? `${sent} envoyés, ${failed} échecs` : `${sent} message${sent > 1 ? "s" : ""} envoyé${sent > 1 ? "s" : ""}`);
       setAdminMessage("");
+      setMediaFile(null);
       if (!broadcast) setAdminTargetId("");
       fetchAll();
     } else {
-      toast.error(lastError ? `Aucun message envoye: ${lastError}` : "Aucun message envoye");
+      toast.error(lastError ? `Aucun message envoyé: ${lastError}` : "Aucun message envoyé");
     }
   };
+
 
   const exportAdminJson = () => {
     const payload = {
