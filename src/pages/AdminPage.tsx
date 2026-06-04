@@ -357,34 +357,60 @@ export default function AdminPage() {
                     onChange={e => setAdminMessage(e.target.value)}
                     maxLength={600}
                     rows={5}
-                    placeholder="Message de moderation, aide, recompense ou information..."
+                    placeholder="Message de modération, aide, récompense ou information..."
                     className="mb-3 w-full resize-none rounded-xl bg-card px-3 py-3 text-base text-foreground outline-none placeholder:text-muted-foreground"
                   />
+                  <div className="mb-3">
+                    <label className="flex items-center gap-2 cursor-pointer rounded-xl bg-card px-3 py-3">
+                      <Paperclip className="h-4 w-4 text-primary" />
+                      <span className="text-xs font-medium text-foreground flex-1 truncate">
+                        {mediaFile ? mediaFile.name : "Joindre photo / audio / vidéo (optionnel)"}
+                      </span>
+                      {mediaFile && (
+                        <button type="button" onClick={(e) => { e.preventDefault(); setMediaFile(null); }} className="text-muted-foreground">
+                          <XIcon className="h-4 w-4" />
+                        </button>
+                      )}
+                      <input
+                        type="file"
+                        accept="image/*,audio/*,video/*"
+                        className="hidden"
+                        onChange={e => setMediaFile(e.target.files?.[0] || null)}
+                      />
+                    </label>
+                  </div>
                   <div className="grid grid-cols-2 gap-2">
                     <button
                       type="button"
                       onClick={() => sendAdminMessage(false)}
-                      disabled={sendingAdminMessage || !adminTargetId || !adminMessage.trim()}
+                      disabled={sendingAdminMessage || uploadingMedia || !adminTargetId || (!adminMessage.trim() && !mediaFile)}
                       className="flex items-center justify-center gap-2 rounded-xl gradient-primary px-4 py-3 text-sm font-bold text-primary-foreground disabled:opacity-45"
                     >
-                      <Send className="h-4 w-4" /> Envoyer prive
+                      <Send className="h-4 w-4" /> {uploadingMedia ? "Upload..." : "Envoyer privé"}
                     </button>
                     <button
                       type="button"
                       onClick={() => sendAdminMessage(true)}
-                      disabled={sendingAdminMessage || !adminMessage.trim()}
+                      disabled={sendingAdminMessage || uploadingMedia || (!adminMessage.trim() && !mediaFile)}
                       className="flex items-center justify-center gap-2 rounded-xl bg-card px-4 py-3 text-sm font-bold text-foreground disabled:opacity-45"
                     >
                       <Users className="h-4 w-4" /> Tous
                     </button>
                   </div>
-                  <p className="mt-3 text-[11px] text-muted-foreground">Broadcast limite a 300 users par envoi, avec anti-spam serveur et conversations reutilisees.</p>
+                  <p className="mt-3 text-[11px] text-muted-foreground">Broadcast limité à 300 users par envoi. Médias hébergés dans le bucket sécurisé.</p>
                 </div>
               </div>
             )}
           </>
         )}
       </div>
+      <BanUserDialog
+        open={!!banTarget}
+        target={banTarget}
+        onClose={() => setBanTarget(null)}
+        onBanned={fetchAll}
+      />
     </div>
   );
 }
+
