@@ -262,14 +262,27 @@ export default function AdminPage() {
                       <ExternalLink className="h-4 w-4 text-muted-foreground" />
                     </motion.button>
                     {u.id !== user?.id && (
-                      <motion.button
-                        whileTap={{ scale: 0.9 }}
-                        onClick={() => banUser(u.id, u.username)}
-                        className="h-8 w-8 rounded-lg bg-destructive/20 flex items-center justify-center"
-                      >
-                        <Ban className="h-4 w-4 text-destructive" />
-                      </motion.button>
+                      isBanned(u.id) ? (
+                        <motion.button
+                          whileTap={{ scale: 0.9 }}
+                          onClick={() => unbanUser(u.id, u.username)}
+                          className="flex items-center gap-1 h-8 px-2 rounded-lg bg-primary/20 text-primary text-[11px] font-bold"
+                          aria-label="Débannir"
+                        >
+                          <RotateCcw className="h-3.5 w-3.5" /> Déban
+                        </motion.button>
+                      ) : (
+                        <motion.button
+                          whileTap={{ scale: 0.9 }}
+                          onClick={() => setBanTarget(u)}
+                          className="h-8 w-8 rounded-lg bg-destructive/20 flex items-center justify-center"
+                          aria-label="Bannir"
+                        >
+                          <Ban className="h-4 w-4 text-destructive" />
+                        </motion.button>
+                      )
                     )}
+
                   </div>
                 ))}
               </div>
