@@ -359,10 +359,16 @@ export default function CommentsDrawer({ isOpen, onClose, commentCount, videoId,
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5 mb-0.5">
-                        <span className="text-xs font-semibold text-foreground">{comment.user.name}</span>
+                        <button
+                          type="button"
+                          onClick={() => { navigate(`/profile/${comment.user.name}`); onClose(); }}
+                          className="text-xs font-semibold text-foreground hover:text-primary transition-colors"
+                        >
+                          @{comment.user.name}
+                        </button>
                         <span className="text-[10px] text-muted-foreground">{comment.time}</span>
                       </div>
-                      <p className="text-sm text-foreground/90 mb-1">{comment.text}</p>
+                      <p className="text-sm text-foreground/90 mb-1 break-words">{comment.text}</p>
                       {comment.mediaUrl && comment.mediaType?.startsWith("audio") && (
                         <div className="mb-2 max-w-[300px]"><CommentVoiceNote src={comment.mediaUrl} /></div>
                       )}
@@ -371,7 +377,14 @@ export default function CommentsDrawer({ isOpen, onClose, commentCount, videoId,
                           <Heart className={`h-3.5 w-3.5 ${comment.liked ? "fill-primary text-primary" : "text-muted-foreground"}`} />
                           <span className="text-[10px] text-muted-foreground tabular-nums">{comment.likes}</span>
                         </button>
-                        <button className="text-[10px] font-medium text-muted-foreground">Répondre</button>
+                        <button
+                          type="button"
+                          onClick={() => { setReplyTo({ id: comment.id, username: comment.user.name }); inputRef.current?.focus(); }}
+                          className="text-[10px] font-medium text-muted-foreground hover:text-primary"
+                        >
+                          Répondre
+                        </button>
+
                         {canDeleteComment(comment) ? (
                           <button
                             type="button"
