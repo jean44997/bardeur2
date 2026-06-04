@@ -1,10 +1,12 @@
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { ArrowLeft, Shield, Users, Flag, BarChart3, Ban, Search, Download, RefreshCw, ExternalLink, Clock, CheckCircle, MessageCircle, Send, Stethoscope } from "lucide-react";
+import { ArrowLeft, Shield, Users, Flag, BarChart3, Ban, Search, Download, RefreshCw, ExternalLink, Clock, CheckCircle, MessageCircle, Send, Stethoscope, Paperclip, X as XIcon, RotateCcw } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
+import BanUserDialog from "@/components/admin/BanUserDialog";
+
 
 export default function AdminPage() {
   const navigate = useNavigate();
@@ -12,6 +14,7 @@ export default function AdminPage() {
   const [activeTab, setActiveTab] = useState<"stats" | "users" | "reports" | "messages">("stats");
   const [users, setUsers] = useState<any[]>([]);
   const [reports, setReports] = useState<any[]>([]);
+  const [banned, setBanned] = useState<any[]>([]);
   const [stats, setStats] = useState({ users: 0, videos: 0, reports: 0, banned: 0 });
   const [loading, setLoading] = useState(true);
   const [userSearch, setUserSearch] = useState("");
@@ -19,6 +22,10 @@ export default function AdminPage() {
   const [adminMessage, setAdminMessage] = useState("");
   const [adminTargetId, setAdminTargetId] = useState("");
   const [sendingAdminMessage, setSendingAdminMessage] = useState(false);
+  const [banTarget, setBanTarget] = useState<any | null>(null);
+  const [mediaFile, setMediaFile] = useState<File | null>(null);
+  const [uploadingMedia, setUploadingMedia] = useState(false);
+
 
   useEffect(() => {
     if (role === "super_admin" || role === "admin") {
@@ -32,25 +39,30 @@ export default function AdminPage() {
       supabase.from("profiles").select("*"),
       supabase.from("videos").select("*", { count: "exact", head: true }),
       supabase.from("reports").select("*, reporter:reporter_id(username), reported:reported_user_id(username)").order("created_at", { ascending: false }),
-      supabase.from("banned_users").select("*", { count: "exact", head: true }),
+      (supabase as any).from("banned_users").select("user_id, reason, expires_at, is_permanent, created_at"),
     ]);
 
+    const bannedList = (bannedRes.data || []).filter((b: any) =>
+      b.is_permanent || !b.expires_at || new Date(b.expires_at) > new Date()
+    );
     setUsers(usersRes.data || []);
     setReports(reportsRes.data || []);
+    setBanned(bannedList);
     setStats({
       users: usersRes.data?.length || 0,
       videos: videosRes.count || 0,
       reports: reportsRes.data?.length || 0,
-      banned: bannedRes.count || 0,
+      banned: bannedList.length,
     });
     setLoading(false);
   };
 
-  const banUser = async (userId: string, username: string) => {
-    if (!user) return;
-    const { error } = await supabase.from("banned_users").insert({ user_id: userId, banned_by: user.id, reason: "Banni par admin" });
-    if (error) { toast.error("Erreur lors du bannissement"); return; }
-    toast.success(`@${username} a été banni`);
+  const isBanned = (uid: string) => banned.some(b => b.user_id === uid);
+
+  const unbanUser = async (userId: string, username: string) => {
+    const { error } = await (supabase as any).from("banned_users").delete().eq("user_id", userId);
+    if (error) { toast.error("Débannissement impossible"); return; }
+    toast.success(`@${username} débanni`);
     fetchAll();
   };
 
@@ -59,6 +71,25 @@ export default function AdminPage() {
     toast.success(action === "resolved" ? "Signalement traité" : "Signalement ignoré");
     fetchAll();
   };
+
+  const uploadMediaForMessage = async (): Promise<{ url: string; type: string } | null> => {
+    if (!mediaFile || !user) return null;
+    setUploadingMedia(true);
+    try {
+      const ext = mediaFile.name.split(".").pop() || "bin";
+      const path = `${user.id}/admin-broadcast/${crypto.randomUUID()}.${ext}`;
+      const { error } = await supabase.storage.from("media").upload(path, mediaFile, { contentType: mediaFile.type, upsert: false });
+      if (error) throw error;
+      const { data } = supabase.storage.from("media").getPublicUrl(path);
+      return { url: data.publicUrl, type: mediaFile.type };
+    } catch (err: any) {
+      toast.error(err?.message || "Upload échoué");
+      return null;
+    } finally {
+      setUploadingMedia(false);
+    }
+  };
+
 
   const sendAdminMessage = async (broadcast = false) => {
     if (!user) return;
