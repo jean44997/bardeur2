@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Heart, Send, Sticker, Mic, Trash2, Flag } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
@@ -8,6 +9,7 @@ import { checkClientRateLimit, formatRetryAfter } from "@/lib/clientRateLimit";
 import { validateUserText } from "@/lib/contentSafety";
 import { getBestAudioRecorderOptions } from "@/lib/mediaCapabilities";
 import CommentVoiceNote from "@/components/CommentVoiceNote";
+
 
 interface Comment {
   id: string;
@@ -42,12 +44,15 @@ export default function CommentsDrawer({ isOpen, onClose, commentCount, videoId,
   const [recordingTime, setRecordingTime] = useState(0);
   const [mutuals, setMutuals] = useState<Array<{ id: string; username: string; display_name: string; avatar_url: string }>>([]);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const [replyTo, setReplyTo] = useState<{ id: string; username: string } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const audioRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const audioStreamRef = useRef<MediaStream | null>(null);
   const cancelledAudioRef = useRef(false);
   const { user, profile } = useAuth();
+  const navigate = useNavigate();
+
 
   useEffect(() => {
     if (isOpen && videoId) {
@@ -180,15 +185,44 @@ export default function CommentsDrawer({ isOpen, onClose, commentCount, videoId,
     if (!rate.allowed) { toast.error(`Commentaires ralentis, réessaie dans ${formatRetryAfter(rate.retryAfterMs)}`); return; }
     const validation = validateUserText(newComment, { maxLength: 280, allowLinks: false });
     if (!validation.ok) { toast.error(validation.reason || "Commentaire refusé"); return; }
-    const { error } = await supabase.from("comments").insert({
+
+    // Optimistic insert for instant feedback
+    const tempId = `temp-${Date.now()}`;
+    const optimistic: Comment = {
+      id: tempId,
+      userId: user.id,
+      user: {
+        name: profile?.username || "toi",
+        avatar: (profile?.display_name?.[0] || profile?.username?.[0] || "T").toUpperCase(),
+        verified: false,
+      },
+      text: validation.value,
+      likes: 0,
+      liked: false,
+      time: "maintenant",
+      replies: 0,
+    };
+    setComments(prev => [optimistic, ...prev]);
+    const textToSend = validation.value;
+    const parentId = replyTo?.id || null;
+    setNewComment("");
+    setReplyTo(null);
+
+    const { error } = await (supabase as any).from("comments").insert({
       user_id: user.id,
       video_id: videoId,
-      content: validation.value,
+      content: textToSend,
+      parent_id: parentId,
     });
-    if (error) { toast.error("Erreur lors de l'envoi"); return; }
-    setNewComment("");
+    if (error) {
+      toast.error("Erreur lors de l'envoi");
+      setComments(prev => prev.filter(c => c.id !== tempId));
+      setNewComment(textToSend);
+      return;
+    }
     fetchComments();
   };
+
 
   const startAudioRecording = async () => {
     if (!user || !videoId) {
