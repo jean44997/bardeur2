@@ -6,6 +6,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 import StoriesRail from "@/components/StoriesRail";
+import StoriesGrid from "@/components/StoriesGrid";
 
 const categories = [
   { icon: Flame, label: "pourtoi", color: "from-primary to-pink-400" },
