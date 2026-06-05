@@ -6,6 +6,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 import StoriesRail from "@/components/StoriesRail";
+import StoriesGrid from "@/components/StoriesGrid";
 
 const categories = [
   { icon: Flame, label: "pourtoi", color: "from-primary to-pink-400" },
@@ -123,6 +124,13 @@ export default function ExplorePage() {
 
         {!query.trim() && (
           <>
+            <h2 className="text-lg font-bold text-foreground mb-3 flex items-center gap-2">
+              ✨ Stories en cours
+            </h2>
+            <div className="mb-8">
+              <StoriesGrid />
+            </div>
+
             <h2 className="text-lg font-bold text-foreground mb-3 flex items-center gap-2">
               <Hash className="h-5 w-5 text-primary" /> Catégories
             </h2>

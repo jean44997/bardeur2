@@ -93,6 +93,18 @@ export default function StoriesRail() {
 
   const myGroup = groups.find(g => g.user_id === user?.id);
 
+  // Build a continuous flat list starting at the chosen group, then all following groups,
+  // so the viewer auto-advances to the next user without closing.
+  const openGroupContinuous = (startUserId: string) => {
+    const ordered = [
+      ...groups.filter(g => g.user_id === startUserId),
+      ...groups.filter(g => g.user_id !== startUserId),
+    ];
+    const flat: StoryItem[] = ordered.flatMap(g => g.items);
+    const startIdx = flat.findIndex(s => s.user_id === startUserId);
+    setViewer({ stories: flat, index: Math.max(0, startIdx) });
+  };
+
   const handleFilePicked = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !user) return;
@@ -180,7 +192,7 @@ export default function StoriesRail() {
           <button
             type="button"
             onClick={() => {
-              if (myGroup) setViewer({ stories: myGroup.items, index: 0 });
+              if (myGroup) openGroupContinuous(user.id);
               else fileRef.current?.click();
             }}
             className="flex w-16 shrink-0 flex-col items-center gap-1"
@@ -205,7 +217,7 @@ export default function StoriesRail() {
           <button
             key={g.user_id}
             type="button"
-            onClick={() => setViewer({ stories: g.items, index: 0 })}
+            onClick={() => openGroupContinuous(g.user_id)}
             className="flex w-16 shrink-0 flex-col items-center gap-1"
             aria-label={`Stories de ${g.display_name}`}
           >
