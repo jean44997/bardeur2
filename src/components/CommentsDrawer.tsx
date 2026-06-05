@@ -446,6 +446,12 @@ export default function CommentsDrawer({ isOpen, onClose, commentCount, videoId,
             </AnimatePresence>
 
             <div className="border-t border-border px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+              {replyTo && (
+                <div className="mb-2 flex items-center justify-between gap-2 rounded-full bg-primary/10 px-3 py-1.5 text-[11px]">
+                  <span className="truncate text-foreground">Réponse à <span className="font-semibold text-primary">@{replyTo.username}</span></span>
+                  <button type="button" onClick={() => setReplyTo(null)} className="text-muted-foreground hover:text-foreground"><X className="h-3.5 w-3.5" /></button>
+                </div>
+              )}
               {!isRecordingAudio && newComment.trim() && (
                 <div className="mb-2 flex justify-end">
                   <div className="max-w-[82%] rounded-2xl rounded-br-sm bg-primary/15 px-3 py-2 text-xs text-foreground">
