@@ -93,6 +93,18 @@ export default function StoriesRail() {
 
   const myGroup = groups.find(g => g.user_id === user?.id);
 
+  // Build a continuous flat list starting at the chosen group, then all following groups,
+  // so the viewer auto-advances to the next user without closing.
+  const openGroupContinuous = (startUserId: string) => {
+    const ordered = [
+      ...groups.filter(g => g.user_id === startUserId),
+      ...groups.filter(g => g.user_id !== startUserId),
+    ];
+    const flat: StoryItem[] = ordered.flatMap(g => g.items);
+    const startIdx = flat.findIndex(s => s.user_id === startUserId);
+    setViewer({ stories: flat, index: Math.max(0, startIdx) });
+  };
+
   const handleFilePicked = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !user) return;
