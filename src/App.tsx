@@ -8,6 +8,7 @@ import BottomNav from "@/components/BottomNav";
 import DesktopSidebar from "@/components/DesktopSidebar";
 import AuthGuard from "@/components/AuthGuard";
 import BanGate from "@/components/BanGate";
+import OnboardingFlow from "@/components/OnboardingFlow";
 
 import GlobalCallListener from "@/components/GlobalCallListener";
 import { useViewportInsets } from "@/hooks/useViewportInsets";
@@ -47,6 +48,7 @@ const App = () => (
           <ViewportRuntime />
           <GlobalCallListener />
           <BanGate>
+          <OnboardingFlow />
           <Routes>
 
             <Route path="/auth" element={<AuthPage />} />
