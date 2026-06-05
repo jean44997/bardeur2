@@ -125,6 +125,13 @@ export default function ExplorePage() {
         {!query.trim() && (
           <>
             <h2 className="text-lg font-bold text-foreground mb-3 flex items-center gap-2">
+              ✨ Stories en cours
+            </h2>
+            <div className="mb-8">
+              <StoriesGrid />
+            </div>
+
+            <h2 className="text-lg font-bold text-foreground mb-3 flex items-center gap-2">
               <Hash className="h-5 w-5 text-primary" /> Catégories
             </h2>
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2 mb-8">
