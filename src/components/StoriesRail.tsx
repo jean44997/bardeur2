@@ -192,7 +192,7 @@ export default function StoriesRail() {
           <button
             type="button"
             onClick={() => {
-              if (myGroup) setViewer({ stories: myGroup.items, index: 0 });
+              if (myGroup) openGroupContinuous(user.id);
               else fileRef.current?.click();
             }}
             className="flex w-16 shrink-0 flex-col items-center gap-1"
@@ -217,7 +217,7 @@ export default function StoriesRail() {
           <button
             key={g.user_id}
             type="button"
-            onClick={() => setViewer({ stories: g.items, index: 0 })}
+            onClick={() => openGroupContinuous(g.user_id)}
             className="flex w-16 shrink-0 flex-col items-center gap-1"
             aria-label={`Stories de ${g.display_name}`}
           >
