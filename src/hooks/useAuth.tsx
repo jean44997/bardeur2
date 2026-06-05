@@ -27,6 +27,7 @@ interface Profile {
   notification_quiet_hours_enabled?: boolean;
   notification_quiet_hours_start?: string;
   notification_quiet_hours_end?: string;
+  onboarding_completed?: boolean;
 }
 
 interface AuthContextType {

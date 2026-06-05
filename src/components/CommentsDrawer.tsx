@@ -14,12 +14,13 @@ import CommentVoiceNote from "@/components/CommentVoiceNote";
 interface Comment {
   id: string;
   userId: string;
+  parentId: string | null;
   user: { name: string; avatar: string; verified: boolean };
   text: string;
   likes: number;
   liked: boolean;
   time: string;
-  replies: number;
+  replies: Comment[];
   mediaUrl?: string;
   mediaType?: string;
 }
@@ -141,26 +142,34 @@ export default function CommentsDrawer({ isOpen, onClose, commentCount, videoId,
       .from("comments")
       .select("*, profiles:user_id(username, display_name, avatar_url)")
       .eq("video_id", videoId)
-      .is("parent_id", null)
       .order("created_at", { ascending: false });
 
     if (data) {
-      setComments(data.map((c: any) => ({
+      const toComment = (c: any): Comment => ({
         id: c.id,
         userId: c.user_id,
+        parentId: c.parent_id || null,
         user: {
           name: c.profiles?.username || "unknown",
-          avatar: c.profiles?.display_name?.[0] || "?",
+          avatar: (c.profiles?.display_name?.[0] || c.profiles?.username?.[0] || "?").toUpperCase(),
           verified: false,
         },
         text: c.content,
         likes: c.likes_count || 0,
         liked: false,
         time: getTimeAgo(c.created_at),
-        replies: 0,
+        replies: [],
         mediaUrl: c.media_url || undefined,
         mediaType: c.media_type || undefined,
-      })));
+      });
+      const all = data.map(toComment);
+      const byId = new Map(all.map(c => [c.id, c]));
+      const roots: Comment[] = [];
+      for (const c of all) {
+        if (c.parentId && byId.has(c.parentId)) byId.get(c.parentId)!.replies.unshift(c);
+        else roots.push(c);
+      }
+      setComments(roots);
     }
     setLoading(false);
   };
@@ -191,6 +200,7 @@ export default function CommentsDrawer({ isOpen, onClose, commentCount, videoId,
     const optimistic: Comment = {
       id: tempId,
       userId: user.id,
+      parentId: replyTo?.id || null,
       user: {
         name: profile?.username || "toi",
         avatar: (profile?.display_name?.[0] || profile?.username?.[0] || "T").toUpperCase(),
@@ -200,9 +210,13 @@ export default function CommentsDrawer({ isOpen, onClose, commentCount, videoId,
       likes: 0,
       liked: false,
       time: "maintenant",
-      replies: 0,
+      replies: [],
     };
-    setComments(prev => [optimistic, ...prev]);
+    if (replyTo) {
+      setComments(prev => prev.map(c => c.id === replyTo.id ? { ...c, replies: [optimistic, ...c.replies] } : c));
+    } else {
+      setComments(prev => [optimistic, ...prev]);
+    }
     const textToSend = validation.value;
     const parentId = replyTo?.id || null;
     setNewComment("");
@@ -340,7 +354,7 @@ export default function CommentsDrawer({ isOpen, onClose, commentCount, videoId,
             className="fixed inset-x-0 bottom-0 z-[70] max-h-[75svh] rounded-t-3xl bg-card border-t border-border flex flex-col"
           >
             <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-              <span className="text-sm font-bold text-foreground tabular-nums">{comments.length} commentaires</span>
+              <span className="text-sm font-bold text-foreground tabular-nums">{comments.reduce((n, c) => n + 1 + c.replies.length, 0)} commentaires</span>
               <motion.button whileTap={{ scale: 0.9 }} onClick={onClose}><X className="h-5 w-5 text-muted-foreground" /></motion.button>
             </div>
 
@@ -352,62 +366,68 @@ export default function CommentsDrawer({ isOpen, onClose, commentCount, videoId,
               ) : comments.length === 0 ? (
                 <p className="text-center text-sm text-muted-foreground py-8">Aucun commentaire. Sois le premier ! 💬</p>
               ) : (
-                comments.map(comment => (
-                  <div key={comment.id} className="flex gap-3">
-                    <div className="h-9 w-9 shrink-0 rounded-full bg-secondary flex items-center justify-center text-xs font-bold text-secondary-foreground">
-                      {comment.user.avatar}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-1.5 mb-0.5">
-                        <button
-                          type="button"
-                          onClick={() => { navigate(`/profile/${comment.user.name}`); onClose(); }}
-                          className="text-xs font-semibold text-foreground hover:text-primary transition-colors"
-                        >
-                          @{comment.user.name}
-                        </button>
-                        <span className="text-[10px] text-muted-foreground">{comment.time}</span>
+                comments.map(comment => {
+                  const renderOne = (c: Comment, isReply: boolean) => (
+                    <div key={c.id} className={`flex gap-3 ${isReply ? "mt-3" : ""}`}>
+                      <div className={`${isReply ? "h-7 w-7 text-[10px]" : "h-9 w-9 text-xs"} shrink-0 rounded-full bg-secondary flex items-center justify-center font-bold text-secondary-foreground`}>
+                        {c.user.avatar}
                       </div>
-                      <p className="text-sm text-foreground/90 mb-1 break-words">{comment.text}</p>
-                      {comment.mediaUrl && comment.mediaType?.startsWith("audio") && (
-                        <div className="mb-2 max-w-[300px]"><CommentVoiceNote src={comment.mediaUrl} /></div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5 mb-0.5 flex-wrap">
+                          <button
+                            type="button"
+                            onClick={() => { navigate(`/profile/${c.user.name}`); onClose(); }}
+                            className="text-xs font-semibold text-foreground hover:text-primary transition-colors"
+                          >
+                            @{c.user.name}
+                          </button>
+                          <span className="text-[10px] text-muted-foreground">{c.time}</span>
+                        </div>
+                        <p className="text-sm text-foreground/90 mb-1 break-words">{c.text}</p>
+                        {c.mediaUrl && c.mediaType?.startsWith("audio") && (
+                          <div className="mb-2 max-w-[300px]"><CommentVoiceNote src={c.mediaUrl} /></div>
+                        )}
+                        <div className="flex items-center gap-4 flex-wrap">
+                          <button onClick={() => toggleLike(c.id)} className="flex items-center gap-1">
+                            <Heart className={`h-3.5 w-3.5 ${c.liked ? "fill-primary text-primary" : "text-muted-foreground"}`} />
+                            <span className="text-[10px] text-muted-foreground tabular-nums">{c.likes}</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const target = isReply ? comment : c;
+                              setReplyTo({ id: target.id, username: c.user.name });
+                              setNewComment(prev => prev.startsWith(`@${c.user.name}`) ? prev : `@${c.user.name} ${prev}`);
+                              inputRef.current?.focus();
+                            }}
+                            className="text-[10px] font-medium text-muted-foreground hover:text-primary"
+                          >
+                            Répondre
+                          </button>
+                          {canDeleteComment(c) ? (
+                            <button type="button" onClick={() => deleteComment(c)} className="ml-auto flex items-center gap-1 text-[10px] font-medium text-destructive">
+                              <Trash2 className="h-3 w-3" /> Supprimer
+                            </button>
+                          ) : user ? (
+                            <button type="button" onClick={() => reportComment(c)} className="ml-auto flex items-center gap-1 text-[10px] font-medium text-muted-foreground">
+                              <Flag className="h-3 w-3" /> Signaler
+                            </button>
+                          ) : null}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                  return (
+                    <div key={comment.id}>
+                      {renderOne(comment, false)}
+                      {comment.replies.length > 0 && (
+                        <div className="ml-12 mt-1 border-l border-border/60 pl-3">
+                          {comment.replies.map(r => renderOne(r, true))}
+                        </div>
                       )}
-                      <div className="flex items-center gap-4">
-                        <button onClick={() => toggleLike(comment.id)} className="flex items-center gap-1">
-                          <Heart className={`h-3.5 w-3.5 ${comment.liked ? "fill-primary text-primary" : "text-muted-foreground"}`} />
-                          <span className="text-[10px] text-muted-foreground tabular-nums">{comment.likes}</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => { setReplyTo({ id: comment.id, username: comment.user.name }); inputRef.current?.focus(); }}
-                          className="text-[10px] font-medium text-muted-foreground hover:text-primary"
-                        >
-                          Répondre
-                        </button>
-
-                        {canDeleteComment(comment) ? (
-                          <button
-                            type="button"
-                            onClick={() => deleteComment(comment)}
-                            className="ml-auto flex items-center gap-1 text-[10px] font-medium text-destructive"
-                            aria-label="Supprimer le commentaire"
-                          >
-                            <Trash2 className="h-3 w-3" /> Supprimer
-                          </button>
-                        ) : user ? (
-                          <button
-                            type="button"
-                            onClick={() => reportComment(comment)}
-                            className="ml-auto flex items-center gap-1 text-[10px] font-medium text-muted-foreground"
-                            aria-label="Signaler le commentaire"
-                          >
-                            <Flag className="h-3 w-3" /> Signaler
-                          </button>
-                        ) : null}
-                      </div>
                     </div>
-                  </div>
-                ))
+                  );
+                })
               )}
             </div>
 
@@ -426,6 +446,12 @@ export default function CommentsDrawer({ isOpen, onClose, commentCount, videoId,
             </AnimatePresence>
 
             <div className="border-t border-border px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+              {replyTo && (
+                <div className="mb-2 flex items-center justify-between gap-2 rounded-full bg-primary/10 px-3 py-1.5 text-[11px]">
+                  <span className="truncate text-foreground">Réponse à <span className="font-semibold text-primary">@{replyTo.username}</span></span>
+                  <button type="button" onClick={() => setReplyTo(null)} className="text-muted-foreground hover:text-foreground"><X className="h-3.5 w-3.5" /></button>
+                </div>
+              )}
               {!isRecordingAudio && newComment.trim() && (
                 <div className="mb-2 flex justify-end">
                   <div className="max-w-[82%] rounded-2xl rounded-br-sm bg-primary/15 px-3 py-2 text-xs text-foreground">
