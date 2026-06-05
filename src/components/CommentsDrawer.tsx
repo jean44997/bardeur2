@@ -14,12 +14,13 @@ import CommentVoiceNote from "@/components/CommentVoiceNote";
 interface Comment {
   id: string;
   userId: string;
+  parentId: string | null;
   user: { name: string; avatar: string; verified: boolean };
   text: string;
   likes: number;
   liked: boolean;
   time: string;
-  replies: number;
+  replies: Comment[];
   mediaUrl?: string;
   mediaType?: string;
 }
@@ -141,26 +142,34 @@ export default function CommentsDrawer({ isOpen, onClose, commentCount, videoId,
       .from("comments")
       .select("*, profiles:user_id(username, display_name, avatar_url)")
       .eq("video_id", videoId)
-      .is("parent_id", null)
       .order("created_at", { ascending: false });
 
     if (data) {
-      setComments(data.map((c: any) => ({
+      const toComment = (c: any): Comment => ({
         id: c.id,
         userId: c.user_id,
+        parentId: c.parent_id || null,
         user: {
           name: c.profiles?.username || "unknown",
-          avatar: c.profiles?.display_name?.[0] || "?",
+          avatar: (c.profiles?.display_name?.[0] || c.profiles?.username?.[0] || "?").toUpperCase(),
           verified: false,
         },
         text: c.content,
         likes: c.likes_count || 0,
         liked: false,
         time: getTimeAgo(c.created_at),
-        replies: 0,
+        replies: [],
         mediaUrl: c.media_url || undefined,
         mediaType: c.media_type || undefined,
-      })));
+      });
+      const all = data.map(toComment);
+      const byId = new Map(all.map(c => [c.id, c]));
+      const roots: Comment[] = [];
+      for (const c of all) {
+        if (c.parentId && byId.has(c.parentId)) byId.get(c.parentId)!.replies.unshift(c);
+        else roots.push(c);
+      }
+      setComments(roots);
     }
     setLoading(false);
   };
@@ -191,6 +200,7 @@ export default function CommentsDrawer({ isOpen, onClose, commentCount, videoId,
     const optimistic: Comment = {
       id: tempId,
       userId: user.id,
+      parentId: replyTo?.id || null,
       user: {
         name: profile?.username || "toi",
         avatar: (profile?.display_name?.[0] || profile?.username?.[0] || "T").toUpperCase(),
@@ -200,9 +210,13 @@ export default function CommentsDrawer({ isOpen, onClose, commentCount, videoId,
       likes: 0,
       liked: false,
       time: "maintenant",
-      replies: 0,
+      replies: [],
     };
-    setComments(prev => [optimistic, ...prev]);
+    if (replyTo) {
+      setComments(prev => prev.map(c => c.id === replyTo.id ? { ...c, replies: [optimistic, ...c.replies] } : c));
+    } else {
+      setComments(prev => [optimistic, ...prev]);
+    }
     const textToSend = validation.value;
     const parentId = replyTo?.id || null;
     setNewComment("");
