@@ -46,7 +46,7 @@ export default function ProfilePage() {
   const [storyViewerIndex, setStoryViewerIndex] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const storyInputRef = useRef<HTMLInputElement>(null);
-  const storyAudienceRef = useRef<"public" | "friends">("public");
+  const storyAudienceRef = useRef<"public" | "friends" | "private">("public");
 
   const targetUserId = isOwnProfile ? user?.id : viewedProfile?.id;
   const currentProfile = isOwnProfile ? profile : viewedProfile;
