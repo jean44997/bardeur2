@@ -40,13 +40,32 @@ export default function OnboardingFlow() {
   const loadSuggestions = async () => {
     if (!user) return;
     setLoading(true);
-    const { data } = await (supabase as any)
-      .from("profiles")
-      .select("id, username, display_name, avatar_url, xp")
-      .neq("id", user.id)
-      .order("xp", { ascending: false })
-      .limit(8);
-    setSuggestions((data || []) as Suggestion[]);
+    // 1) Always include admin / super_admin profiles first (verified team).
+    const { data: adminRoles } = await (supabase as any)
+      .from("user_roles")
+      .select("user_id, role")
+      .in("role", ["super_admin", "admin"]);
+    const adminIds: string[] = Array.from(
+      new Set(((adminRoles || []) as any[]).map((r) => r.user_id).filter((id: string) => id && id !== user.id))
+    );
+
+    const merged: Suggestion[] = [];
+    if (adminIds.length > 0) {
+      const { data: admins } = await (supabase as any)
+        .from("profiles")
+        .select("id, username, display_name, avatar_url, xp_total")
+        .in("id", adminIds);
+      (admins || []).forEach((p: any) => merged.push({ ...p, xp: p.xp_total || 0 }));
+    }
+
+    // 2) Then top XP creators (excluding self + already included admins).
+    const exclude = [user.id, ...adminIds];
+    let q: any = (supabase as any).from("profiles").select("id, username, display_name, avatar_url, xp_total");
+    if (exclude.length) q = q.not("id", "in", `(${exclude.map((id) => `"${id}"`).join(",")})`);
+    const { data: top } = await q.order("xp_total", { ascending: false }).limit(8);
+    (top || []).forEach((p: any) => merged.push({ ...p, xp: p.xp_total || 0 }));
+
+    setSuggestions(merged.slice(0, 10));
     setLoading(false);
   };
 
