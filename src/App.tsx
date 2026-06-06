@@ -15,6 +15,7 @@ import { useViewportInsets } from "@/hooks/useViewportInsets";
 import Index from "./pages/Index";
 import ExplorePage from "./pages/ExplorePage";
 import ProfilePage from "./pages/ProfilePage";
+import StoryViewsPage from "./pages/StoryViewsPage";
 import InboxPage from "./pages/InboxPage";
 import CreatePage from "./pages/CreatePage";
 import AuthPage from "./pages/AuthPage";
