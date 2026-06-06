@@ -158,7 +158,7 @@ export default function StoriesRail() {
           }, ...others];
         });
       }
-      toast.success(`Story ${audience === "public" ? "publique 🌍 visible par tous" : "amis 👥 visible par tes amis mutuels"}`);
+      toast.success(audience === "public" ? "Story publique 🌍 visible par tous" : audience === "friends" ? "Story amis 👥 visible par tes mutuels" : "Story privée 🔒 visible que par toi");
       await fetchStories();
       setTimeout(() => { fetchStories(); }, 700);
       setTimeout(() => { fetchStories(); }, 2200);
