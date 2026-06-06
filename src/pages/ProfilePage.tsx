@@ -325,7 +325,7 @@ export default function ProfilePage() {
       });
       if (insertError) throw insertError;
 
-      toast.success(storyAudienceRef.current === "friends" ? "Story amis publiee" : "Story publique publiee");
+      toast.success(storyAudienceRef.current === "private" ? "Story privée publiée 🔒" : storyAudienceRef.current === "friends" ? "Story amis publiee" : "Story publique publiee");
       if (targetUserId) {
         fetchActiveStories(targetUserId);
         window.setTimeout(() => fetchActiveStories(targetUserId), 700);
