@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from "react";
-import { Plus, Globe2, Users, X } from "lucide-react";
+import { Plus, Globe2, Users, X, Lock } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -114,7 +114,7 @@ export default function StoriesRail() {
     if (fileRef.current) fileRef.current.value = "";
   };
 
-  const publishStory = async (audience: "public" | "friends") => {
+  const publishStory = async (audience: "public" | "friends" | "private") => {
     if (!pendingFile || !user) return;
     const file = pendingFile;
     setPendingFile(null);
@@ -158,7 +158,7 @@ export default function StoriesRail() {
           }, ...others];
         });
       }
-      toast.success(`Story ${audience === "public" ? "publique 🌍 visible par tous" : "amis 👥 visible par tes amis mutuels"}`);
+      toast.success(audience === "public" ? "Story publique 🌍 visible par tous" : audience === "friends" ? "Story amis 👥 visible par tes mutuels" : "Story privée 🔒 visible que par toi");
       await fetchStories();
       setTimeout(() => { fetchStories(); }, 700);
       setTimeout(() => { fetchStories(); }, 2200);
@@ -261,24 +261,33 @@ export default function StoriesRail() {
                   <X className="h-4 w-4 text-foreground" />
                 </button>
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-3 gap-2">
                 <button
                   type="button"
                   onClick={() => publishStory("public")}
-                  className="flex flex-col items-start gap-2 rounded-2xl border border-primary/40 bg-gradient-to-br from-primary/15 to-accent/10 p-4 text-left active:scale-[0.98] transition-transform"
+                  className="flex flex-col items-start gap-2 rounded-2xl border border-primary/40 bg-gradient-to-br from-primary/15 to-accent/10 p-3 text-left active:scale-[0.98] transition-transform"
                 >
                   <Globe2 className="h-5 w-5 text-primary" />
                   <span className="text-sm font-bold text-foreground">Public</span>
-                  <span className="text-[11px] text-muted-foreground">Visible par tout le monde sur BARDEUR</span>
+                  <span className="text-[10px] text-muted-foreground">Visible par tous</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => publishStory("friends")}
-                  className="flex flex-col items-start gap-2 rounded-2xl border border-border bg-secondary/40 p-4 text-left active:scale-[0.98] transition-transform"
+                  className="flex flex-col items-start gap-2 rounded-2xl border border-border bg-secondary/40 p-3 text-left active:scale-[0.98] transition-transform"
                 >
                   <Users className="h-5 w-5 text-foreground" />
                   <span className="text-sm font-bold text-foreground">Amis</span>
-                  <span className="text-[11px] text-muted-foreground">Visible uniquement par tes amis mutuels</span>
+                  <span className="text-[10px] text-muted-foreground">Mutuels uniquement</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => publishStory("private")}
+                  className="flex flex-col items-start gap-2 rounded-2xl border border-border bg-secondary/40 p-3 text-left active:scale-[0.98] transition-transform"
+                >
+                  <Lock className="h-5 w-5 text-foreground" />
+                  <span className="text-sm font-bold text-foreground">Privé</span>
+                  <span className="text-[10px] text-muted-foreground">Visible par toi</span>
                 </button>
               </div>
             </motion.div>

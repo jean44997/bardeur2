@@ -82,36 +82,40 @@ export default function BanUserDialog({ open, onClose, target, onBanned }: Props
 
             {mode === "temp" && (
               <>
-                <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Durée</p>
-                <div className="mb-3 grid grid-cols-4 gap-2">
+                <label className="mb-2 block text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Durée</label>
+                <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
                   {PRESETS.map(p => (
                     <button
                       key={p.hours}
                       type="button"
                       onClick={() => { setHours(p.hours); setCustomHours(""); }}
-                      className={`rounded-lg py-2 text-xs font-bold ${!customHours && hours === p.hours ? "bg-primary text-primary-foreground" : "bg-secondary text-foreground"}`}
+                      className={`rounded-lg py-2.5 text-xs font-bold ${!customHours && hours === p.hours ? "bg-primary text-primary-foreground" : "bg-secondary text-foreground"}`}
                     >
                       {p.label}
                     </button>
                   ))}
                 </div>
+                <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Ou durée personnalisée (heures)</label>
                 <input
-                  type="number" min={1} max={8760}
+                  type="number" min={1} max={8760} inputMode="numeric"
                   value={customHours}
                   onChange={e => setCustomHours(e.target.value)}
-                  placeholder="Durée personnalisée (heures)"
-                  className="mb-4 w-full rounded-xl bg-secondary px-3 py-3 text-sm text-foreground outline-none"
+                  onFocus={e => setTimeout(() => e.currentTarget.scrollIntoView({ block: "center", behavior: "smooth" }), 200)}
+                  placeholder="ex: 48"
+                  className="mb-4 w-full rounded-xl border border-border bg-secondary px-3 py-3 text-sm text-foreground outline-none focus:border-primary"
                 />
               </>
             )}
 
+            <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Motif (visible par l'utilisateur)</label>
             <textarea
               value={reason}
               onChange={e => setReason(e.target.value)}
+              onFocus={e => setTimeout(() => e.currentTarget.scrollIntoView({ block: "center", behavior: "smooth" }), 200)}
               rows={3}
               maxLength={400}
-              placeholder="Motif visible par l'utilisateur (ex: spam répété, contenu inapproprié...)"
-              className="mb-4 w-full resize-none rounded-xl bg-secondary px-3 py-3 text-sm text-foreground outline-none placeholder:text-muted-foreground"
+              placeholder="ex: spam répété, contenu inapproprié..."
+              className="mb-4 w-full resize-none rounded-xl border border-border bg-secondary px-3 py-3 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:border-primary"
             />
 
             <button

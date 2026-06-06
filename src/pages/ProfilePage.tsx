@@ -46,7 +46,7 @@ export default function ProfilePage() {
   const [storyViewerIndex, setStoryViewerIndex] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const storyInputRef = useRef<HTMLInputElement>(null);
-  const storyAudienceRef = useRef<"public" | "friends">("public");
+  const storyAudienceRef = useRef<"public" | "friends" | "private">("public");
 
   const targetUserId = isOwnProfile ? user?.id : viewedProfile?.id;
   const currentProfile = isOwnProfile ? profile : viewedProfile;
@@ -300,7 +300,7 @@ export default function ProfilePage() {
     toast.success("Photo supprimée");
   };
 
-  const openStoryUpload = (audience: "public" | "friends") => {
+  const openStoryUpload = (audience: "public" | "friends" | "private") => {
     storyAudienceRef.current = audience;
     storyInputRef.current?.click();
   };
@@ -325,7 +325,7 @@ export default function ProfilePage() {
       });
       if (insertError) throw insertError;
 
-      toast.success(storyAudienceRef.current === "friends" ? "Story amis publiee" : "Story publique publiee");
+      toast.success(storyAudienceRef.current === "private" ? "Story privée publiée 🔒" : storyAudienceRef.current === "friends" ? "Story amis publiee" : "Story publique publiee");
       if (targetUserId) {
         fetchActiveStories(targetUserId);
         window.setTimeout(() => fetchActiveStories(targetUserId), 700);
@@ -542,6 +542,12 @@ export default function ProfilePage() {
                   </motion.button>
                   <motion.button whileTap={{ scale: 0.95 }} onClick={() => openStoryUpload("friends")} disabled={uploadingStory} className="glass flex items-center gap-2 rounded-lg px-4 py-2 text-sm text-foreground disabled:opacity-60">
                     <Lock className="h-4 w-4" /> Amis
+                  </motion.button>
+                  <motion.button whileTap={{ scale: 0.95 }} onClick={() => openStoryUpload("private")} disabled={uploadingStory} className="glass flex items-center gap-2 rounded-lg px-4 py-2 text-sm text-foreground disabled:opacity-60">
+                    <Lock className="h-4 w-4" /> Privé
+                  </motion.button>
+                  <motion.button whileTap={{ scale: 0.95 }} onClick={() => navigate("/story-views")} className="glass flex items-center gap-2 rounded-lg px-4 py-2 text-sm text-foreground">
+                    <Eye className="h-4 w-4" /> Vues stories
                   </motion.button>
                 </>
               )

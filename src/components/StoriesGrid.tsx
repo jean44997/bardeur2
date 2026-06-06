@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Eye, Globe2, Users } from "lucide-react";
+import { Eye, Globe2, Users, Lock } from "lucide-react";
 import { motion } from "framer-motion";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -136,7 +136,7 @@ export default function StoriesGrid() {
                 </div>
               </StoryRing>
               <span className="absolute -bottom-1 -right-1 grid h-5 w-5 place-items-center rounded-full border-[2px] border-background bg-card text-foreground shadow">
-                {g.audience === "public" ? <Globe2 className="h-2.5 w-2.5" /> : <Users className="h-2.5 w-2.5" />}
+                {g.audience === "public" ? <Globe2 className="h-2.5 w-2.5" /> : g.audience === "private" ? <Lock className="h-2.5 w-2.5 text-primary" /> : <Users className="h-2.5 w-2.5" />}
               </span>
             </div>
             <span className="w-full truncate text-center text-[11px] font-semibold text-foreground">
