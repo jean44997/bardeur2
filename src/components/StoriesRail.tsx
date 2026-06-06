@@ -114,7 +114,7 @@ export default function StoriesRail() {
     if (fileRef.current) fileRef.current.value = "";
   };
 
-  const publishStory = async (audience: "public" | "friends") => {
+  const publishStory = async (audience: "public" | "friends" | "private") => {
     if (!pendingFile || !user) return;
     const file = pendingFile;
     setPendingFile(null);
