@@ -543,6 +543,12 @@ export default function ProfilePage() {
                   <motion.button whileTap={{ scale: 0.95 }} onClick={() => openStoryUpload("friends")} disabled={uploadingStory} className="glass flex items-center gap-2 rounded-lg px-4 py-2 text-sm text-foreground disabled:opacity-60">
                     <Lock className="h-4 w-4" /> Amis
                   </motion.button>
+                  <motion.button whileTap={{ scale: 0.95 }} onClick={() => openStoryUpload("private")} disabled={uploadingStory} className="glass flex items-center gap-2 rounded-lg px-4 py-2 text-sm text-foreground disabled:opacity-60">
+                    <Lock className="h-4 w-4" /> Privé
+                  </motion.button>
+                  <motion.button whileTap={{ scale: 0.95 }} onClick={() => navigate("/story-views")} className="glass flex items-center gap-2 rounded-lg px-4 py-2 text-sm text-foreground">
+                    <Eye className="h-4 w-4" /> Vues stories
+                  </motion.button>
                 </>
               )
             ) : (
