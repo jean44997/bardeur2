@@ -300,7 +300,7 @@ export default function ProfilePage() {
     toast.success("Photo supprimée");
   };
 
-  const openStoryUpload = (audience: "public" | "friends") => {
+  const openStoryUpload = (audience: "public" | "friends" | "private") => {
     storyAudienceRef.current = audience;
     storyInputRef.current?.click();
   };
