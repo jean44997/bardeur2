@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Eye, Globe2, Users } from "lucide-react";
+import { Eye, Globe2, Users, Lock } from "lucide-react";
 import { motion } from "framer-motion";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
