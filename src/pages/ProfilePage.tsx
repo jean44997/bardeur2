@@ -148,15 +148,21 @@ export default function ProfilePage() {
 
   const fetchActiveStories = async (userId: string) => {
     try {
-      const { data } = await (supabase as any)
+      const { data, error } = await (supabase as any)
         .from("stories")
-        .select("id, user_id, media_url, media_type, caption, created_at, audience, expires_at, views_count, profiles:user_id(username, display_name, avatar_url)")
+        .select("id, user_id, media_url, media_type, caption, created_at, audience, expires_at, views_count")
         .eq("user_id", userId)
         .gt("expires_at", new Date().toISOString())
         .order("created_at", { ascending: true });
+      if (error) throw error;
+      const { data: profiles } = await supabase
+        .from("profiles")
+        .select("id, username, display_name, avatar_url")
+        .eq("id", userId)
+        .maybeSingle();
       const mapped = (data || []).map((s: any) => ({
         id: s.id, user_id: s.user_id, media_url: s.media_url, media_type: s.media_type, caption: s.caption, created_at: s.created_at, audience: s.audience, expires_at: s.expires_at, views_count: s.views_count,
-        author: { username: s.profiles?.username, display_name: s.profiles?.display_name, avatar_url: s.profiles?.avatar_url },
+        author: { username: profiles?.username, display_name: profiles?.display_name, avatar_url: profiles?.avatar_url },
       }));
       setActiveStories(mapped);
     } catch {

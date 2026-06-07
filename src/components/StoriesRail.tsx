@@ -42,13 +42,26 @@ export default function StoriesRail() {
 
   const fetchStories = async () => {
     setLoading(true);
-    const { data } = await (supabase as any)
+    const { data, error } = await (supabase as any)
       .from("stories")
-      .select("id, user_id, media_url, media_type, caption, created_at, audience, expires_at, profiles:user_id(username, display_name, avatar_url)")
+      .select("id, user_id, media_url, media_type, caption, created_at, audience, expires_at, views_count")
       .gt("expires_at", new Date().toISOString())
       .order("created_at", { ascending: true });
 
+    if (error) {
+      console.error("[stories-rail] fetch failed", error);
+      setGroups([]);
+      setLoading(false);
+      return;
+    }
+
     const list = (data || []) as any[];
+    const authorIds = Array.from(new Set(list.map((row) => row.user_id).filter(Boolean)));
+    const { data: profiles } = authorIds.length
+      ? await supabase.from("profiles").select("id, username, display_name, avatar_url").in("id", authorIds)
+      : { data: [] as any[] };
+    const profilesById = new Map((profiles || []).map((p: any) => [p.id, p]));
+
     let seenIds = new Set<string>();
     if (user) {
       const { data: views } = await (supabase as any).from("story_views").select("story_id").eq("viewer_id", user.id);
@@ -57,7 +70,7 @@ export default function StoriesRail() {
 
     const grouped = new Map<string, UserStories>();
     for (const row of list) {
-      const author = row.profiles || {};
+      const author = profilesById.get(row.user_id) || {};
       const item: StoryItem = {
         id: row.id,
         user_id: row.user_id,
@@ -65,6 +78,9 @@ export default function StoriesRail() {
         media_type: row.media_type,
         caption: row.caption,
         created_at: row.created_at,
+        audience: row.audience,
+        expires_at: row.expires_at,
+        views_count: row.views_count,
         author: { username: author.username, display_name: author.display_name, avatar_url: author.avatar_url },
       };
       const existing = grouped.get(row.user_id) || {

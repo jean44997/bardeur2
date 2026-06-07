@@ -51,7 +51,13 @@ export default function StoryViewer({ stories, initialIndex = 0, onClose }: Prop
   // Record a view (best effort)
   useEffect(() => {
     if (!current || !user) return;
-    (supabase as any).from("story_views").insert({ story_id: current.id, viewer_id: user.id }).then(() => {});
+    (supabase as any)
+      .from("story_views")
+      .upsert(
+        { story_id: current.id, viewer_id: user.id, viewed_at: new Date().toISOString() },
+        { onConflict: "story_id,viewer_id", ignoreDuplicates: true }
+      )
+      .then(() => {});
   }, [current?.id, user?.id]);
 
   // Progress loop

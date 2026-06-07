@@ -215,6 +215,33 @@
     backdrop-filter: blur(18px);
     -webkit-backdrop-filter: blur(18px);
   }
+  .story-bubble-3d {
+    transform-style: preserve-3d;
+    filter: drop-shadow(0 12px 18px hsl(var(--background) / 0.38));
+  }
+  .story-bubble-3d::before {
+    content: "";
+    position: absolute;
+    inset: -0.28rem;
+    border-radius: 9999px;
+    background:
+      radial-gradient(circle at 30% 22%, hsl(var(--foreground) / 0.22), transparent 22%),
+      radial-gradient(circle at 72% 78%, hsl(var(--accent) / 0.18), transparent 28%);
+    opacity: 0.9;
+    transform: translateZ(-8px);
+    pointer-events: none;
+  }
+  .story-bubble-3d::after {
+    content: "";
+    position: absolute;
+    inset: 0.52rem 0.9rem auto auto;
+    width: 1rem;
+    height: 1rem;
+    border-radius: 9999px;
+    background: hsl(var(--foreground) / 0.28);
+    filter: blur(2px);
+    pointer-events: none;
+  }
 }
 
 input,
