@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
 import AppLogo from "@/components/AppLogo";
 
-function Particle({ delay }: { delay: number }) {
+function Particle({ delay, distance }: { delay: number; distance: number }) {
   const x = Math.random() * 100;
   const size = 2 + Math.random() * 4;
   return (
@@ -20,7 +20,7 @@ function Particle({ delay }: { delay: number }) {
         background: `hsl(${330 + Math.random() * 60}, 100%, ${50 + Math.random() * 20}%)`,
       }}
       initial={{ y: 0, opacity: 0 }}
-      animate={{ y: -window.innerHeight * 1.2, opacity: [0, 0.8, 0] }}
+      animate={{ y: -distance, opacity: [0, 0.8, 0] }}
       transition={{ duration: 6 + Math.random() * 6, delay, repeat: Infinity, ease: "easeOut" }}
     />
   );
@@ -57,9 +57,17 @@ export default function AuthPage() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [username, setUsername] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [compact3d, setCompact3d] = useState(false);
   const navigate = useNavigate();
   const { signUp, signIn, resetPassword } = useAuth();
   const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    const updateCompact = () => setCompact3d(window.innerWidth < 480 || window.innerHeight < 720);
+    updateCompact();
+    window.addEventListener("resize", updateCompact);
+    return () => window.removeEventListener("resize", updateCompact);
+  }, []);
 
   // 3D Canvas background
   useEffect(() => {
@@ -68,29 +76,39 @@ export default function AuthPage() {
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    let animationId: number;
+    let animationId = 0;
     let time = 0;
+    let cssWidth = 0;
+    let cssHeight = 0;
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
     const resize = () => {
-      canvas.width = window.innerWidth;
-      canvas.height = window.innerHeight;
+      const dpr = Math.min(window.devicePixelRatio || 1, window.innerWidth < 480 ? 1.25 : 1.75);
+      cssWidth = canvas.offsetWidth || window.innerWidth;
+      cssHeight = window.visualViewport?.height || canvas.offsetHeight || window.innerHeight;
+      canvas.width = Math.round(cssWidth * dpr);
+      canvas.height = Math.round(cssHeight * dpr);
+      canvas.style.width = `${cssWidth}px`;
+      canvas.style.height = `${cssHeight}px`;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     };
     resize();
     window.addEventListener("resize", resize);
+    window.visualViewport?.addEventListener("resize", resize);
 
     const draw = () => {
-      time += 0.005;
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      time += reduceMotion ? 0 : 0.005;
+      ctx.clearRect(0, 0, cssWidth, cssHeight);
 
       // Draw 3D grid lines
       ctx.strokeStyle = "hsla(330, 100%, 60%, 0.06)";
       ctx.lineWidth = 1;
-      const gridSize = 60;
+      const gridSize = compact3d ? 76 : 60;
       const perspective = 400;
-      const cx = canvas.width / 2;
-      const cy = canvas.height / 2;
+      const cx = cssWidth / 2;
+      const cy = cssHeight / 2;
 
-      for (let i = -10; i <= 10; i++) {
+      for (let i = compact3d ? -5 : -10; i <= (compact3d ? 5 : 10); i++) {
         ctx.beginPath();
         for (let z = 1; z < 20; z++) {
           const scale = perspective / (perspective + z * gridSize);
@@ -103,7 +121,7 @@ export default function AuthPage() {
       }
 
       // Rotating rings
-      for (let r = 0; r < 3; r++) {
+      for (let r = 0; r < (compact3d ? 2 : 3); r++) {
         ctx.beginPath();
         const radius = 100 + r * 60;
         const offsetX = Math.sin(time + r) * 30;
@@ -114,15 +132,16 @@ export default function AuthPage() {
         ctx.stroke();
       }
 
-      animationId = requestAnimationFrame(draw);
+      if (!reduceMotion) animationId = requestAnimationFrame(draw);
     };
 
     draw();
     return () => {
       cancelAnimationFrame(animationId);
       window.removeEventListener("resize", resize);
+      window.visualViewport?.removeEventListener("resize", resize);
     };
-  }, []);
+  }, [compact3d]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -155,16 +174,16 @@ export default function AuthPage() {
   };
 
   return (
-    <div className="min-h-[100svh] bg-background flex items-center justify-center px-4 relative overflow-hidden">
+    <div className="app-shell-height relative flex items-center justify-center overflow-y-auto bg-background px-4 py-[max(1rem,var(--app-safe-top))]">
       {/* 3D Canvas */}
       <canvas ref={canvasRef} className="absolute inset-0 pointer-events-none" />
 
       {/* Floating Orbs */}
-      {[0, 1, 2, 3].map(i => <FloatingOrb key={i} index={i} />)}
+      {Array.from({ length: compact3d ? 2 : 4 }, (_, i) => <FloatingOrb key={i} index={i} />)}
 
       {/* Rising Particles */}
-      {Array.from({ length: 20 }, (_, i) => (
-        <Particle key={i} delay={i * 0.4} />
+      {Array.from({ length: compact3d ? 8 : 20 }, (_, i) => (
+        <Particle key={i} delay={i * 0.4} distance={compact3d ? 720 : 1100} />
       ))}
 
       {/* Vignette overlay */}
@@ -174,11 +193,11 @@ export default function AuthPage() {
         initial={{ opacity: 0, y: 30, scale: 0.95 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
         transition={{ duration: 0.7, ease: [0.32, 0.72, 0, 1] }}
-        className="w-full max-w-sm relative z-10"
+        className="relative z-10 w-full max-w-sm py-4 sm:max-w-md"
         style={{ perspective: "1200px" }}
       >
         {/* Logo */}
-        <div className="text-center mb-8">
+        <div className="mb-6 text-center sm:mb-8">
           <motion.div
             initial={{ scale: 0.5, rotateY: -30 }}
             animate={{ scale: 1, rotateY: 0 }}
@@ -191,7 +210,7 @@ export default function AuthPage() {
               transition={{ duration: 8, repeat: Infinity, ease: "easeInOut" }}
               style={{ transformStyle: "preserve-3d" }}
             >
-              <AppLogo className="h-20 w-20" markClassName="text-3xl" />
+              <AppLogo className="h-16 w-16 sm:h-20 sm:w-20" markClassName="text-2xl sm:text-3xl" />
               <motion.div
                 className="absolute inset-0 rounded-2xl gradient-primary"
                 style={{ opacity: 0.25 }}
@@ -199,7 +218,7 @@ export default function AuthPage() {
                 transition={{ duration: 3, repeat: Infinity }}
               />
             </motion.div>
-            <h1 className="text-4xl font-extrabold tracking-tight mb-1">
+            <h1 className="mb-1 text-3xl font-extrabold tracking-tight sm:text-4xl">
               <span className="gradient-primary bg-clip-text text-transparent">BARDEUR</span>
               <span className="text-foreground ml-2">YK</span>
             </h1>

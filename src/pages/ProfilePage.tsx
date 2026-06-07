@@ -150,12 +150,12 @@ export default function ProfilePage() {
     try {
       const { data } = await (supabase as any)
         .from("stories")
-        .select("id, user_id, media_url, media_type, caption, created_at, audience, expires_at, profiles:user_id(username, display_name, avatar_url)")
+        .select("id, user_id, media_url, media_type, caption, created_at, audience, expires_at, views_count, profiles:user_id(username, display_name, avatar_url)")
         .eq("user_id", userId)
         .gt("expires_at", new Date().toISOString())
         .order("created_at", { ascending: true });
       const mapped = (data || []).map((s: any) => ({
-        id: s.id, user_id: s.user_id, media_url: s.media_url, media_type: s.media_type, caption: s.caption, created_at: s.created_at, audience: s.audience, expires_at: s.expires_at,
+        id: s.id, user_id: s.user_id, media_url: s.media_url, media_type: s.media_type, caption: s.caption, created_at: s.created_at, audience: s.audience, expires_at: s.expires_at, views_count: s.views_count,
         author: { username: s.profiles?.username, display_name: s.profiles?.display_name, avatar_url: s.profiles?.avatar_url },
       }));
       setActiveStories(mapped);
@@ -545,9 +545,6 @@ export default function ProfilePage() {
                   </motion.button>
                   <motion.button whileTap={{ scale: 0.95 }} onClick={() => openStoryUpload("private")} disabled={uploadingStory} className="glass flex items-center gap-2 rounded-lg px-4 py-2 text-sm text-foreground disabled:opacity-60">
                     <Lock className="h-4 w-4" /> Privé
-                  </motion.button>
-                  <motion.button whileTap={{ scale: 0.95 }} onClick={() => navigate("/story-views")} className="glass flex items-center gap-2 rounded-lg px-4 py-2 text-sm text-foreground">
-                    <Eye className="h-4 w-4" /> Vues stories
                   </motion.button>
                 </>
               )

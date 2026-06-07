@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Pause, Play, Volume2, VolumeX, Trash2 } from "lucide-react";
+import { X, Pause, Play, Volume2, VolumeX, Trash2, Eye, Clock, ShieldCheck } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
@@ -14,6 +14,7 @@ export interface StoryItem {
   created_at: string;
   audience?: string | null;
   expires_at?: string | null;
+  views_count?: number | null;
   author?: { username?: string | null; display_name?: string | null; avatar_url?: string | null } | null;
 }
 
@@ -45,6 +46,7 @@ export default function StoryViewer({ stories, initialIndex = 0, onClose }: Prop
 
   const current = stories[index];
   const isVideo = !!current?.media_type?.startsWith("video");
+  const isOwner = user?.id === current?.user_id;
 
   // Record a view (best effort)
   useEffect(() => {
@@ -200,7 +202,7 @@ export default function StoryViewer({ stories, initialIndex = 0, onClose }: Prop
           <button type="button" onClick={togglePause} className="grid h-9 w-9 place-items-center rounded-full bg-black/40 text-white">
             {paused ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
           </button>
-          {user?.id === current.user_id && (
+          {isOwner && (
             <button type="button" onClick={deleteCurrent} aria-label="Supprimer la story" className="grid h-9 w-9 place-items-center rounded-full bg-destructive/80 text-destructive-foreground">
               <Trash2 className="h-4 w-4" />
             </button>
@@ -212,10 +214,30 @@ export default function StoryViewer({ stories, initialIndex = 0, onClose }: Prop
 
         {/* Caption */}
         {current.caption && (
-          <div className="pointer-events-none absolute bottom-24 left-4 right-4 z-10 text-center text-sm font-medium text-white drop-shadow">
+          <div className="pointer-events-none absolute bottom-40 left-4 right-4 z-10 text-center text-sm font-medium text-white drop-shadow">
             {current.caption}
           </div>
         )}
+
+        <div className="pointer-events-none absolute bottom-0 left-0 right-0 z-20 bg-gradient-to-t from-black/90 via-black/55 to-transparent px-4 pb-[max(1rem,var(--app-safe-bottom))] pt-16">
+          <div className="grid grid-cols-3 gap-2 text-white">
+            <div className="rounded-xl bg-white/10 p-2 backdrop-blur">
+              <ShieldCheck className="mb-1 h-4 w-4 text-primary" />
+              <p className="text-[10px] uppercase text-white/55">Audience</p>
+              <p className="truncate text-xs font-bold">{audienceLabel(current.audience)}</p>
+            </div>
+            <div className="rounded-xl bg-white/10 p-2 backdrop-blur">
+              <Clock className="mb-1 h-4 w-4 text-accent" />
+              <p className="text-[10px] uppercase text-white/55">Expire</p>
+              <p className="truncate text-xs font-bold">{timeLeft(current.expires_at)}</p>
+            </div>
+            <div className="rounded-xl bg-white/10 p-2 backdrop-blur">
+              <Eye className="mb-1 h-4 w-4 text-white" />
+              <p className="text-[10px] uppercase text-white/55">Vues</p>
+              <p className="truncate text-xs font-bold">{isOwner ? Math.max(0, current.views_count || 0) : "Prive"}</p>
+            </div>
+          </div>
+        </div>
 
         {/* Tap zones */}
         <button type="button" aria-label="Précédent" onClick={prev} className="absolute left-0 top-0 z-10 h-full w-1/3" />
@@ -234,4 +256,21 @@ function timeAgo(iso: string) {
   const h = Math.floor(mins / 60);
   if (h < 24) return `${h} h`;
   return `${Math.floor(h / 24)} j`;
+}
+
+function audienceLabel(audience?: string | null) {
+  if (audience === "private") return "Privee";
+  if (audience === "friends") return "Amis";
+  if (audience === "followers") return "Abonnes";
+  return "Public";
+}
+
+function timeLeft(expiresAt?: string | null) {
+  if (!expiresAt) return "24h";
+  const minutesLeft = Math.max(0, Math.ceil((new Date(expiresAt).getTime() - Date.now()) / 60000));
+  if (minutesLeft <= 0) return "Expiree";
+  if (minutesLeft < 60) return `${minutesLeft} min`;
+  const hours = Math.floor(minutesLeft / 60);
+  const minutes = minutesLeft % 60;
+  return minutes ? `${hours}h ${minutes}m` : `${hours}h`;
 }
