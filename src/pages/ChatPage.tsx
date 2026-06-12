@@ -956,13 +956,23 @@ export default function ChatPage() {
       return haystack.includes("pgrst202") || haystack.includes("schema cache") || haystack.includes("could not find the function");
     };
     const primary = await (supabase as any)
-      .rpc("create_friend_group_conversation_v2", {
+      .rpc("create_friend_group_conversation", {
         _group_name: cleanName,
         _member_ids: memberIds,
       });
 
     if (!primary.error || !isMissingRpc(primary.error)) {
       return primary;
+    }
+
+    const secondary = await (supabase as any)
+      .rpc("create_friend_group_conversation_v2", {
+        _group_name: cleanName,
+        _member_ids: memberIds,
+      });
+
+    if (!secondary.error || !isMissingRpc(secondary.error)) {
+      return secondary;
     }
 
     return (supabase as any)
