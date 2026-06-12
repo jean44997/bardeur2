@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Pause, Play, Volume2, VolumeX, Trash2, Eye, Clock, ShieldCheck, Send, Paperclip, LockKeyhole } from "lucide-react";
+import { X, Pause, Play, Volume2, VolumeX, Trash2, Eye, Clock, ShieldCheck, Send, Paperclip, LockKeyhole, EyeOff } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
@@ -27,6 +27,23 @@ interface Props {
 
 const IMAGE_DURATION_MS = 5000;
 
+export const storyHiddenStorageKey = (userId: string) => `hidden-stories:${userId}`;
+
+export function getHiddenStoryIds(userId?: string | null) {
+  if (!userId || typeof window === "undefined") return new Set<string>();
+  try {
+    return new Set<string>(JSON.parse(localStorage.getItem(storyHiddenStorageKey(userId)) || "[]"));
+  } catch {
+    return new Set<string>();
+  }
+}
+
+function hideStoryForUser(userId: string, storyId: string) {
+  const hidden = getHiddenStoryIds(userId);
+  hidden.add(storyId);
+  localStorage.setItem(storyHiddenStorageKey(userId), JSON.stringify(Array.from(hidden)));
+}
+
 /**
  * Full-screen TikTok-style story viewer:
  * - progress bars at top
@@ -43,6 +60,7 @@ export default function StoryViewer({ stories, initialIndex = 0, onClose }: Prop
   const [replyText, setReplyText] = useState("");
   const [replyFile, setReplyFile] = useState<File | null>(null);
   const [sendingReply, setSendingReply] = useState(false);
+  const [viewCount, setViewCount] = useState(0);
   const videoRef = useRef<HTMLVideoElement>(null);
   const replyFileRef = useRef<HTMLInputElement>(null);
   const rafRef = useRef<number | null>(null);
@@ -53,16 +71,41 @@ export default function StoryViewer({ stories, initialIndex = 0, onClose }: Prop
   const isVideo = !!current?.media_type?.startsWith("video");
   const isOwner = user?.id === current?.user_id;
 
+  useEffect(() => {
+    setViewCount(Math.max(0, current?.views_count || 0));
+  }, [current?.id, current?.views_count]);
+
   // Record a view (best effort)
   useEffect(() => {
     if (!current || !user) return;
-    (supabase as any)
-      .from("story_views")
-      .upsert(
-        { story_id: current.id, viewer_id: user.id, viewed_at: new Date().toISOString() },
-        { onConflict: "story_id,viewer_id", ignoreDuplicates: true }
-      )
-      .then(() => {});
+    let cancelled = false;
+    const record = async () => {
+      try {
+        const { data, error } = await (supabase as any).rpc("record_story_view", { _story_id: current.id });
+        if (!cancelled && !error && typeof data === "number") {
+          setViewCount(Math.max(0, data));
+          return;
+        }
+      } catch {
+        // Fallback below keeps older databases usable before the migration is applied.
+      }
+      try {
+        if (user.id !== current.user_id) {
+          await (supabase as any)
+            .from("story_views")
+            .upsert(
+              { story_id: current.id, viewer_id: user.id, viewed_at: new Date().toISOString() },
+              { onConflict: "story_id,viewer_id", ignoreDuplicates: true },
+            );
+        }
+        const { data: story } = await (supabase as any).from("stories").select("views_count").eq("id", current.id).maybeSingle();
+        if (!cancelled && typeof story?.views_count === "number") setViewCount(Math.max(0, story.views_count));
+      } catch {
+        // Best effort only.
+      }
+    };
+    void record();
+    return () => { cancelled = true; };
   }, [current?.id, user?.id]);
 
   // Progress loop
@@ -102,9 +145,18 @@ export default function StoryViewer({ stories, initialIndex = 0, onClose }: Prop
   const deleteCurrent = async () => {
     if (!current || !user) return;
     if (!window.confirm("Supprimer cette story ?")) return;
-    const { error } = await (supabase as any).from("stories").delete().eq("id", current.id);
+    const { error } = await (supabase as any).from("stories").delete().eq("id", current.id).eq("user_id", user.id);
     if (error) { toast.error("Suppression impossible"); return; }
     toast.success("Story supprimée");
+    if (stories.length <= 1) { onClose(); return; }
+    stories.splice(index, 1);
+    setIndex(i => Math.min(i, stories.length - 1));
+  };
+
+  const hideCurrentForMe = () => {
+    if (!current || !user || isOwner) return;
+    hideStoryForUser(user.id, current.id);
+    toast.success("Story masquee pour toi");
     if (stories.length <= 1) { onClose(); return; }
     stories.splice(index, 1);
     setIndex(i => Math.min(i, stories.length - 1));
@@ -287,6 +339,11 @@ export default function StoryViewer({ stories, initialIndex = 0, onClose }: Prop
               <Trash2 className="h-4 w-4" />
             </button>
           )}
+          {!isOwner && (
+            <button type="button" onClick={hideCurrentForMe} aria-label="Masquer cette story pour moi" className="grid h-9 w-9 place-items-center rounded-full bg-black/40 text-white">
+              <EyeOff className="h-4 w-4" />
+            </button>
+          )}
           <button type="button" onClick={onClose} aria-label="Fermer" className="grid h-9 w-9 place-items-center rounded-full bg-black/40 text-white">
             <X className="h-5 w-5" />
           </button>
@@ -314,7 +371,7 @@ export default function StoryViewer({ stories, initialIndex = 0, onClose }: Prop
             <div className="rounded-xl bg-white/10 p-2 backdrop-blur">
               <Eye className="mb-1 h-4 w-4 text-white" />
               <p className="text-[10px] uppercase text-white/55">Vues</p>
-              <p className="truncate text-xs font-bold">{isOwner ? Math.max(0, current.views_count || 0) : "Prive"}</p>
+              <p className="truncate text-xs font-bold">{isOwner ? viewCount : "Prive"}</p>
             </div>
           </div>
         </div>

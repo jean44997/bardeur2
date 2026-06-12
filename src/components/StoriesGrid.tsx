@@ -4,7 +4,7 @@ import { motion } from "framer-motion";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import StoryRing from "@/components/StoryRing";
-import StoryViewer, { type StoryItem } from "@/components/StoryViewer";
+import StoryViewer, { getHiddenStoryIds, type StoryItem } from "@/components/StoryViewer";
 
 interface UserStories {
   user_id: string;
@@ -53,7 +53,8 @@ export default function StoriesGrid() {
       return;
     }
 
-    const list = (data || []) as any[];
+    const hiddenStoryIds = getHiddenStoryIds(user?.id);
+    const list = ((data || []) as any[]).filter((row) => !hiddenStoryIds.has(row.id));
     const authorIds = Array.from(new Set(list.map((row) => row.user_id).filter(Boolean)));
     const { data: profiles } = authorIds.length
       ? await supabase.from("profiles").select("id, username, display_name, avatar_url").in("id", authorIds)

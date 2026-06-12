@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, type CSSProperties, type ReactNode } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowLeft, Send, Smile, Image as ImageIcon, Mic, MicOff, Phone, Video, Check, CheckCheck, Trash2, MoreVertical, Flag, Ban, Flame, Wallpaper, PhoneOff, CameraOff, RotateCcw, Upload, Activity, BellRing, SignalHigh, Volume2, VolumeX, ShieldCheck, Plus, MapPin, FileUp, Contact, BarChart3, Sticker, Reply, Heart, ImagePlus, Music2, Gamepad2, Users } from "lucide-react";
+import { ArrowLeft, Send, Smile, Image as ImageIcon, Mic, MicOff, Phone, Video, Check, CheckCheck, Trash2, MoreVertical, Flag, Ban, Flame, Wallpaper, PhoneOff, CameraOff, RotateCcw, Upload, Activity, BellRing, SignalHigh, Volume2, VolumeX, ShieldCheck, Plus, MapPin, FileUp, Contact, BarChart3, Sticker, Reply, ImagePlus, Music2, Gamepad2, Users, UserPlus, CheckCircle2, Crown, DoorOpen, UserMinus, X } from "lucide-react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -41,8 +41,26 @@ interface IncomingCall {
   callerId: string;
 }
 
+interface FriendOption {
+  id: string;
+  username: string;
+  displayName: string;
+  avatarUrl: string;
+}
+
+interface GroupCallState {
+  id: string;
+  type: "audio" | "video";
+}
+
+interface PollPayload {
+  question: string;
+  options: string[];
+}
+
 const quickEmojis = ["❤️", "🔥", "😂", "😍", "👏", "🤯", "💀", "🙏", "😭", "🥰", "💯", "🎉"];
 const quickReactions = ["<3", "Fire", "Haha", "OK", "Wow", "+1"];
+const POLL_PREFIX = "POLL_V1:";
 const chatBackgrounds = [
   { label: "Nuit", value: "radial-gradient(circle at top left, rgba(255,43,136,.22), transparent 35%), linear-gradient(160deg, #050505, #17121f 55%, #070707)" },
   { label: "Glace", value: "linear-gradient(135deg, rgba(125,211,252,.24), rgba(244,114,182,.18)), #07090f" },
@@ -98,8 +116,26 @@ export default function ChatPage() {
   const [replyTarget, setReplyTarget] = useState<Message | null>(null);
   const [reactionTarget, setReactionTarget] = useState<Message | null>(null);
   const [messageReactions, setMessageReactions] = useState<Record<string, string[]>>({});
+  const [pollVotes, setPollVotes] = useState<Record<string, Record<string, string[]>>>({});
+  const [showPollComposer, setShowPollComposer] = useState(false);
+  const [pollQuestion, setPollQuestion] = useState("");
+  const [pollOptions, setPollOptions] = useState(["Oui", "Non"]);
+  const [isGroupConversation, setIsGroupConversation] = useState(false);
+  const [conversationParticipants, setConversationParticipants] = useState<FriendOption[]>([]);
+  const [showGroupWizard, setShowGroupWizard] = useState(false);
+  const [groupWizardMode, setGroupWizardMode] = useState<"create" | "add">("create");
+  const [groupStep, setGroupStep] = useState<"select" | "details">("select");
+  const [friendOptions, setFriendOptions] = useState<FriendOption[]>([]);
+  const [selectedGroupFriendIds, setSelectedGroupFriendIds] = useState<string[]>([]);
+  const [groupName, setGroupName] = useState("");
+  const [creatingGroup, setCreatingGroup] = useState(false);
+  const [groupCallState, setGroupCallState] = useState<GroupCallState | null>(null);
+  const [groupCallParticipants, setGroupCallParticipants] = useState<FriendOption[]>([]);
+  const [showMentionPicker, setShowMentionPicker] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const messageInputRef = useRef<HTMLInputElement>(null);
   const localVideoRef = useRef<HTMLVideoElement>(null);
+  const groupLocalVideoRef = useRef<HTMLVideoElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const backgroundInputRef = useRef<HTMLInputElement>(null);
   const audioRecorderRef = useRef<MediaRecorder | null>(null);
@@ -126,7 +162,7 @@ export default function ChatPage() {
   useEffect(() => {
     if (conversationId && user) {
       fetchMessages();
-      fetchOtherUser();
+      fetchConversationMeta();
       markAsRead();
 
       const channel = supabase
@@ -153,6 +189,9 @@ export default function ChatPage() {
         })
         .on("postgres_changes", { event: "*", schema: "public", table: "message_reactions", filter: `conversation_id=eq.${conversationId}` }, (payload: any) => {
           applyRealtimeReaction(payload);
+        })
+        .on("postgres_changes", { event: "*", schema: "public", table: "message_poll_votes", filter: `conversation_id=eq.${conversationId}` }, (payload: any) => {
+          applyRealtimePollVote(payload);
         })
         .on("postgres_changes", { event: "*", schema: "public", table: "direct_call_sessions", filter: `conversation_id=eq.${conversationId}` }, (payload) => {
           handleCallSignal(payload.new as any);
@@ -335,6 +374,7 @@ export default function ChatPage() {
       const mapped = await Promise.all(data.filter((m: any) => !hidden.has(m.id)).map(mapMessage));
       setMessages(mapped);
       void fetchMessageReactions(mapped.map((m) => m.id));
+      void fetchPollVotes(mapped.filter((m) => !!parsePollMessage(m.text)).map((m) => m.id));
     }
     if (!silent) setLoading(false);
   };
@@ -375,6 +415,61 @@ export default function ChatPage() {
     });
   };
 
+  const encodePollMessage = (payload: PollPayload) => {
+    return `${POLL_PREFIX}${btoa(unescape(encodeURIComponent(JSON.stringify(payload))))}`;
+  };
+
+  const parsePollMessage = (text?: string | null): PollPayload | null => {
+    if (!text?.startsWith(POLL_PREFIX)) return null;
+    try {
+      const raw = decodeURIComponent(escape(atob(text.slice(POLL_PREFIX.length))));
+      const parsed = JSON.parse(raw);
+      if (!parsed?.question || !Array.isArray(parsed.options)) return null;
+      return {
+        question: String(parsed.question).slice(0, 140),
+        options: parsed.options.map((option: unknown) => String(option).slice(0, 40)).filter(Boolean).slice(0, 6),
+      };
+    } catch {
+      return null;
+    }
+  };
+
+  const fetchPollVotes = async (messageIds: string[]) => {
+    if (!conversationId || messageIds.length === 0) return;
+    try {
+      const { data } = await (supabase as any)
+        .from("message_poll_votes")
+        .select("message_id, option_text, user_id")
+        .eq("conversation_id", conversationId)
+        .in("message_id", messageIds);
+      const grouped: Record<string, Record<string, string[]>> = {};
+      (data || []).forEach((row: any) => {
+        if (!grouped[row.message_id]) grouped[row.message_id] = {};
+        grouped[row.message_id][row.option_text] = [...(grouped[row.message_id][row.option_text] || []), row.user_id];
+      });
+      setPollVotes((current) => ({ ...current, ...grouped }));
+    } catch {
+      // Poll tables may not exist until the latest migration is applied.
+    }
+  };
+
+  const applyRealtimePollVote = (payload: any) => {
+    const row = payload?.new || payload?.old;
+    if (!row?.message_id || !row?.option_text) return;
+    setPollVotes((current) => {
+      const next = { ...current };
+      const byOption = { ...(next[row.message_id] || {}) };
+      Object.keys(byOption).forEach((option) => {
+        byOption[option] = byOption[option].filter((id) => id !== row.user_id);
+      });
+      if (payload.eventType !== "DELETE") {
+        byOption[row.option_text] = [...(byOption[row.option_text] || []), row.user_id];
+      }
+      next[row.message_id] = byOption;
+      return next;
+    });
+  };
+
   const fetchOtherUser = async () => {
     if (!conversationId || !user) return;
     const { data } = await supabase.from("conversation_participants").select("user_id, profiles:user_id(display_name)").eq("conversation_id", conversationId).neq("user_id", user.id);
@@ -393,6 +488,43 @@ export default function ChatPage() {
       } else {
         setOtherUserName((data[0] as any).profiles?.display_name || "Utilisateur");
       }
+      checkBlockStatus(targetId);
+    }
+  };
+
+  const fetchConversationMeta = async () => {
+    if (!conversationId || !user) return;
+    const [{ data: conversation }, { data }] = await Promise.all([
+      (supabase as any).from("conversations").select("is_group, group_name").eq("id", conversationId).maybeSingle(),
+      supabase.from("conversation_participants").select("user_id, profiles:user_id(username, display_name, avatar_url)").eq("conversation_id", conversationId),
+    ]);
+    const participants = (data || []).map((row: any) => ({
+      id: row.user_id,
+      username: row.profiles?.username || "user",
+      displayName: row.profiles?.display_name || row.profiles?.username || "Utilisateur",
+      avatarUrl: row.profiles?.avatar_url || "",
+    }));
+    setConversationParticipants(participants);
+    const group = !!conversation?.is_group;
+    setIsGroupConversation(group);
+    if (group) {
+      setOtherUserName(conversation?.group_name || `Groupe (${participants.length})`);
+      setOtherUserId(null);
+      setIsBlocked(false);
+      setBlockedByThem(false);
+      return;
+    }
+    const other = (data || []).find((row: any) => row.user_id !== user.id);
+    if (other) {
+      const targetId = (other as any).user_id;
+      setOtherUserId(targetId);
+      const { data: roleRow } = await (supabase as any)
+        .from("user_roles")
+        .select("role")
+        .eq("user_id", targetId)
+        .in("role", ["admin", "super_admin"])
+        .maybeSingle();
+      setOtherUserName(roleRow ? "BARDEUR Officiel" : ((other as any).profiles?.display_name || "Utilisateur"));
       checkBlockStatus(targetId);
     }
   };
@@ -423,6 +555,45 @@ export default function ChatPage() {
     if (message.mediaType?.startsWith("video")) return "Video";
     if (message.mediaType?.startsWith("audio")) return "Audio";
     return "Piece jointe";
+  };
+
+  const addMentionToComposer = (mention: string) => {
+    setNewMsg((current) => `${current}${current && !current.endsWith(" ") ? " " : ""}${mention} `);
+    setShowMentionPicker(false);
+    setShowPlusDrawer(false);
+    setTimeout(() => messageInputRef.current?.focus(), 40);
+  };
+
+  const openMentionPicker = () => {
+    if (!isGroupConversation) {
+      toast.info("Les mentions sont disponibles dans les groupes");
+      return;
+    }
+    setShowMentionPicker(true);
+    setShowPlusDrawer(false);
+  };
+
+  const notifyTaggedUsers = async (messageId: string, text: string) => {
+    if (!user || !conversationId || !isGroupConversation || !text.trim() || messageId.startsWith("optim")) return;
+    const normalized = text.toLowerCase();
+    const everyoneTagged = /(^|\s)@(tous|all|everyone)\b/i.test(text);
+    const targets = conversationParticipants
+      .filter((participant) => participant.id !== user.id)
+      .filter((participant) => {
+        if (everyoneTagged) return true;
+        const username = participant.username?.toLowerCase();
+        const display = participant.displayName?.toLowerCase().replace(/\s+/g, "");
+        return (!!username && normalized.includes(`@${username}`)) || (!!display && normalized.includes(`@${display}`));
+      });
+    const uniqueTargets = Array.from(new Map(targets.map((target) => [target.id, target])).values());
+    if (uniqueTargets.length === 0) return;
+    await supabase.from("notifications").insert(uniqueTargets.map((target) => ({
+      user_id: target.id,
+      from_user_id: user.id,
+      type: "message",
+      content: everyoneTagged ? `${otherUserName}: mention @tous` : `${otherUserName}: tu as ete tague`,
+      reference_id: conversationId,
+    })));
   };
 
   const sendMessage = async () => {
@@ -625,7 +796,10 @@ export default function ChatPage() {
       toast.error("Envoi impossible");
       return;
     }
-    if (data?.id) setMessages(prev => prev.map(m => m.id === optimisticId ? { ...m, id: data.id } : m));
+    if (data?.id) {
+      setMessages(prev => prev.map(m => m.id === optimisticId ? { ...m, id: data.id } : m));
+      void notifyTaggedUsers(data.id, validation.value);
+    }
   };
 
   const shareLocation = async () => {
@@ -643,7 +817,21 @@ export default function ChatPage() {
     );
   };
 
-  const sendContactCard = () => {
+  const sendContactCard = async () => {
+    const nav = navigator as any;
+    if (nav.contacts?.select) {
+      try {
+        const contacts = await nav.contacts.select(["name", "tel", "email"], { multiple: false });
+        const contact = contacts?.[0];
+        if (contact) {
+          const detail = contact.tel?.[0] || contact.email?.[0] || "";
+          void sendStructuredMessage(`Contact partage: ${(contact.name?.[0] || "Contact").trim()}${detail ? ` - ${detail}` : ""}`);
+          return;
+        }
+      } catch {
+        toast.info("Selection contact annulee");
+      }
+    }
     const name = window.prompt("Nom du contact");
     if (!name?.trim()) return;
     const detail = window.prompt("Telephone, email ou @username") || "";
@@ -651,15 +839,237 @@ export default function ChatPage() {
   };
 
   const sendPoll = () => {
-    const question = window.prompt("Question du sondage");
-    if (!question?.trim()) return;
-    const options = window.prompt("Options separees par une virgule", "Oui,Non,Peut-etre") || "Oui,Non";
-    void sendStructuredMessage(`Sondage: ${question.trim()}\nOptions: ${options.split(",").map(o => o.trim()).filter(Boolean).slice(0, 6).join(" / ")}`);
+    setPollQuestion("");
+    setPollOptions(["Oui", "Non"]);
+    setShowPollComposer(true);
+    setShowPlusDrawer(false);
+  };
+
+  const createPollMessage = async () => {
+    const question = pollQuestion.trim();
+    const options = pollOptions.map((option) => option.trim()).filter(Boolean).slice(0, 6);
+    if (question.length < 3 || options.length < 2) {
+      toast.error("Ajoute une question et au moins 2 choix");
+      return;
+    }
+    await sendStructuredMessage(encodePollMessage({ question, options }));
+    setShowPollComposer(false);
+  };
+
+  const votePoll = async (message: Message, option: string) => {
+    if (!user || !conversationId || message.id.startsWith("optim")) return;
+    setPollVotes((current) => {
+      const byOption = { ...(current[message.id] || {}) };
+      Object.keys(byOption).forEach((key) => {
+        byOption[key] = byOption[key].filter((id) => id !== user.id);
+      });
+      byOption[option] = [...(byOption[option] || []), user.id];
+      return { ...current, [message.id]: byOption };
+    });
+    try {
+      const { error } = await (supabase as any)
+        .from("message_poll_votes")
+        .upsert({
+          conversation_id: conversationId,
+          message_id: message.id,
+          user_id: user.id,
+          option_text: option,
+          created_at: new Date().toISOString(),
+        }, { onConflict: "message_id,user_id" });
+      if (error) throw error;
+    } catch {
+      toast.info("Vote local en attendant la migration");
+    }
+  };
+
+  const loadFriendOptions = async () => {
+    if (!user) return [];
+    const { data } = await supabase
+      .from("follows")
+      .select("following_id, profiles:following_id(id, username, display_name, avatar_url)")
+      .eq("follower_id", user.id)
+      .limit(80);
+    const raw = (data || []).map((row: any) => row.profiles).filter(Boolean);
+    if (raw.length === 0) {
+      setFriendOptions([]);
+      return [];
+    }
+    const ids = raw.map((profile: any) => profile.id);
+    const { data: back } = await supabase
+      .from("follows")
+      .select("follower_id")
+      .eq("following_id", user.id)
+      .in("follower_id", ids);
+    const mutualIds = new Set((back || []).map((row: any) => row.follower_id));
+    const friends = raw
+      .filter((profile: any) => mutualIds.has(profile.id) && !conversationParticipants.some((p) => p.id === profile.id))
+      .map((profile: any) => ({
+        id: profile.id,
+        username: profile.username || "user",
+        displayName: profile.display_name || profile.username || "Utilisateur",
+        avatarUrl: profile.avatar_url || "",
+      }));
+    setFriendOptions(friends);
+    return friends;
+  };
+
+  const openGroupWizard = async (mode: "create" | "add" = "create") => {
+    setGroupWizardMode(mode);
+    setGroupStep("select");
+    setSelectedGroupFriendIds([]);
+    setGroupName(mode === "create" ? "" : otherUserName);
+    setShowGroupWizard(true);
+    setShowPlusDrawer(false);
+    const friends = await loadFriendOptions();
+    if (friends.length === 0) toast.info("Ajoute des amis mutuels avant de creer un groupe");
   };
 
   const createFriendGroupDraft = () => {
-    toast.success("Groupe amis pret: ajoute uniquement des amis mutuels depuis la liste DM");
-    void sendStructuredMessage("Invitation groupe amis: video, sondage, playlist et jeux integres disponibles dans cette conversation.");
+    void openGroupWizard("create");
+  };
+
+  const toggleGroupFriend = (id: string) => {
+    setSelectedGroupFriendIds((current) => {
+      if (current.includes(id)) return current.filter((value) => value !== id);
+      const limit = groupWizardMode === "create" ? 5 : Math.max(0, 5 - conversationParticipants.length);
+      if (current.length >= limit) {
+        toast.info("5 personnes maximum pour le moment");
+        return current;
+      }
+      return [...current, id];
+    });
+  };
+
+  const continueGroupWizard = () => {
+    const minimum = groupWizardMode === "create" ? 3 : 1;
+    if (selectedGroupFriendIds.length < minimum) {
+      toast.error(groupWizardMode === "create" ? "Selectionne au moins 3 amis" : "Selectionne au moins 1 ami");
+      return;
+    }
+    setGroupStep("details");
+  };
+
+  const submitGroupWizard = async () => {
+    if (!user || !conversationId) return;
+    setCreatingGroup(true);
+    try {
+      if (groupWizardMode === "create") {
+        const { data, error } = await (supabase as any)
+          .rpc("create_friend_group_conversation", {
+            _member_ids: selectedGroupFriendIds,
+            _group_name: groupName.trim() || "Groupe amis",
+          });
+        if (error || !data) throw error || new Error("Groupe impossible");
+        toast.success("Groupe cree");
+        setShowGroupWizard(false);
+        navigate(`/chat/${data}`);
+      } else {
+        const { error } = await (supabase as any)
+          .rpc("add_friend_group_members", {
+            _conversation_id: conversationId,
+            _member_ids: selectedGroupFriendIds,
+          });
+        if (error) throw error;
+        toast.success("Amis ajoutes au groupe");
+        setShowGroupWizard(false);
+        await fetchConversationMeta();
+      }
+    } catch (err: any) {
+      toast.error(err?.message || "Action groupe impossible");
+    } finally {
+      setCreatingGroup(false);
+    }
+  };
+
+  const removeGroupMember = async (memberId: string) => {
+    if (!conversationId || !user || memberId === user.id) return;
+    const countAfter = conversationParticipants.length - 1;
+    if (countAfter < 3) {
+      toast.error("Un groupe doit garder au moins 3 membres");
+      return;
+    }
+    const { error } = await (supabase as any)
+      .rpc("remove_group_member", {
+        _conversation_id: conversationId,
+        _member_id: memberId,
+      });
+    if (error) { toast.error("Suppression impossible"); return; }
+    toast.success("Membre retire");
+    await fetchConversationMeta();
+  };
+
+  const startGroupCall = async (type: "audio" | "video") => {
+    if (!conversationId || !user || !isGroupConversation) return;
+    const members = conversationParticipants.filter((p) => p.id !== user.id).slice(0, 4);
+    if (members.length < 2) {
+      toast.error("Il faut au moins 3 personnes dans le groupe");
+      return;
+    }
+    const callId = crypto.randomUUID();
+    setGroupCallState({ id: callId, type });
+    setGroupCallParticipants([{ id: user.id, username: "toi", displayName: "Toi", avatarUrl: "" }, ...members].slice(0, 5));
+    try {
+      if (type === "video") {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } }, audio: true });
+        callStreamRef.current = stream;
+        setTimeout(() => {
+          if (groupLocalVideoRef.current) {
+            groupLocalVideoRef.current.srcObject = stream;
+            groupLocalVideoRef.current.play().catch(() => {});
+          }
+        }, 80);
+      } else {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+        callStreamRef.current = stream;
+      }
+      await (supabase as any).from("group_call_sessions").insert({
+        id: callId,
+        conversation_id: conversationId,
+        host_id: user.id,
+        call_type: type,
+        status: "active",
+      });
+      await (supabase as any).from("group_call_participants").upsert({
+        session_id: callId,
+        user_id: user.id,
+        joined_at: new Date().toISOString(),
+      }, { onConflict: "session_id,user_id" });
+      await sendStructuredMessage(`Appel de groupe ${type === "video" ? "video" : "audio"} lance: 5 participants max`);
+    } catch {
+      setGroupCallState(null);
+      toast.error(type === "video" ? "Autorise camera et micro" : "Autorise le micro");
+    }
+  };
+
+  const endGroupCall = async () => {
+    callStreamRef.current?.getTracks().forEach((track) => track.stop());
+    callStreamRef.current = null;
+    setGroupCallState(null);
+    setGroupCallParticipants([]);
+  };
+
+  const deleteGroupConversation = async () => {
+    if (!conversationId || !isGroupConversation) return;
+    if (!window.confirm("Supprimer ce groupe pour tous les membres ?")) return;
+    const { error } = await (supabase as any).rpc("delete_friend_group_conversation", {
+      _conversation_id: conversationId,
+    });
+    if (error) {
+      toast.error("Suppression du groupe impossible");
+      return;
+    }
+    toast.success("Groupe supprime");
+    navigate("/inbox");
+  };
+
+  const sendGroupChallenge = () => {
+    if (!isGroupConversation) return;
+    void sendStructuredMessage("Defi groupe: chacun partage une video ou photo en moins de 10 minutes. Les reponses gardent la flamme du groupe active.");
+  };
+
+  const sendGroupCapsule = () => {
+    if (!isGroupConversation) return;
+    void sendStructuredMessage("Capsule souvenir: envoyez chacun une piece jointe aujourd'hui, puis epinglez la meilleure dans le groupe.");
   };
 
   const startAudioRecording = async () => {
@@ -1269,12 +1679,17 @@ export default function ChatPage() {
           {!isBlocked && !blockedByThem && streakNeedsReply && <p className="text-[11px] text-accent">Flamme à relancer aujourd'hui</p>}
         </div>
         <div className="flex shrink-0 items-center gap-1 sm:gap-2">
-          <motion.button type="button" whileTap={{ scale: 0.9 }} onClick={() => startCall("audio")} disabled={isBlocked || blockedByThem} aria-label="Appel audio" className="tap-target grid place-items-center rounded-full disabled:opacity-40">
+          <motion.button type="button" whileTap={{ scale: 0.9 }} onClick={() => isGroupConversation ? startGroupCall("audio") : startCall("audio")} disabled={isBlocked || blockedByThem} aria-label="Appel audio" className="tap-target grid place-items-center rounded-full disabled:opacity-40">
             <Phone className="h-5 w-5 text-muted-foreground" />
           </motion.button>
-          <motion.button type="button" whileTap={{ scale: 0.9 }} onClick={() => startCall("video")} disabled={isBlocked || blockedByThem} aria-label="Appel video" className="tap-target grid place-items-center rounded-full disabled:opacity-40">
+          <motion.button type="button" whileTap={{ scale: 0.9 }} onClick={() => isGroupConversation ? startGroupCall("video") : startCall("video")} disabled={isBlocked || blockedByThem} aria-label="Appel video" className="tap-target grid place-items-center rounded-full disabled:opacity-40">
             <Video className="h-5 w-5 text-muted-foreground" />
           </motion.button>
+          {isGroupConversation && (
+            <motion.button type="button" whileTap={{ scale: 0.9 }} onClick={() => openGroupWizard("add")} aria-label="Ajouter des amis au groupe" className="tap-target grid place-items-center rounded-full">
+              <UserPlus className="h-5 w-5 text-muted-foreground" />
+            </motion.button>
+          )}
           <motion.button whileTap={{ scale: 0.9 }} onClick={() => setShowSafetyMenu(p => !p)} aria-label="Options sécurité" className="tap-target grid place-items-center rounded-full">
             <MoreVertical className="h-5 w-5 text-muted-foreground" />
           </motion.button>
@@ -1284,7 +1699,45 @@ export default function ChatPage() {
       <AnimatePresence>
         {showSafetyMenu && (
           <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="z-10 overflow-hidden border-b border-border bg-card/95 px-4 py-3">
-            <div className="mx-auto grid max-w-lg grid-cols-2 gap-2 min-[390px]:grid-cols-3">
+            {isGroupConversation && (
+              <div className="mx-auto mb-3 max-w-lg space-y-3">
+                <div className="grid grid-cols-3 gap-2">
+                  <button onClick={() => openGroupWizard("add")} className="flex items-center justify-center gap-2 rounded-xl bg-primary/15 px-3 py-2 text-xs font-semibold text-primary">
+                    <UserPlus className="h-4 w-4" /> Ajouter
+                  </button>
+                  <button onClick={() => addMentionToComposer("@tous")} className="flex items-center justify-center gap-2 rounded-xl bg-accent/15 px-3 py-2 text-xs font-semibold text-accent">
+                    <BellRing className="h-4 w-4" /> @tous
+                  </button>
+                  <button onClick={deleteGroupConversation} className="flex items-center justify-center gap-2 rounded-xl bg-destructive px-3 py-2 text-xs font-semibold text-destructive-foreground">
+                    <Trash2 className="h-4 w-4" /> Suppr.
+                  </button>
+                </div>
+                <div className="rounded-2xl bg-background/55 p-3">
+                  <p className="mb-2 text-xs font-black text-foreground">Membres du groupe</p>
+                  <div className="space-y-2">
+                    {conversationParticipants.map((participant) => (
+                      <div key={participant.id} className="flex items-center gap-2 rounded-xl bg-card/70 px-2 py-2">
+                        <div className="grid h-8 w-8 shrink-0 place-items-center overflow-hidden rounded-full bg-secondary text-[10px] font-black text-foreground">
+                          {participant.avatarUrl ? <img src={participant.avatarUrl} alt="" className="h-full w-full object-cover" /> : participant.displayName[0]?.toUpperCase()}
+                        </div>
+                        <button type="button" onClick={() => addMentionToComposer(`@${participant.username}`)} className="min-w-0 flex-1 text-left">
+                          <p className="truncate text-xs font-bold text-foreground">{participant.displayName}</p>
+                          <p className="truncate text-[10px] text-muted-foreground">@{participant.username}</p>
+                        </button>
+                        {participant.id === user?.id ? (
+                          <Crown className="h-4 w-4 text-primary" />
+                        ) : (
+                          <button type="button" onClick={() => removeGroupMember(participant.id)} className="grid h-8 w-8 place-items-center rounded-full bg-destructive/12 text-destructive" aria-label="Retirer du groupe">
+                            <UserMinus className="h-4 w-4" />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+            <div className={`mx-auto grid max-w-lg grid-cols-2 gap-2 min-[390px]:grid-cols-3 ${isGroupConversation ? "hidden" : ""}`}>
               <button onClick={reportConversation} className="flex items-center justify-center gap-2 rounded-xl bg-destructive/15 px-3 py-2 text-xs font-semibold text-destructive">
                 <Flag className="h-4 w-4" /> Signaler
               </button>
@@ -1445,11 +1898,20 @@ export default function ChatPage() {
                       <span className="line-clamp-2">{msg.replyPreview}</span>
                     </div>
                   )}
+                  {parsePollMessage(msg.text) && (
+                    <PollBubble
+                      poll={parsePollMessage(msg.text)!}
+                      votes={pollVotes[msg.id] || {}}
+                      currentUserId={user?.id || ""}
+                      fromMe={msg.fromMe}
+                      onVote={(option) => votePoll(msg, option)}
+                    />
+                  )}
                   {msg.mediaUrl && msg.mediaType?.startsWith("image") && (
-                    <img src={msg.mediaUrl} alt="" className="mb-2 max-h-64 w-full rounded-xl object-cover" loading="lazy" />
+                    <img src={msg.mediaUrl} alt="" className="mb-2 aspect-[4/5] max-h-72 w-full max-w-[18rem] rounded-xl object-cover shadow-lg" loading="lazy" />
                   )}
                   {msg.mediaUrl && msg.mediaType?.startsWith("video") && (
-                    <video src={msg.mediaUrl} className="mb-2 max-h-80 w-full rounded-xl bg-black object-contain" controls playsInline preload="metadata" />
+                    <video src={msg.mediaUrl} className="mb-2 aspect-[4/5] max-h-80 w-full max-w-[18rem] rounded-xl bg-black object-contain shadow-lg" controls playsInline preload="metadata" />
                   )}
                   {msg.mediaUrl && msg.mediaType?.startsWith("audio") && (
                     <div className="mb-1"><AudioBubble src={msg.mediaUrl} /></div>
@@ -1459,7 +1921,7 @@ export default function ChatPage() {
                       <FileUp className="h-4 w-4" /> Ouvrir le fichier
                     </a>
                   )}
-                  {officialBody && officialBody !== "Message supprimé" ? officialBody : officialBody === "Message supprimé" ? <span className="italic opacity-60">{officialBody}</span> : null}
+                  {!parsePollMessage(msg.text) && officialBody && officialBody !== "Message supprimé" ? officialBody : !parsePollMessage(msg.text) && officialBody === "Message supprimé" ? <span className="italic opacity-60">{officialBody}</span> : null}
                 </div>
 
                 <div className={`flex items-center gap-1 mt-0.5 ${msg.fromMe ? "justify-end" : "justify-start"}`}>
@@ -1525,6 +1987,14 @@ export default function ChatPage() {
               <ChatToolButton icon={<Gamepad2 className="h-5 w-5" />} label="Jeu" onClick={() => void sendStructuredMessage("Mini-jeu lance: devinez la prochaine video en 3 tours")} />
               <ChatToolButton icon={<Smile className="h-5 w-5" />} label="Emoji" onClick={() => setShowEmojis(p => !p)} />
               <ChatToolButton icon={<Users className="h-5 w-5" />} label="Groupe" onClick={createFriendGroupDraft} />
+              {isGroupConversation && (
+                <>
+                  <ChatToolButton icon={<BellRing className="h-5 w-5" />} label="@Tous" onClick={() => addMentionToComposer("@tous")} />
+                  <ChatToolButton icon={<UserPlus className="h-5 w-5" />} label="@Ami" onClick={openMentionPicker} />
+                  <ChatToolButton icon={<Crown className="h-5 w-5" />} label="Defi" onClick={sendGroupChallenge} />
+                  <ChatToolButton icon={<DoorOpen className="h-5 w-5" />} label="Capsule" onClick={sendGroupCapsule} />
+                </>
+              )}
               <ChatToolButton icon={<Flame className="h-5 w-5" />} label="Flamme" onClick={() => void sendStructuredMessage("Flamme relancee: reponds aujourd'hui pour garder la serie")} />
               <ChatToolButton icon={<Video className="h-5 w-5" />} label="Video" onClick={() => imageInputRef.current?.click()} />
             </div>
@@ -1585,7 +2055,7 @@ export default function ChatPage() {
               <ImageIcon className="h-5 w-5 text-muted-foreground" />
             </motion.button>
             <div className="glass flex min-w-0 flex-1 items-center rounded-full px-4 py-2.5">
-              <input type="text" value={newMsg} onChange={e => setNewMsg(e.target.value)} onKeyDown={e => e.key === "Enter" && sendMessage()} onFocus={() => { setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" }), 280); }} placeholder={isBlocked || blockedByThem ? "Conversation bloquee" : "Message..."} disabled={isBlocked || blockedByThem} maxLength={500} enterKeyHint="send" autoComplete="off" className="min-w-0 flex-1 bg-transparent text-base leading-5 text-foreground placeholder:text-muted-foreground outline-none disabled:opacity-50" />
+              <input ref={messageInputRef} type="text" value={newMsg} onChange={e => setNewMsg(e.target.value)} onKeyDown={e => e.key === "Enter" && sendMessage()} onFocus={() => { setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" }), 280); }} placeholder={isBlocked || blockedByThem ? "Conversation bloquee" : "Message..."} disabled={isBlocked || blockedByThem} maxLength={500} enterKeyHint="send" autoComplete="off" className="min-w-0 flex-1 bg-transparent text-base leading-5 text-foreground placeholder:text-muted-foreground outline-none disabled:opacity-50" />
             </div>
 
             {newMsg.trim() ? (
@@ -1636,6 +2106,243 @@ export default function ChatPage() {
       </AnimatePresence>
 
       <AnimatePresence>
+        {showMentionPicker && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setShowMentionPicker(false)}
+            className="fixed inset-0 z-[89] flex items-end justify-center bg-background/60 px-3 pb-[max(1rem,var(--app-safe-bottom))] backdrop-blur-sm sm:items-center"
+          >
+            <motion.div
+              initial={{ y: 40, opacity: 0, scale: 0.96 }}
+              animate={{ y: 0, opacity: 1, scale: 1 }}
+              exit={{ y: 40, opacity: 0, scale: 0.96 }}
+              onClick={(e) => e.stopPropagation()}
+              className="group-wizard-3d w-full max-w-md rounded-3xl border border-border bg-card p-4 shadow-2xl"
+            >
+              <div className="mb-3 flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-black text-foreground">Taguer le groupe</p>
+                  <p className="text-xs text-muted-foreground">@tous notifie chaque membre</p>
+                </div>
+                <button type="button" onClick={() => setShowMentionPicker(false)} className="grid h-9 w-9 place-items-center rounded-full bg-secondary" aria-label="Fermer">
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <button type="button" onClick={() => addMentionToComposer("@tous")} className="mb-2 flex w-full items-center gap-3 rounded-2xl bg-accent/15 px-3 py-3 text-left">
+                <BellRing className="h-5 w-5 text-accent" />
+                <span>
+                  <span className="block text-sm font-black text-foreground">@tous</span>
+                  <span className="block text-xs text-muted-foreground">Notification pour tout le groupe</span>
+                </span>
+              </button>
+              <div className="max-h-72 space-y-2 overflow-y-auto pr-1 no-scrollbar">
+                {conversationParticipants.filter((participant) => participant.id !== user?.id).map((participant) => (
+                  <button key={participant.id} type="button" onClick={() => addMentionToComposer(`@${participant.username}`)} className="flex w-full items-center gap-3 rounded-2xl bg-background/65 px-3 py-3 text-left">
+                    <div className="grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-full bg-secondary text-xs font-black text-foreground">
+                      {participant.avatarUrl ? <img src={participant.avatarUrl} alt="" className="h-full w-full object-cover" /> : participant.displayName[0]?.toUpperCase()}
+                    </div>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-bold text-foreground">{participant.displayName}</span>
+                      <span className="block truncate text-xs text-muted-foreground">@{participant.username}</span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showPollComposer && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setShowPollComposer(false)}
+            className="fixed inset-0 z-[89] flex items-end justify-center bg-background/60 px-3 pb-[max(1rem,var(--app-safe-bottom))] backdrop-blur-sm sm:items-center"
+          >
+            <motion.div
+              initial={{ y: 44, opacity: 0, scale: 0.96 }}
+              animate={{ y: 0, opacity: 1, scale: 1 }}
+              exit={{ y: 44, opacity: 0, scale: 0.96 }}
+              onClick={(e) => e.stopPropagation()}
+              className="poll-3d w-full max-w-md rounded-3xl border border-border bg-card p-4 shadow-2xl"
+            >
+              <div className="mb-4 flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-black text-foreground">Sondage 3D</p>
+                  <p className="text-xs text-muted-foreground">Votes visibles en direct dans le chat</p>
+                </div>
+                <button type="button" onClick={() => setShowPollComposer(false)} className="grid h-9 w-9 place-items-center rounded-full bg-secondary" aria-label="Fermer">
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <label className="mb-3 block">
+                <span className="mb-1 block text-xs font-bold text-muted-foreground">Question</span>
+                <input value={pollQuestion} onChange={(e) => setPollQuestion(e.target.value)} maxLength={140} className="w-full rounded-2xl border border-border bg-background px-3 py-3 text-base text-foreground outline-none focus:border-primary" placeholder="Tu preferes quoi ?" />
+              </label>
+              <div className="space-y-2">
+                {pollOptions.map((option, idx) => (
+                  <div key={idx} className="flex items-center gap-2">
+                    <input value={option} onChange={(e) => setPollOptions((current) => current.map((value, optionIdx) => optionIdx === idx ? e.target.value : value))} maxLength={40} className="min-w-0 flex-1 rounded-2xl border border-border bg-background px-3 py-2.5 text-base text-foreground outline-none focus:border-primary" placeholder={`Option ${idx + 1}`} />
+                    {pollOptions.length > 2 && (
+                      <button type="button" onClick={() => setPollOptions((current) => current.filter((_, optionIdx) => optionIdx !== idx))} className="grid h-10 w-10 place-items-center rounded-full bg-destructive/12 text-destructive" aria-label="Retirer option">
+                        <X className="h-4 w-4" />
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <div className="mt-4 flex gap-2">
+                <button type="button" onClick={() => setPollOptions((current) => current.length >= 6 ? current : [...current, ""])} className="flex-1 rounded-2xl bg-secondary px-3 py-3 text-sm font-bold text-foreground">
+                  Ajouter choix
+                </button>
+                <button type="button" onClick={createPollMessage} className="flex-1 rounded-2xl gradient-primary px-3 py-3 text-sm font-black text-primary-foreground">
+                  Publier
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showGroupWizard && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setShowGroupWizard(false)}
+            className="fixed inset-0 z-[90] flex items-end justify-center bg-background/65 px-3 pb-[max(1rem,var(--app-safe-bottom))] backdrop-blur-sm sm:items-center"
+          >
+            <motion.div
+              initial={{ y: 48, opacity: 0, scale: 0.96 }}
+              animate={{ y: 0, opacity: 1, scale: 1 }}
+              exit={{ y: 48, opacity: 0, scale: 0.96 }}
+              onClick={(e) => e.stopPropagation()}
+              className="group-wizard-3d w-full max-w-lg rounded-3xl border border-border bg-card p-4 shadow-2xl"
+            >
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-black text-foreground">{groupWizardMode === "create" ? "Creer un groupe" : "Ajouter des amis"}</p>
+                  <p className="text-xs text-muted-foreground">{groupStep === "select" ? "Amis mutuels uniquement" : "Nom, options et appels 5 max"}</p>
+                </div>
+                <button type="button" onClick={() => setShowGroupWizard(false)} className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-secondary" aria-label="Fermer">
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              {groupStep === "select" ? (
+                <>
+                  <div className="mb-3 rounded-2xl bg-background/65 px-3 py-2 text-xs font-bold text-muted-foreground">
+                    {selectedGroupFriendIds.length} selectionne{selectedGroupFriendIds.length > 1 ? "s" : ""} {groupWizardMode === "create" ? "/ minimum 3" : ""}
+                  </div>
+                  <div className="max-h-[45svh] space-y-2 overflow-y-auto pr-1 no-scrollbar">
+                    {friendOptions.length === 0 ? (
+                      <div className="rounded-2xl bg-background/65 p-4 text-center text-xs text-muted-foreground">Aucun ami mutuel disponible pour le moment.</div>
+                    ) : friendOptions.map((friend) => {
+                      const selected = selectedGroupFriendIds.includes(friend.id);
+                      return (
+                        <button key={friend.id} type="button" onClick={() => toggleGroupFriend(friend.id)} className={`flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left transition ${selected ? "bg-primary/18 ring-1 ring-primary/50" : "bg-background/65"}`}>
+                          <div className="grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-full bg-secondary text-xs font-black text-foreground">
+                            {friend.avatarUrl ? <img src={friend.avatarUrl} alt="" className="h-full w-full object-cover" /> : friend.displayName[0]?.toUpperCase()}
+                          </div>
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-sm font-bold text-foreground">{friend.displayName}</span>
+                            <span className="block truncate text-xs text-muted-foreground">@{friend.username}</span>
+                          </span>
+                          {selected && <CheckCircle2 className="h-5 w-5 text-primary" />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <button type="button" onClick={continueGroupWizard} className="mt-4 w-full rounded-2xl gradient-primary px-3 py-3 text-sm font-black text-primary-foreground">
+                    Continuer
+                  </button>
+                </>
+              ) : (
+                <>
+                  {groupWizardMode === "create" && (
+                    <label className="mb-3 block">
+                      <span className="mb-1 block text-xs font-bold text-muted-foreground">Nom du groupe</span>
+                      <input value={groupName} onChange={(e) => setGroupName(e.target.value)} maxLength={80} className="w-full rounded-2xl border border-border bg-background px-3 py-3 text-base text-foreground outline-none focus:border-primary" placeholder="Nom du groupe" />
+                    </label>
+                  )}
+                  <div className="grid grid-cols-3 gap-2">
+                    {["Flammes", "Videos", "Appels 5 max"].map((label) => (
+                      <div key={label} className="rounded-2xl bg-background/65 p-3 text-center text-xs font-black text-foreground">
+                        {label}
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-4 flex gap-2">
+                    <button type="button" onClick={() => setGroupStep("select")} className="flex-1 rounded-2xl bg-secondary px-3 py-3 text-sm font-bold text-foreground">
+                      Retour
+                    </button>
+                    <button type="button" onClick={submitGroupWizard} disabled={creatingGroup} className="flex-1 rounded-2xl gradient-primary px-3 py-3 text-sm font-black text-primary-foreground disabled:opacity-50">
+                      {creatingGroup ? "..." : groupWizardMode === "create" ? "Creer" : "Ajouter"}
+                    </button>
+                  </div>
+                </>
+              )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {groupCallState && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[86] flex items-center justify-center bg-background/88 px-4 backdrop-blur-xl"
+          >
+            <motion.div initial={{ scale: 0.94, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.94, y: 20 }} className="w-full max-w-sm overflow-hidden rounded-3xl border border-border bg-card shadow-2xl">
+              <div className="relative aspect-[3/4] bg-black">
+                {groupCallState.type === "video" ? (
+                  <video ref={groupLocalVideoRef} className="h-full w-full object-cover" muted playsInline autoPlay />
+                ) : (
+                  <div className="grid h-full place-items-center bg-gradient-to-br from-background via-card to-background text-center">
+                    <div>
+                      <Users className="mx-auto mb-3 h-10 w-10 text-primary" />
+                      <p className="text-lg font-black text-foreground">Appel audio groupe</p>
+                    </div>
+                  </div>
+                )}
+                <div className="absolute left-4 top-4 rounded-full bg-background/70 px-3 py-1 text-xs font-bold text-foreground backdrop-blur">
+                  {groupCallParticipants.length}/5 connectes
+                </div>
+              </div>
+              <div className="space-y-2 p-4">
+                <div className="grid grid-cols-5 gap-2">
+                  {groupCallParticipants.map((participant) => (
+                    <div key={participant.id} className="text-center">
+                      <div className="mx-auto grid h-10 w-10 place-items-center overflow-hidden rounded-full bg-secondary text-xs font-black text-foreground">
+                        {participant.avatarUrl ? <img src={participant.avatarUrl} alt="" className="h-full w-full object-cover" /> : participant.displayName[0]?.toUpperCase()}
+                      </div>
+                      <p className="mt-1 truncate text-[10px] text-muted-foreground">{participant.displayName}</p>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex items-center justify-center gap-3 pt-2">
+                  <button type="button" onClick={() => toast.info("Micro local gere par la permission appareil")} className="grid h-12 w-12 place-items-center rounded-full bg-secondary text-foreground" aria-label="Micro groupe">
+                    <Mic className="h-5 w-5" />
+                  </button>
+                  <button type="button" onClick={endGroupCall} className="grid h-12 w-12 place-items-center rounded-full bg-destructive text-destructive-foreground" aria-label="Quitter l'appel groupe">
+                    <PhoneOff className="h-5 w-5" />
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
         {deleteTarget && (
           <motion.div
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
@@ -1676,6 +2383,55 @@ export default function ChatPage() {
           </motion.div>
         )}
       </AnimatePresence>
+    </div>
+  );
+}
+
+function PollBubble({
+  poll,
+  votes,
+  currentUserId,
+  fromMe,
+  onVote,
+}: {
+  poll: PollPayload;
+  votes: Record<string, string[]>;
+  currentUserId: string;
+  fromMe: boolean;
+  onVote: (option: string) => void;
+}) {
+  const total = Object.values(votes).reduce((sum, ids) => sum + ids.length, 0);
+
+  return (
+    <div className={`poll-3d mb-1 min-w-[13rem] rounded-2xl p-3 ${fromMe ? "bg-primary-foreground/15" : "bg-background/55"}`}>
+      <p className="mb-3 text-sm font-black leading-snug">{poll.question}</p>
+      <div className="space-y-2">
+        {poll.options.map((option) => {
+          const count = votes[option]?.length || 0;
+          const percent = total ? Math.round((count / total) * 100) : 0;
+          const selected = votes[option]?.includes(currentUserId);
+          return (
+            <button
+              key={option}
+              type="button"
+              onClick={() => onVote(option)}
+              className={`relative min-h-11 w-full overflow-hidden rounded-xl border px-3 py-2 text-left transition active:scale-[0.98] ${selected ? "border-primary bg-primary/18" : "border-white/10 bg-background/45"}`}
+            >
+              <motion.span
+                className="absolute inset-y-0 left-0 rounded-xl bg-primary/28"
+                initial={false}
+                animate={{ width: `${percent}%` }}
+                transition={{ duration: 0.28 }}
+              />
+              <span className="relative z-10 flex items-center justify-between gap-3 text-xs font-black">
+                <span className="truncate">{option}</span>
+                <span className="shrink-0 tabular-nums">{count} vote{count > 1 ? "s" : ""} · {percent}%</span>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      <p className="mt-2 text-[10px] font-bold opacity-70">{total} vote{total > 1 ? "s" : ""} au total</p>
     </div>
   );
 }
