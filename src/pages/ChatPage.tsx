@@ -949,16 +949,35 @@ export default function ChatPage() {
     setGroupStep("details");
   };
 
+  const createGroupConversationRpc = async (memberIds: string[], name: string) => {
+    const cleanName = name.trim() || "Groupe amis";
+    const isMissingRpc = (error: any) => {
+      const haystack = `${error?.code || ""} ${error?.message || ""} ${error?.details || ""}`.toLowerCase();
+      return haystack.includes("pgrst202") || haystack.includes("schema cache") || haystack.includes("could not find the function");
+    };
+    const primary = await (supabase as any)
+      .rpc("create_friend_group_conversation_v2", {
+        _group_name: cleanName,
+        _member_ids: memberIds,
+      });
+
+    if (!primary.error || !isMissingRpc(primary.error)) {
+      return primary;
+    }
+
+    return (supabase as any)
+      .rpc("create_friend_group_conversation", {
+        _member_ids: memberIds,
+        _group_name: cleanName,
+      });
+  };
+
   const submitGroupWizard = async () => {
     if (!user || !conversationId) return;
     setCreatingGroup(true);
     try {
       if (groupWizardMode === "create") {
-        const { data, error } = await (supabase as any)
-          .rpc("create_friend_group_conversation", {
-            _member_ids: selectedGroupFriendIds,
-            _group_name: groupName.trim() || "Groupe amis",
-          });
+        const { data, error } = await createGroupConversationRpc(selectedGroupFriendIds, groupName);
         if (error || !data) throw error || new Error("Groupe impossible");
         toast.success("Groupe cree");
         setShowGroupWizard(false);
