@@ -78,7 +78,7 @@ export default function StoriesGrid() {
         created_at: row.created_at,
         audience: row.audience,
         expires_at: row.expires_at,
-        views_count: row.views_count,
+        views_count: row.user_id === user?.id ? row.views_count : 0,
         author: { username: author.username, display_name: author.display_name, avatar_url: author.avatar_url },
       };
       const existing = grouped.get(row.user_id) || {
@@ -92,7 +92,7 @@ export default function StoriesGrid() {
         items: [],
       };
       existing.items.push(item);
-      existing.views_total += row.views_count || 0;
+      existing.views_total += row.user_id === user?.id ? row.views_count || 0 : 0;
       if (!seenIds.has(row.id) && row.user_id !== user?.id) existing.hasUnseen = true;
       grouped.set(row.user_id, existing);
     }
@@ -165,7 +165,7 @@ export default function StoriesGrid() {
               @{g.username}
             </span>
             <span className="flex max-w-full items-center gap-1 rounded-full bg-card/70 px-2 py-0.5 text-[10px] text-muted-foreground">
-              <Eye className="h-2.5 w-2.5" /> {g.views_total}
+              <Eye className="h-2.5 w-2.5" /> {g.user_id === user?.id ? g.views_total : "Story"}
             </span>
           </motion.button>
         ))}

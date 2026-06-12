@@ -80,7 +80,7 @@ export default function StoriesRail() {
         created_at: row.created_at,
         audience: row.audience,
         expires_at: row.expires_at,
-        views_count: row.views_count,
+        views_count: row.user_id === user?.id ? row.views_count : 0,
         author: { username: author.username, display_name: author.display_name, avatar_url: author.avatar_url },
       };
       const existing = grouped.get(row.user_id) || {

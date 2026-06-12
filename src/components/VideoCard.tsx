@@ -16,6 +16,7 @@ interface VideoCardProps {
   isActive: boolean;
   isMuted: boolean;
   onToggleMute: () => void;
+  onForceMute?: () => void;
   onOpenComments: (count: number) => void;
   onOpenGamification: () => void;
 }
@@ -39,7 +40,7 @@ function FloatingHeart({ id, x, y, onDone }: { id: string; x: number; y: number;
   );
 }
 
-export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOpenComments, onOpenGamification }: VideoCardProps) {
+export default function VideoCard({ video, isActive, isMuted, onToggleMute, onForceMute, onOpenComments, onOpenGamification }: VideoCardProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -99,7 +100,13 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
     v.volume = 1;
     if (isActive) {
       v.playbackRate = playbackRate;
-      if (!pausedByUser) v.play().catch(() => {});
+      if (!pausedByUser) {
+        v.play().catch(() => {
+          v.muted = true;
+          onForceMute?.();
+          v.play().catch(() => {});
+        });
+      }
     } else {
       v.pause();
       v.currentTime = 0;
@@ -108,7 +115,7 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
       setShowLongPress(false);
       setPausedByUser(false);
     }
-  }, [isActive, playbackRate, pausedByUser]);
+  }, [isActive, playbackRate, pausedByUser, onForceMute]);
 
   useEffect(() => {
     const v = videoRef.current;
@@ -430,7 +437,15 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onOp
           if (v.duration && v.buffered.length) setBuffered((v.buffered.end(v.buffered.length - 1) / v.duration) * 100);
         }}
         onLoadedMetadata={() => {
-          if (isActive && !pausedByUser) videoRef.current?.play().catch(() => {});
+          if (isActive && !pausedByUser) {
+            const v = videoRef.current;
+            v?.play().catch(() => {
+              if (!v) return;
+              v.muted = true;
+              onForceMute?.();
+              v.play().catch(() => {});
+            });
+          }
         }}
       />
 

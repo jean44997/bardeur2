@@ -109,18 +109,19 @@ export default function ProfilePage() {
   };
 
   const fetchStats = async (userId: string) => {
+    const canSeePerformanceStats = user?.id === userId;
     const [followers, following, totalLikes, videoData] = await Promise.all([
       supabase.from("follows").select("*", { count: "exact", head: true }).eq("following_id", userId),
       supabase.from("follows").select("*", { count: "exact", head: true }).eq("follower_id", userId),
-      supabase.from("videos").select("likes_count, views_count").eq("user_id", userId),
+      canSeePerformanceStats ? supabase.from("videos").select("likes_count, views_count").eq("user_id", userId) : Promise.resolve({ data: [] as any[] }),
       supabase.from("videos").select("*", { count: "exact", head: true }).eq("user_id", userId),
     ]);
     setStats({
       followers: followers.count || 0,
       following: following.count || 0,
-      likes: totalLikes.data?.reduce((sum: number, v: any) => sum + Math.max(0, v.likes_count || 0), 0) || 0,
+      likes: canSeePerformanceStats ? totalLikes.data?.reduce((sum: number, v: any) => sum + Math.max(0, v.likes_count || 0), 0) || 0 : 0,
       videos: videoData.count || 0,
-      views: totalLikes.data?.reduce((sum: number, v: any) => sum + Math.max(0, v.views_count || 0), 0) || 0,
+      views: canSeePerformanceStats ? totalLikes.data?.reduce((sum: number, v: any) => sum + Math.max(0, v.views_count || 0), 0) || 0 : 0,
     });
   };
 
@@ -161,7 +162,7 @@ export default function ProfilePage() {
         .eq("id", userId)
         .maybeSingle();
       const mapped = (data || []).map((s: any) => ({
-        id: s.id, user_id: s.user_id, media_url: s.media_url, media_type: s.media_type, caption: s.caption, created_at: s.created_at, audience: s.audience, expires_at: s.expires_at, views_count: s.views_count,
+        id: s.id, user_id: s.user_id, media_url: s.media_url, media_type: s.media_type, caption: s.caption, created_at: s.created_at, audience: s.audience, expires_at: s.expires_at, views_count: s.user_id === user?.id ? s.views_count : 0,
         author: { username: profiles?.username, display_name: profiles?.display_name, avatar_url: profiles?.avatar_url },
       }));
       setActiveStories(mapped);
@@ -523,7 +524,7 @@ export default function ProfilePage() {
             {[
               { label: "Abonnements", value: !isOwnProfile && (currentProfile as any)?.hide_following ? "Privé" : formatCount(stats.following) },
               { label: "Abonnés", value: formatCount(stats.followers) },
-              { label: "J'aime", value: formatCount(stats.likes) },
+              { label: "J'aime", value: isOwnProfile ? formatCount(stats.likes) : "PrivÃ©" },
             ].map(s => (
               <div key={s.label} className="flex flex-col items-center">
                 <span className="text-lg font-bold text-foreground tabular-nums">{s.value}</span>

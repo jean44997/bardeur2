@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Pause, Play, Volume2, VolumeX, Trash2, Eye, Clock, ShieldCheck } from "lucide-react";
+import { X, Pause, Play, Volume2, VolumeX, Trash2, Eye, Clock, ShieldCheck, Send, Paperclip, LockKeyhole } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
+import { validateUploadFile, validateUserText } from "@/lib/contentSafety";
 
 export interface StoryItem {
   id: string;
@@ -39,7 +40,11 @@ export default function StoryViewer({ stories, initialIndex = 0, onClose }: Prop
   const [progress, setProgress] = useState(0);
   const [paused, setPaused] = useState(false);
   const [muted, setMuted] = useState(false);
+  const [replyText, setReplyText] = useState("");
+  const [replyFile, setReplyFile] = useState<File | null>(null);
+  const [sendingReply, setSendingReply] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const replyFileRef = useRef<HTMLInputElement>(null);
   const rafRef = useRef<number | null>(null);
   const startedAtRef = useRef<number>(Date.now());
   const elapsedAtPauseRef = useRef<number>(0);
@@ -117,6 +122,75 @@ export default function StoryViewer({ stories, initialIndex = 0, onClose }: Prop
       }
       return np;
     });
+  };
+
+  const sendStoryReply = async () => {
+    if (!current || !user || isOwner) return;
+    if (!replyText.trim() && !replyFile) {
+      toast.error("Ajoute une reponse ou une piece jointe");
+      return;
+    }
+    const validation = validateUserText(replyText, { maxLength: 500, minLength: 0, allowLinks: false });
+    if (!validation.ok) {
+      toast.error(validation.reason || "Reponse refusee");
+      return;
+    }
+    setSendingReply(true);
+    try {
+      let mediaUrl = "";
+      let mediaType = "";
+      if (replyFile) {
+        const fileCheck = validateUploadFile(replyFile, { maxBytes: 25 * 1024 * 1024, acceptedPrefixes: ["image/", "video/", "audio/"] });
+        if (!fileCheck.ok) throw new Error(fileCheck.reason);
+        const ext = replyFile.name.split(".").pop() || "bin";
+        const path = `${user.id}/story-replies/${current.id}-${crypto.randomUUID()}.${ext}`;
+        const { error } = await supabase.storage.from("media").upload(path, replyFile, { contentType: replyFile.type || "application/octet-stream" });
+        if (error) throw error;
+        const { data } = supabase.storage.from("media").getPublicUrl(path);
+        mediaUrl = data.publicUrl;
+        mediaType = replyFile.type || "application/octet-stream";
+      }
+      const { data: conversationId, error: convError } = await supabase.rpc("find_or_create_direct_conversation", { _other_user_id: current.user_id } as any);
+      if (convError || !conversationId) throw convError || new Error("Conversation indisponible");
+      const storyLabel = current.audience === "private" ? "story privee" : current.audience === "friends" ? "story amis" : "story publique";
+      const content = `Reponse a ta ${storyLabel}: ${validation.value || "Piece jointe"}`;
+      await (supabase as any).from("messages").insert({
+        conversation_id: conversationId,
+        sender_id: user.id,
+        content,
+        media_url: mediaUrl,
+        media_type: mediaType,
+        content_version: "plain",
+      });
+      try {
+        await (supabase as any).from("story_replies").insert({
+          story_id: current.id,
+          sender_id: user.id,
+          recipient_id: current.user_id,
+          conversation_id: conversationId,
+          content: validation.value,
+          media_url: mediaUrl,
+          media_type: mediaType,
+        });
+      } catch {
+        // The DM is the source of truth if the optional story_replies table is not live yet.
+      }
+      await supabase.from("notifications").insert({
+        user_id: current.user_id,
+        from_user_id: user.id,
+        type: "message",
+        content: `Nouvelle reponse a ta ${storyLabel}`,
+        reference_id: conversationId,
+      });
+      setReplyText("");
+      setReplyFile(null);
+      if (replyFileRef.current) replyFileRef.current.value = "";
+      toast.success("Reponse envoyee en message");
+    } catch (err: any) {
+      toast.error(err?.message || "Reponse impossible");
+    } finally {
+      setSendingReply(false);
+    }
   };
 
   // Keyboard nav
@@ -225,10 +299,10 @@ export default function StoryViewer({ stories, initialIndex = 0, onClose }: Prop
           </div>
         )}
 
-        <div className="pointer-events-none absolute bottom-0 left-0 right-0 z-20 bg-gradient-to-t from-black/90 via-black/55 to-transparent px-4 pb-[max(1rem,var(--app-safe-bottom))] pt-16">
+        <div className="pointer-events-none absolute bottom-0 left-0 right-0 z-20 bg-gradient-to-t from-black/90 via-black/55 to-transparent px-4 pb-[calc(max(1rem,var(--app-safe-bottom))+4.6rem)] pt-16">
           <div className="grid grid-cols-3 gap-2 text-white">
             <div className="rounded-xl bg-white/10 p-2 backdrop-blur">
-              <ShieldCheck className="mb-1 h-4 w-4 text-primary" />
+              {current.audience === "private" ? <LockKeyhole className="mb-1 h-4 w-4 text-primary" /> : <ShieldCheck className="mb-1 h-4 w-4 text-primary" />}
               <p className="text-[10px] uppercase text-white/55">Audience</p>
               <p className="truncate text-xs font-bold">{audienceLabel(current.audience)}</p>
             </div>
@@ -244,6 +318,42 @@ export default function StoryViewer({ stories, initialIndex = 0, onClose }: Prop
             </div>
           </div>
         </div>
+
+        {!isOwner && (
+          <div className="absolute bottom-0 left-0 right-0 z-30 px-3 pb-[max(0.65rem,var(--app-safe-bottom))]">
+            <input
+              ref={replyFileRef}
+              type="file"
+              accept="image/*,video/*,audio/*"
+              className="hidden"
+              onChange={(e) => setReplyFile(e.target.files?.[0] || null)}
+            />
+            {replyFile && (
+              <div className="mx-auto mb-2 flex max-w-lg items-center justify-between rounded-2xl bg-white/12 px-3 py-2 text-xs font-semibold text-white backdrop-blur">
+                <span className="truncate">{replyFile.name}</span>
+                <button type="button" onClick={() => setReplyFile(null)} className="rounded-full bg-black/30 p-1" aria-label="Retirer la piece jointe">
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            )}
+            <div className="mx-auto flex max-w-lg items-center gap-2 rounded-full bg-black/48 p-1.5 text-white backdrop-blur-xl ring-1 ring-white/15">
+              <button type="button" onClick={() => replyFileRef.current?.click()} className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-white/12" aria-label="Joindre a la reponse">
+                <Paperclip className="h-4 w-4" />
+              </button>
+              <input
+                value={replyText}
+                onChange={(e) => setReplyText(e.target.value)}
+                onFocus={() => setPaused(true)}
+                placeholder={current.audience === "private" ? "Repondre a la story privee..." : "Repondre a la story..."}
+                maxLength={500}
+                className="min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-white/55"
+              />
+              <button type="button" onClick={sendStoryReply} disabled={sendingReply || (!replyText.trim() && !replyFile)} className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground disabled:opacity-45" aria-label="Envoyer la reponse story">
+                <Send className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Tap zones */}
         <button type="button" aria-label="Précédent" onClick={prev} className="absolute left-0 top-0 z-10 h-full w-1/3" />

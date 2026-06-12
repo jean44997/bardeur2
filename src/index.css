@@ -242,6 +242,33 @@
     filter: blur(2px);
     pointer-events: none;
   }
+  .chat-tool-3d,
+  .creator-editor-3d,
+  .chat-reaction-orb {
+    transform-style: preserve-3d;
+    box-shadow:
+      0 12px 28px hsl(var(--background) / 0.28),
+      inset 0 1px 0 hsl(var(--foreground) / 0.08);
+  }
+  .chat-tool-3d {
+    transition: transform 180ms var(--spring-bezier), box-shadow 180ms ease;
+  }
+  .chat-tool-3d:active {
+    transform: perspective(700px) rotateX(8deg) translateY(1px);
+  }
+  .creator-editor-3d {
+    position: relative;
+    overflow: hidden;
+  }
+  .creator-editor-3d::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background:
+      linear-gradient(130deg, hsl(var(--primary) / 0.12), transparent 34%),
+      radial-gradient(circle at 88% 12%, hsl(var(--accent) / 0.14), transparent 24%);
+    pointer-events: none;
+  }
 }
 
 input,

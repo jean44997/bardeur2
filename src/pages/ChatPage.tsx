@@ -1,6 +1,6 @@
-import { useState, useRef, useEffect, type CSSProperties } from "react";
+import { useState, useRef, useEffect, type CSSProperties, type ReactNode } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowLeft, Send, Smile, Image as ImageIcon, Mic, MicOff, Phone, Video, Check, CheckCheck, Trash2, MoreVertical, Flag, Ban, Flame, Wallpaper, PhoneOff, CameraOff, RotateCcw, Upload, Activity, BellRing, SignalHigh, Volume2, VolumeX, ShieldCheck } from "lucide-react";
+import { ArrowLeft, Send, Smile, Image as ImageIcon, Mic, MicOff, Phone, Video, Check, CheckCheck, Trash2, MoreVertical, Flag, Ban, Flame, Wallpaper, PhoneOff, CameraOff, RotateCcw, Upload, Activity, BellRing, SignalHigh, Volume2, VolumeX, ShieldCheck, Plus, MapPin, FileUp, Contact, BarChart3, Sticker, Reply, Heart, ImagePlus, Music2, Gamepad2, Users } from "lucide-react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -21,6 +21,8 @@ interface Message {
   mediaType?: string;
   senderId?: string;
   createdAt?: string;
+  replyToId?: string | null;
+  replyPreview?: string | null;
 }
 
 interface CallState {
@@ -40,6 +42,7 @@ interface IncomingCall {
 }
 
 const quickEmojis = ["❤️", "🔥", "😂", "😍", "👏", "🤯", "💀", "🙏", "😭", "🥰", "💯", "🎉"];
+const quickReactions = ["<3", "Fire", "Haha", "OK", "Wow", "+1"];
 const chatBackgrounds = [
   { label: "Nuit", value: "radial-gradient(circle at top left, rgba(255,43,136,.22), transparent 35%), linear-gradient(160deg, #050505, #17121f 55%, #070707)" },
   { label: "Glace", value: "linear-gradient(135deg, rgba(125,211,252,.24), rgba(244,114,182,.18)), #07090f" },
@@ -73,6 +76,7 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMsg, setNewMsg] = useState("");
   const [showEmojis, setShowEmojis] = useState(false);
+  const [showPlusDrawer, setShowPlusDrawer] = useState(false);
   const [otherUserName, setOtherUserName] = useState("Conversation");
   const [loading, setLoading] = useState(true);
   const [uploadingImage, setUploadingImage] = useState(false);
@@ -91,6 +95,9 @@ export default function ChatPage() {
   const [callSeconds, setCallSeconds] = useState(0);
   const [callAudioLevel, setCallAudioLevel] = useState(0);
   const [deleteTarget, setDeleteTarget] = useState<Message | null>(null);
+  const [replyTarget, setReplyTarget] = useState<Message | null>(null);
+  const [reactionTarget, setReactionTarget] = useState<Message | null>(null);
+  const [messageReactions, setMessageReactions] = useState<Record<string, string[]>>({});
   const bottomRef = useRef<HTMLDivElement>(null);
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
@@ -124,11 +131,28 @@ export default function ChatPage() {
 
       const channel = supabase
         .channel(`messages-${conversationId}`)
-        .on("postgres_changes", { event: "*", schema: "public", table: "messages", filter: `conversation_id=eq.${conversationId}` }, (payload: any) => {
+        .on("postgres_changes", { event: "*", schema: "public", table: "messages", filter: `conversation_id=eq.${conversationId}` }, async (payload: any) => {
           // Avoid full refetch flash when our own INSERT echoes back — we already appended optimistically.
           if (payload?.eventType === "INSERT" && payload?.new?.sender_id === user?.id) return;
-          fetchMessages();
-          markAsRead();
+          if (payload?.eventType === "INSERT") {
+            const mapped = await mapMessage(payload.new);
+            setMessages((prev) => prev.some((m) => m.id === mapped.id) ? prev : [...prev, mapped]);
+            void markAsRead();
+            return;
+          }
+          if (payload?.eventType === "UPDATE" && payload?.new?.id) {
+            const mapped = await mapMessage(payload.new);
+            setMessages((prev) => prev.map((m) => m.id === mapped.id ? { ...m, ...mapped } : m));
+            return;
+          }
+          if (payload?.eventType === "DELETE" && payload?.old?.id) {
+            setMessages((prev) => prev.filter((m) => m.id !== payload.old.id));
+            return;
+          }
+          fetchMessages(true);
+        })
+        .on("postgres_changes", { event: "*", schema: "public", table: "message_reactions", filter: `conversation_id=eq.${conversationId}` }, (payload: any) => {
+          applyRealtimeReaction(payload);
         })
         .on("postgres_changes", { event: "*", schema: "public", table: "direct_call_sessions", filter: `conversation_id=eq.${conversationId}` }, (payload) => {
           handleCallSignal(payload.new as any);
@@ -297,19 +321,58 @@ export default function ChatPage() {
       mediaType: m.media_type || undefined,
       senderId: m.sender_id,
       createdAt: m.created_at,
+      replyToId: m.reply_to_id || null,
+      replyPreview: m.reply_preview || null,
     };
   };
 
-  const fetchMessages = async () => {
+  const fetchMessages = async (silent = false) => {
     if (!conversationId) return;
-    setLoading(true);
+    if (!silent) setLoading(true);
     const { data } = await supabase.from("messages").select("*").eq("conversation_id", conversationId).order("created_at", { ascending: true });
     if (data) {
       const hidden = loadHiddenIds();
       const mapped = await Promise.all(data.filter((m: any) => !hidden.has(m.id)).map(mapMessage));
       setMessages(mapped);
+      void fetchMessageReactions(mapped.map((m) => m.id));
     }
-    setLoading(false);
+    if (!silent) setLoading(false);
+  };
+
+  const fetchMessageReactions = async (messageIds: string[]) => {
+    if (!conversationId || messageIds.length === 0) {
+      setMessageReactions({});
+      return;
+    }
+    try {
+      const { data } = await (supabase as any)
+        .from("message_reactions")
+        .select("message_id, reaction")
+        .eq("conversation_id", conversationId)
+        .in("message_id", messageIds);
+      const grouped: Record<string, string[]> = {};
+      (data || []).forEach((row: any) => {
+        grouped[row.message_id] = [...(grouped[row.message_id] || []), row.reaction];
+      });
+      setMessageReactions(grouped);
+    } catch {
+      setMessageReactions({});
+    }
+  };
+
+  const applyRealtimeReaction = (payload: any) => {
+    const row = payload?.new || payload?.old;
+    if (!row?.message_id) return;
+    setMessageReactions((current) => {
+      const next = { ...current };
+      const list = next[row.message_id] || [];
+      if (payload.eventType === "DELETE") {
+        next[row.message_id] = list.filter((reaction) => reaction !== row.reaction);
+      } else if (!list.includes(row.reaction)) {
+        next[row.message_id] = [...list, row.reaction];
+      }
+      return next;
+    });
   };
 
   const fetchOtherUser = async () => {
@@ -354,6 +417,14 @@ export default function ChatPage() {
     ]);
   };
 
+  const getMessagePreview = (message: Message) => {
+    if (message.text?.trim()) return message.text.trim().slice(0, 120);
+    if (message.mediaType?.startsWith("image")) return "Image";
+    if (message.mediaType?.startsWith("video")) return "Video";
+    if (message.mediaType?.startsWith("audio")) return "Audio";
+    return "Piece jointe";
+  };
+
   const sendMessage = async () => {
     if (!newMsg.trim() || !user || !conversationId || isBlocked || blockedByThem) return;
 
@@ -382,6 +453,7 @@ export default function ChatPage() {
     const encryptedContent = await encryptMessageContent(validation.value, conversationId);
     const optimisticId = `optim-${Date.now()}`;
     const now = new Date();
+    const replyingTo = replyTarget;
     // Optimistic append → no visible reload after send
     setMessages(prev => [...prev, {
       id: optimisticId,
@@ -391,20 +463,35 @@ export default function ChatPage() {
       status: "sent",
       senderId: user.id,
       createdAt: now.toISOString(),
+      replyToId: replyingTo?.id || null,
+      replyPreview: replyingTo ? getMessagePreview(replyingTo) : null,
     }]);
     setNewMsg("");
+    setReplyTarget(null);
+    setShowPlusDrawer(false);
     setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" }), 40);
 
-    const { data, error } = await (supabase as any).from("messages").insert({
+    const messagePayload: any = {
       conversation_id: conversationId,
       sender_id: user.id,
       content: encryptedContent,
       encrypted_content: encryptedContent !== validation.value,
       content_version: encryptedContent !== validation.value ? "bdenc_v1" : "plain",
-    }).select("id").single();
+      reply_to_id: replyingTo?.id || null,
+      reply_preview: replyingTo ? getMessagePreview(replyingTo).slice(0, 120) : null,
+    };
+    let { data, error } = await (supabase as any).from("messages").insert(messagePayload).select("id").single();
+    if (error && String(error.message || "").includes("reply_")) {
+      delete messagePayload.reply_to_id;
+      delete messagePayload.reply_preview;
+      const retry = await (supabase as any).from("messages").insert(messagePayload).select("id").single();
+      data = retry.data;
+      error = retry.error;
+    }
     if (error) {
       setMessages(prev => prev.filter(m => m.id !== optimisticId));
       setNewMsg(validation.value);
+      setReplyTarget(replyingTo);
       toast.error(error.message?.includes("rate") ? "Rate-limit serveur atteint" : "Message impossible");
       return;
     }
@@ -429,6 +516,150 @@ export default function ChatPage() {
       toast.success("Image envoyée");
     } catch { toast.error("Impossible d'envoyer l'image"); }
     finally { setUploadingImage(false); if (imageInputRef.current) imageInputRef.current.value = ""; }
+  };
+
+  const sendAttachment = async (file?: File | null) => {
+    if (!file || !user || !conversationId || isBlocked || blockedByThem) return;
+    const fileCheck = validateUploadFile(file, { maxBytes: 50 * 1024 * 1024, acceptedPrefixes: ["image/", "video/", "audio/", "application/", "text/"] });
+    if (!fileCheck.ok) { toast.error(fileCheck.reason); return; }
+    const rate = checkClientRateLimit({ key: `chat-media:${conversationId}:${user.id}`, limit: 6, windowMs: 60_000, blockMs: 45_000 });
+    if (!rate.allowed) { toast.error(`Upload ralenti, reessaie dans ${formatRetryAfter(rate.retryAfterMs)}`); return; }
+    setUploadingImage(true);
+    setShowPlusDrawer(false);
+    try {
+      const ext = file.name.split(".").pop() || "bin";
+      const path = `${user.id}/chat/${crypto.randomUUID()}.${ext}`;
+      const { error: uploadError } = await supabase.storage.from("media").upload(path, file, { contentType: file.type || "application/octet-stream" });
+      if (uploadError) throw uploadError;
+      const { data } = supabase.storage.from("media").getPublicUrl(path);
+      const optimisticId = `optim-media-${Date.now()}`;
+      const now = new Date();
+      const mediaType = file.type || "application/octet-stream";
+      const replyingTo = replyTarget;
+      const label = mediaType.startsWith("video") ? "Video" : mediaType.startsWith("audio") ? "Audio" : mediaType.startsWith("image") ? "Image" : file.name;
+      setMessages(prev => [...prev, {
+        id: optimisticId,
+        text: label,
+        fromMe: true,
+        time: now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        status: "sent",
+        mediaUrl: data.publicUrl,
+        mediaType,
+        senderId: user.id,
+        createdAt: now.toISOString(),
+        replyToId: replyingTo?.id || null,
+        replyPreview: replyingTo ? getMessagePreview(replyingTo) : null,
+      }]);
+      setReplyTarget(null);
+      const payload: any = {
+        conversation_id: conversationId,
+        sender_id: user.id,
+        content: label,
+        media_url: data.publicUrl,
+        media_type: mediaType,
+        content_version: "plain",
+        reply_to_id: replyingTo?.id || null,
+        reply_preview: replyingTo ? getMessagePreview(replyingTo).slice(0, 120) : null,
+      };
+      let { data: inserted, error } = await (supabase as any).from("messages").insert(payload).select("id").single();
+      if (error && String(error.message || "").includes("reply_")) {
+        delete payload.reply_to_id;
+        delete payload.reply_preview;
+        const retry = await (supabase as any).from("messages").insert(payload).select("id").single();
+        inserted = retry.data;
+        error = retry.error;
+      }
+      if (error) throw error;
+      if (inserted?.id) setMessages(prev => prev.map(m => m.id === optimisticId ? { ...m, id: inserted.id } : m));
+      toast.success("Piece jointe envoyee");
+    } catch {
+      toast.error("Impossible d'envoyer le fichier");
+    } finally {
+      setUploadingImage(false);
+      if (imageInputRef.current) imageInputRef.current.value = "";
+    }
+  };
+
+  const sendStructuredMessage = async (text: string) => {
+    if (!text.trim() || !user || !conversationId || isBlocked || blockedByThem) return;
+    const validation = validateUserText(text, { maxLength: 900, allowLinks: true });
+    if (!validation.ok) { toast.error(validation.reason || "Message refuse"); return; }
+    const rate = checkClientRateLimit({ key: `chat-structured:${conversationId}:${user.id}`, limit: 8, windowMs: 60_000, blockMs: 30_000 });
+    if (!rate.allowed) { toast.error(`Trop rapide, reessaie dans ${formatRetryAfter(rate.retryAfterMs)}`); return; }
+    const optimisticId = `optim-quick-${Date.now()}`;
+    const now = new Date();
+    const replyingTo = replyTarget;
+    const encryptedContent = await encryptMessageContent(validation.value, conversationId);
+    setMessages(prev => [...prev, {
+      id: optimisticId,
+      text: validation.value,
+      fromMe: true,
+      time: now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      status: "sent",
+      senderId: user.id,
+      createdAt: now.toISOString(),
+      replyToId: replyingTo?.id || null,
+      replyPreview: replyingTo ? getMessagePreview(replyingTo) : null,
+    }]);
+    setReplyTarget(null);
+    setShowPlusDrawer(false);
+    const payload: any = {
+      conversation_id: conversationId,
+      sender_id: user.id,
+      content: encryptedContent,
+      encrypted_content: encryptedContent !== validation.value,
+      content_version: encryptedContent !== validation.value ? "bdenc_v1" : "plain",
+      reply_to_id: replyingTo?.id || null,
+      reply_preview: replyingTo ? getMessagePreview(replyingTo).slice(0, 120) : null,
+    };
+    let { data, error } = await (supabase as any).from("messages").insert(payload).select("id").single();
+    if (error && String(error.message || "").includes("reply_")) {
+      delete payload.reply_to_id;
+      delete payload.reply_preview;
+      const retry = await (supabase as any).from("messages").insert(payload).select("id").single();
+      data = retry.data;
+      error = retry.error;
+    }
+    if (error) {
+      setMessages(prev => prev.filter(m => m.id !== optimisticId));
+      toast.error("Envoi impossible");
+      return;
+    }
+    if (data?.id) setMessages(prev => prev.map(m => m.id === optimisticId ? { ...m, id: data.id } : m));
+  };
+
+  const shareLocation = async () => {
+    if (!navigator.geolocation) {
+      toast.error("Localisation indisponible sur cet appareil");
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const { latitude, longitude } = pos.coords;
+        void sendStructuredMessage(`Localisation partagee: https://maps.google.com/?q=${latitude.toFixed(6)},${longitude.toFixed(6)}`);
+      },
+      () => toast.error("Autorise la localisation pour partager ta position"),
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 },
+    );
+  };
+
+  const sendContactCard = () => {
+    const name = window.prompt("Nom du contact");
+    if (!name?.trim()) return;
+    const detail = window.prompt("Telephone, email ou @username") || "";
+    void sendStructuredMessage(`Contact partage: ${name.trim()}${detail.trim() ? ` - ${detail.trim()}` : ""}`);
+  };
+
+  const sendPoll = () => {
+    const question = window.prompt("Question du sondage");
+    if (!question?.trim()) return;
+    const options = window.prompt("Options separees par une virgule", "Oui,Non,Peut-etre") || "Oui,Non";
+    void sendStructuredMessage(`Sondage: ${question.trim()}\nOptions: ${options.split(",").map(o => o.trim()).filter(Boolean).slice(0, 6).join(" / ")}`);
+  };
+
+  const createFriendGroupDraft = () => {
+    toast.success("Groupe amis pret: ajoute uniquement des amis mutuels depuis la liste DM");
+    void sendStructuredMessage("Invitation groupe amis: video, sondage, playlist et jeux integres disponibles dans cette conversation.");
   };
 
   const startAudioRecording = async () => {
@@ -512,6 +743,29 @@ export default function ChatPage() {
     setMessages(prev => prev.filter(m => m.id !== msgId));
     setDeleteTarget(null);
     toast.success("Message supprimé pour tous");
+  };
+
+  const reactToMessage = async (message: Message, reaction: string) => {
+    if (!user || !conversationId || message.id.startsWith("optim")) return;
+    setReactionTarget(null);
+    setMessageReactions((current) => {
+      const list = current[message.id] || [];
+      return { ...current, [message.id]: list.includes(reaction) ? list : [...list, reaction] };
+    });
+    try {
+      const { error } = await (supabase as any)
+        .from("message_reactions")
+        .upsert({
+          conversation_id: conversationId,
+          message_id: message.id,
+          user_id: user.id,
+          reaction,
+          created_at: new Date().toISOString(),
+        }, { onConflict: "message_id,user_id,reaction" });
+      if (error) throw error;
+    } catch {
+      toast.info("Reaction locale en attendant la migration");
+    }
   };
 
   const toggleBlockUser = async () => {
@@ -1185,6 +1439,12 @@ export default function ChatPage() {
                   </div>
                 )}
                 <div className={`px-4 py-2.5 text-sm ${msg.fromMe ? "gradient-primary text-primary-foreground rounded-2xl rounded-br-sm" : isOfficial ? "border border-primary/40 bg-primary/10 text-foreground rounded-2xl rounded-bl-sm" : "glass text-foreground rounded-2xl rounded-bl-sm"}`}>
+                  {msg.replyPreview && (
+                    <div className={`mb-2 rounded-xl border-l-2 px-2 py-1 text-[11px] ${msg.fromMe ? "border-primary-foreground/70 bg-primary-foreground/15 text-primary-foreground/85" : "border-primary bg-background/45 text-muted-foreground"}`}>
+                      <span className="mb-0.5 flex items-center gap-1 font-bold"><Reply className="h-3 w-3" /> Reponse</span>
+                      <span className="line-clamp-2">{msg.replyPreview}</span>
+                    </div>
+                  )}
                   {msg.mediaUrl && msg.mediaType?.startsWith("image") && (
                     <img src={msg.mediaUrl} alt="" className="mb-2 max-h-64 w-full rounded-xl object-cover" loading="lazy" />
                   )}
@@ -1194,13 +1454,29 @@ export default function ChatPage() {
                   {msg.mediaUrl && msg.mediaType?.startsWith("audio") && (
                     <div className="mb-1"><AudioBubble src={msg.mediaUrl} /></div>
                   )}
+                  {msg.mediaUrl && msg.mediaType && !msg.mediaType.startsWith("image") && !msg.mediaType.startsWith("video") && !msg.mediaType.startsWith("audio") && (
+                    <a href={msg.mediaUrl} target="_blank" rel="noreferrer" className="mb-2 flex items-center gap-2 rounded-xl bg-background/45 px-3 py-2 text-xs font-bold underline-offset-4 hover:underline">
+                      <FileUp className="h-4 w-4" /> Ouvrir le fichier
+                    </a>
+                  )}
                   {officialBody && officialBody !== "Message supprimé" ? officialBody : officialBody === "Message supprimé" ? <span className="italic opacity-60">{officialBody}</span> : null}
                 </div>
 
                 <div className={`flex items-center gap-1 mt-0.5 ${msg.fromMe ? "justify-end" : "justify-start"}`}>
                   <span className="text-[10px] text-muted-foreground">{msg.time}</span>
                   {msg.fromMe && <StatusIcon status={msg.status} />}
+                  <button type="button" onClick={() => { setReplyTarget(msg); setShowPlusDrawer(false); }} className="rounded-full px-1.5 py-0.5 text-[10px] font-bold text-muted-foreground">Repondre</button>
+                  <button type="button" onClick={() => setReactionTarget(msg)} className="rounded-full px-1.5 py-0.5 text-[10px] font-bold text-muted-foreground">React</button>
                 </div>
+                {!!messageReactions[msg.id]?.length && (
+                  <div className={`mt-1 flex flex-wrap gap-1 ${msg.fromMe ? "justify-end" : "justify-start"}`}>
+                    {messageReactions[msg.id].slice(0, 6).map((reaction, idx) => (
+                      <span key={`${reaction}-${idx}`} className="rounded-full bg-card/90 px-2 py-0.5 text-[10px] font-bold text-foreground shadow-sm">
+                        {reaction}
+                      </span>
+                    ))}
+                  </div>
+                )}
                 {msg.fromMe && (
                   <motion.button
                     whileTap={{ scale: 0.9 }}
@@ -1230,12 +1506,51 @@ export default function ChatPage() {
         )}
       </AnimatePresence>
 
+      <AnimatePresence>
+        {showPlusDrawer && !isRecordingAudio && (
+          <motion.div
+            initial={{ height: 0, opacity: 0, y: 12 }}
+            animate={{ height: "auto", opacity: 1, y: 0 }}
+            exit={{ height: 0, opacity: 0, y: 12 }}
+            className="border-t border-border bg-card/95 px-3 py-3 backdrop-blur-xl"
+          >
+            <div className="mx-auto grid max-w-lg grid-cols-4 gap-2">
+              <ChatToolButton icon={<ImagePlus className="h-5 w-5" />} label="Media" onClick={() => imageInputRef.current?.click()} />
+              <ChatToolButton icon={<FileUp className="h-5 w-5" />} label="Fichier" onClick={() => imageInputRef.current?.click()} />
+              <ChatToolButton icon={<MapPin className="h-5 w-5" />} label="Lieu" onClick={shareLocation} />
+              <ChatToolButton icon={<Contact className="h-5 w-5" />} label="Contact" onClick={sendContactCard} />
+              <ChatToolButton icon={<BarChart3 className="h-5 w-5" />} label="Sondage" onClick={sendPoll} />
+              <ChatToolButton icon={<Sticker className="h-5 w-5" />} label="Sticker" onClick={() => void sendStructuredMessage("Sticker/GIF partage: pack 3D fun")} />
+              <ChatToolButton icon={<Music2 className="h-5 w-5" />} label="Playlist" onClick={() => void sendStructuredMessage("Playlist partagee: ajoute tes sons preferes pour le groupe")} />
+              <ChatToolButton icon={<Gamepad2 className="h-5 w-5" />} label="Jeu" onClick={() => void sendStructuredMessage("Mini-jeu lance: devinez la prochaine video en 3 tours")} />
+              <ChatToolButton icon={<Smile className="h-5 w-5" />} label="Emoji" onClick={() => setShowEmojis(p => !p)} />
+              <ChatToolButton icon={<Users className="h-5 w-5" />} label="Groupe" onClick={createFriendGroupDraft} />
+              <ChatToolButton icon={<Flame className="h-5 w-5" />} label="Flamme" onClick={() => void sendStructuredMessage("Flamme relancee: reponds aujourd'hui pour garder la serie")} />
+              <ChatToolButton icon={<Video className="h-5 w-5" />} label="Video" onClick={() => imageInputRef.current?.click()} />
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <div className="mobile-chat-composer-safe shrink-0 border-t border-border px-2 py-2 sm:px-4 sm:py-3">
-        <input ref={imageInputRef} type="file" accept="image/*" className="hidden" onChange={e => sendImage(e.target.files?.[0])} />
+        <input ref={imageInputRef} type="file" accept="image/*,video/*,audio/*,application/pdf,text/*,.zip,.doc,.docx" className="hidden" onChange={e => sendAttachment(e.target.files?.[0])} />
 
         {(isBlocked || blockedByThem) && (
           <div className="mb-3 rounded-xl bg-destructive/10 px-3 py-2 text-center text-xs font-medium text-destructive">
             {isBlocked ? "Tu as bloqué cette conversation. Débloque pour réécrire." : "Cette conversation ne peut plus recevoir de messages."}
+          </div>
+        )}
+
+        {replyTarget && !isRecordingAudio && (
+          <div className="mb-2 flex items-center gap-2 rounded-2xl border border-primary/25 bg-primary/10 px-3 py-2 text-xs text-foreground">
+            <Reply className="h-4 w-4 shrink-0 text-primary" />
+            <div className="min-w-0 flex-1">
+              <p className="font-bold text-primary">Reponse a un message</p>
+              <p className="truncate text-muted-foreground">{getMessagePreview(replyTarget)}</p>
+            </div>
+            <button type="button" onClick={() => setReplyTarget(null)} className="rounded-full bg-card p-1" aria-label="Annuler la reponse">
+              <X className="h-3.5 w-3.5" />
+            </button>
           </div>
         )}
 
@@ -1263,10 +1578,10 @@ export default function ChatPage() {
           </div>
         ) : (
           <div className="flex min-w-0 items-center gap-1.5 sm:gap-2">
-            <motion.button whileTap={{ scale: 0.9 }} onClick={() => setShowEmojis(p => !p)} className="tap-target grid shrink-0 place-items-center rounded-full">
-              <Smile className="h-5 w-5 text-muted-foreground" />
+            <motion.button whileTap={{ scale: 0.9 }} onClick={() => { setShowPlusDrawer(p => !p); setShowEmojis(false); }} className="tap-target grid shrink-0 place-items-center rounded-full bg-secondary" aria-label="Ouvrir les options de message">
+              <Plus className="h-5 w-5 text-foreground" />
             </motion.button>
-            <motion.button whileTap={{ scale: 0.9 }} onClick={() => imageInputRef.current?.click()} disabled={uploadingImage || isBlocked || blockedByThem} className="tap-target grid shrink-0 place-items-center rounded-full disabled:opacity-40 max-[360px]:hidden">
+            <motion.button whileTap={{ scale: 0.9 }} onClick={() => imageInputRef.current?.click()} disabled={uploadingImage || isBlocked || blockedByThem} className="tap-target grid shrink-0 place-items-center rounded-full disabled:opacity-40 max-[360px]:hidden" aria-label="Joindre un media">
               <ImageIcon className="h-5 w-5 text-muted-foreground" />
             </motion.button>
             <div className="glass flex min-w-0 flex-1 items-center rounded-full px-4 py-2.5">
@@ -1285,6 +1600,40 @@ export default function ChatPage() {
           </div>
         )}
       </div>
+
+      <AnimatePresence>
+        {reactionTarget && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setReactionTarget(null)}
+            className="fixed inset-0 z-[88] flex items-end justify-center bg-background/50 px-4 pb-[max(1rem,var(--app-safe-bottom))] backdrop-blur-sm sm:items-center"
+          >
+            <motion.div
+              initial={{ y: 40, opacity: 0, scale: 0.96 }}
+              animate={{ y: 0, opacity: 1, scale: 1 }}
+              exit={{ y: 40, opacity: 0, scale: 0.96 }}
+              onClick={(e) => e.stopPropagation()}
+              className="chat-reaction-orb w-full max-w-sm rounded-3xl border border-border bg-card p-4 shadow-2xl"
+            >
+              <p className="mb-3 text-center text-xs font-bold uppercase text-muted-foreground">Reagir au message</p>
+              <div className="grid grid-cols-3 gap-2">
+                {quickReactions.map((reaction) => (
+                  <button
+                    key={reaction}
+                    type="button"
+                    onClick={() => reactToMessage(reactionTarget, reaction)}
+                    className="rounded-2xl bg-secondary px-3 py-3 text-sm font-black text-foreground"
+                  >
+                    {reaction}
+                  </button>
+                ))}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <AnimatePresence>
         {deleteTarget && (
@@ -1328,5 +1677,19 @@ export default function ChatPage() {
         )}
       </AnimatePresence>
     </div>
+  );
+}
+
+function ChatToolButton({ icon, label, onClick }: { icon: ReactNode; label: string; onClick: () => void }) {
+  return (
+    <motion.button
+      type="button"
+      whileTap={{ scale: 0.92, rotateX: 8 }}
+      onClick={onClick}
+      className="chat-tool-3d flex min-h-16 flex-col items-center justify-center gap-1 rounded-2xl bg-background/75 px-2 py-2 text-[10px] font-bold text-foreground shadow-sm"
+    >
+      <span className="text-primary">{icon}</span>
+      <span className="leading-tight">{label}</span>
+    </motion.button>
   );
 }

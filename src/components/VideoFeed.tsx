@@ -23,6 +23,7 @@ export default function VideoFeed() {
   const scrollRafRef = useRef<number | null>(null);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const forceMute = useCallback(() => setIsMuted(true), []);
 
   const fetchVideos = useCallback(async () => {
     setLoading(true);
@@ -92,7 +93,14 @@ export default function VideoFeed() {
     if (!el) return;
     if (scrollRafRef.current) return;
     scrollRafRef.current = window.requestAnimationFrame(() => {
-      const idx = Math.max(0, Math.min(videos.length - 1, Math.round(el.scrollTop / el.clientHeight)));
+      const center = el.getBoundingClientRect().top + el.clientHeight / 2;
+      const children = Array.from(el.children) as HTMLElement[];
+      const closest = children.reduce((best, child, idx) => {
+        const rect = child.getBoundingClientRect();
+        const distance = Math.abs(rect.top + rect.height / 2 - center);
+        return distance < best.distance ? { idx, distance } : best;
+      }, { idx: Math.max(0, Math.round(el.scrollTop / Math.max(1, el.clientHeight))), distance: Number.POSITIVE_INFINITY });
+      const idx = Math.max(0, Math.min(videos.length - 1, closest.idx));
       setActiveIndex((current) => current === idx ? current : idx);
       scrollRafRef.current = null;
     });
@@ -172,6 +180,7 @@ export default function VideoFeed() {
             isActive={i === activeIndex}
             isMuted={isMuted}
             onToggleMute={() => setIsMuted((p) => !p)}
+            onForceMute={forceMute}
             onOpenComments={(count) => {
               const v = videos[i] as any;
               if (v.commentsEnabled === false) { return; }

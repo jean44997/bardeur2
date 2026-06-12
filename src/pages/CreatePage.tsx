@@ -35,6 +35,8 @@ export default function CreatePage() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const soundInputRef = useRef<HTMLInputElement>(null);
+  const layerInputRef = useRef<HTMLInputElement>(null);
   const cameraRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -61,6 +63,9 @@ export default function CreatePage() {
   const [scheduledAt, setScheduledAt] = useState("");
   const [locationTag, setLocationTag] = useState("");
   const [coverNote, setCoverNote] = useState("");
+  const [externalSoundName, setExternalSoundName] = useState("");
+  const [editorLayers, setEditorLayers] = useState<string[]>([]);
+  const [audioMix, setAudioMix] = useState(70);
   const [creatorOptions, setCreatorOptions] = useState<Record<string, boolean>>({
     autoCaptions: true,
     beautyPass: true,
@@ -152,6 +157,9 @@ export default function CreatePage() {
       setScheduledAt(parsed.scheduledAt || "");
       setLocationTag(parsed.locationTag || "");
       setCoverNote(parsed.coverNote || "");
+      setExternalSoundName(parsed.externalSoundName || "");
+      setEditorLayers(Array.isArray(parsed.editorLayers) ? parsed.editorLayers : []);
+      setAudioMix(Number(parsed.audioMix || 70));
       setCreatorOptions((prev) => ({ ...prev, ...(parsed.creatorOptions || {}) }));
     } catch {
       // Ignore corrupted local drafts and let the user start clean.
@@ -159,8 +167,8 @@ export default function CreatePage() {
   }, []);
 
   useEffect(() => {
-    localStorage.setItem("create-draft-meta", JSON.stringify({ description, hashtags, commentsEnabled, effect, visibility, scheduledAt, locationTag, coverNote, creatorOptions }));
-  }, [description, hashtags, commentsEnabled, effect, visibility, scheduledAt, locationTag, coverNote, creatorOptions]);
+    localStorage.setItem("create-draft-meta", JSON.stringify({ description, hashtags, commentsEnabled, effect, visibility, scheduledAt, locationTag, coverNote, externalSoundName, editorLayers, audioMix, creatorOptions }));
+  }, [description, hashtags, commentsEnabled, effect, visibility, scheduledAt, locationTag, coverNote, externalSoundName, editorLayers, audioMix, creatorOptions]);
 
   useEffect(() => {
     return () => {
@@ -191,6 +199,23 @@ export default function CreatePage() {
     setSelectedFile(file);
     setPreview(URL.createObjectURL(file));
     setFileMeta(`${file.type || "fichier"} · ${(file.size / 1024 / 1024).toFixed(1)}MB · original conserve`);
+  };
+
+  const handleExternalSound = (file?: File | null) => {
+    if (!file) return;
+    const fileCheck = validateUploadFile(file, { maxBytes: 40 * 1024 * 1024, acceptedPrefixes: ["audio/"] });
+    if (!fileCheck.ok) { toast.error(fileCheck.reason); return; }
+    setExternalSoundName(file.name);
+    setCreatorOptions(prev => ({ ...prev, soundMix: true }));
+    toast.success("Son externe ajoute au mix");
+  };
+
+  const handleEditorLayer = (file?: File | null) => {
+    if (!file) return;
+    const fileCheck = validateUploadFile(file, { maxBytes: 150 * 1024 * 1024, acceptedPrefixes: ["image/", "video/"] });
+    if (!fileCheck.ok) { toast.error(fileCheck.reason); return; }
+    setEditorLayers(prev => [...prev, file.name].slice(0, 6));
+    toast.success("Calque ajoute a la timeline");
   };
 
   const openCamera = async () => {
@@ -330,7 +355,7 @@ export default function CreatePage() {
       if (uploadError) throw uploadError;
       const { data: urlData } = supabase.storage.from("media").getPublicUrl(path);
       const hashtagArray = sanitizeHashtags(hashtags);
-      const { error: insertError } = await (supabase as any).from("videos").insert({
+      const videoPayload: any = {
         user_id: user.id,
         video_url: urlData.publicUrl,
         description: desc.value,
@@ -350,7 +375,20 @@ export default function CreatePage() {
         cover_note: coverNote.trim() || null,
         scheduled_at: scheduledAt || null,
         create_options: creatorOptions,
-      });
+        editor_metadata: {
+          externalSoundName,
+          editorLayers,
+          audioMix,
+          tracks: 1 + (externalSoundName ? 1 : 0),
+          layers: editorLayers.length,
+        },
+      };
+      let { error: insertError } = await (supabase as any).from("videos").insert(videoPayload);
+      if (insertError && String(insertError.message || "").includes("editor_metadata")) {
+        delete videoPayload.editor_metadata;
+        const retry = await (supabase as any).from("videos").insert(videoPayload);
+        insertError = retry.error;
+      }
       if (insertError) throw insertError;
       toast.success("Publié ! 🎬");
       setSelectedFile(null);
@@ -361,6 +399,9 @@ export default function CreatePage() {
       setScheduledAt("");
       setLocationTag("");
       setCoverNote("");
+      setExternalSoundName("");
+      setEditorLayers([]);
+      setAudioMix(70);
       navigate("/");
     } catch (err: any) {
       toast.error(err.message || "Erreur lors de la publication");
@@ -489,6 +530,43 @@ export default function CreatePage() {
                     {f === "none" ? <Sparkles className="mx-auto h-4 w-4" /> : f === "pop" ? "Pop" : f === "cinema" ? "Ciné" : "N&B"}
                   </button>
                 ))}
+              </div>
+              <div className="creator-editor-3d rounded-2xl border border-border/60 bg-card/72 p-3 shadow-xl">
+                <input ref={soundInputRef} type="file" accept="audio/*" className="hidden" onChange={(e) => handleExternalSound(e.target.files?.[0])} />
+                <input ref={layerInputRef} type="file" accept="image/*,video/*" className="hidden" onChange={(e) => handleEditorLayer(e.target.files?.[0])} />
+                <div className="mb-3 flex items-center justify-between gap-2">
+                  <div>
+                    <p className="text-xs font-black uppercase text-foreground">Mini studio 3D</p>
+                    <p className="text-[10px] text-muted-foreground">Audio multi-piste, calques et mix rapide</p>
+                  </div>
+                  <span className="rounded-full bg-primary/15 px-2 py-1 text-[10px] font-bold text-primary">{1 + (externalSoundName ? 1 : 0)} pistes</span>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  <button type="button" onClick={() => soundInputRef.current?.click()} className="rounded-xl bg-background/65 px-2 py-2 text-[10px] font-bold text-foreground">
+                    <Palette className="mx-auto mb-1 h-4 w-4 text-primary" /> Son externe
+                  </button>
+                  <button type="button" onClick={() => layerInputRef.current?.click()} className="rounded-xl bg-background/65 px-2 py-2 text-[10px] font-bold text-foreground">
+                    <Image className="mx-auto mb-1 h-4 w-4 text-primary" /> Calque
+                  </button>
+                  <button type="button" onClick={() => setEditorLayers([])} className="rounded-xl bg-background/65 px-2 py-2 text-[10px] font-bold text-foreground">
+                    <RotateCcw className="mx-auto mb-1 h-4 w-4 text-primary" /> Reset
+                  </button>
+                </div>
+                <div className="mt-3 rounded-xl bg-background/55 px-3 py-2">
+                  <div className="mb-1 flex items-center justify-between text-[10px] font-bold text-muted-foreground">
+                    <span>Mix audio</span>
+                    <span>{audioMix}%</span>
+                  </div>
+                  <input type="range" min={0} max={100} value={audioMix} onChange={(e) => setAudioMix(Number(e.target.value))} className="w-full accent-primary" />
+                </div>
+                {(externalSoundName || editorLayers.length > 0) && (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {externalSoundName && <span className="rounded-full bg-primary/10 px-2 py-1 text-[10px] font-bold text-primary">{externalSoundName}</span>}
+                    {editorLayers.map((layer, idx) => (
+                      <span key={`${layer}-${idx}`} className="rounded-full bg-secondary px-2 py-1 text-[10px] font-bold text-foreground">{idx + 1}. {layer}</span>
+                    ))}
+                  </div>
+                )}
               </div>
               <div>
                 <textarea value={description} onChange={e => setDescription(e.target.value)} placeholder="Ajoute une description... 📝" maxLength={2200} className="w-full glass rounded-xl px-4 py-3 bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none resize-none" rows={3} />
