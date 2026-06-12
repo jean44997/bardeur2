@@ -955,31 +955,44 @@ export default function ChatPage() {
       const haystack = `${error?.code || ""} ${error?.message || ""} ${error?.details || ""}`.toLowerCase();
       return haystack.includes("pgrst202") || haystack.includes("schema cache") || haystack.includes("could not find the function");
     };
-    const primary = await (supabase as any)
-      .rpc("create_friend_group_conversation", {
+    const rpcResult = await (supabase as any)
+      .rpc("create_group_conversation_atomic", {
         _group_name: cleanName,
         _member_ids: memberIds,
       });
 
-    if (!primary.error || !isMissingRpc(primary.error)) {
-      return primary;
+    if (!rpcResult.error || !isMissingRpc(rpcResult.error)) {
+      return rpcResult;
     }
 
-    const secondary = await (supabase as any)
-      .rpc("create_friend_group_conversation_v2", {
-        _group_name: cleanName,
-        _member_ids: memberIds,
-      });
+    try {
+      const { data: conversation, error: conversationError } = await (supabase as any)
+        .from("conversations")
+        .insert({ is_group: true, group_name: cleanName })
+        .select("id")
+        .single();
+      if (conversationError || !conversation?.id) throw conversationError || new Error("Conversation impossible");
 
-    if (!secondary.error || !isMissingRpc(secondary.error)) {
-      return secondary;
+      const participants = [user?.id, ...memberIds].filter(Boolean).map((participantId) => ({
+        conversation_id: conversation.id,
+        user_id: participantId,
+      }));
+      const { error: participantError } = await (supabase as any)
+        .from("conversation_participants")
+        .insert(participants);
+      if (participantError) throw participantError;
+
+      return { data: conversation.id, error: null };
+    } catch (directError: any) {
+      return {
+        data: null,
+        error: {
+          message: directError?.message?.includes("row-level security")
+            ? "Migration Supabase manquante: applique create_group_conversation_atomic dans la base."
+            : directError?.message || "Creation groupe impossible",
+        },
+      };
     }
-
-    return (supabase as any)
-      .rpc("create_friend_group_conversation", {
-        _member_ids: memberIds,
-        _group_name: cleanName,
-      });
   };
 
   const submitGroupWizard = async () => {
