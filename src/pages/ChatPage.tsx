@@ -949,22 +949,8 @@ export default function ChatPage() {
     setGroupStep("details");
   };
 
-  const createGroupConversationRpc = async (memberIds: string[], name: string) => {
+  const createGroupConversation = async (memberIds: string[], name: string) => {
     const cleanName = name.trim() || "Groupe amis";
-    const isMissingRpc = (error: any) => {
-      const haystack = `${error?.code || ""} ${error?.message || ""} ${error?.details || ""}`.toLowerCase();
-      return haystack.includes("pgrst202") || haystack.includes("schema cache") || haystack.includes("could not find the function");
-    };
-    const rpcResult = await (supabase as any)
-      .rpc("create_group_conversation_atomic", {
-        _group_name: cleanName,
-        _member_ids: memberIds,
-      });
-
-    if (!rpcResult.error || !isMissingRpc(rpcResult.error)) {
-      return rpcResult;
-    }
-
     try {
       const { data: conversation, error: conversationError } = await (supabase as any)
         .from("conversations")
@@ -988,7 +974,7 @@ export default function ChatPage() {
         data: null,
         error: {
           message: directError?.message?.includes("row-level security")
-            ? "Migration Supabase manquante: applique create_group_conversation_atomic dans la base."
+            ? "Supabase bloque la creation de groupe: il faut retrouver l'acces au projet pour autoriser l'insertion."
             : directError?.message || "Creation groupe impossible",
         },
       };
@@ -1000,7 +986,7 @@ export default function ChatPage() {
     setCreatingGroup(true);
     try {
       if (groupWizardMode === "create") {
-        const { data, error } = await createGroupConversationRpc(selectedGroupFriendIds, groupName);
+        const { data, error } = await createGroupConversation(selectedGroupFriendIds, groupName);
         if (error || !data) throw error || new Error("Groupe impossible");
         toast.success("Groupe cree");
         setShowGroupWizard(false);
