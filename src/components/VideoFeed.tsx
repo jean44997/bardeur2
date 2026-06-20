@@ -4,8 +4,8 @@ import VideoCard from "./VideoCard";
 import CommentsDrawer from "./CommentsDrawer";
 import GamificationPanel from "./GamificationPanel";
 import { VideoData } from "@/data/mockVideos";
-import { motion } from "framer-motion";
-import { RefreshCw, Film, Radio } from "lucide-react";
+import { AnimatePresence, motion } from "framer-motion";
+import { RefreshCw, Film, Radio, Volume2 } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
 export default function VideoFeed() {
@@ -13,6 +13,7 @@ export default function VideoFeed() {
   const [activeLivesCount, setActiveLivesCount] = useState(0);
   const [activeIndex, setActiveIndex] = useState(0);
   const [isMuted, setIsMuted] = useState(false);
+  const [soundUnlockNeeded, setSoundUnlockNeeded] = useState(false);
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [commentVideoId, setCommentVideoId] = useState<string | null>(null);
   const [commentVideoOwnerId, setCommentVideoOwnerId] = useState<string | null>(null);
@@ -23,7 +24,32 @@ export default function VideoFeed() {
   const scrollRafRef = useRef<number | null>(null);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const forceMute = useCallback(() => setIsMuted(true), []);
+  const unlockFeedSound = useCallback(() => {
+    setIsMuted(false);
+    setSoundUnlockNeeded(false);
+    const activeCard = containerRef.current?.children?.[activeIndex] as HTMLElement | undefined;
+    const activeVideo = activeCard?.querySelector("video") as HTMLVideoElement | null;
+    if (activeVideo) {
+      activeVideo.muted = false;
+      activeVideo.volume = 1;
+      activeVideo.play().catch(() => {});
+    }
+  }, [activeIndex]);
+
+  const forceMute = useCallback(() => {
+    setIsMuted(true);
+    setSoundUnlockNeeded(true);
+  }, []);
+
+  useEffect(() => {
+    if (!soundUnlockNeeded) return;
+    window.addEventListener("pointerdown", unlockFeedSound, { once: true, passive: true });
+    window.addEventListener("keydown", unlockFeedSound, { once: true });
+    return () => {
+      window.removeEventListener("pointerdown", unlockFeedSound);
+      window.removeEventListener("keydown", unlockFeedSound);
+    };
+  }, [soundUnlockNeeded, unlockFeedSound]);
 
   const fetchVideos = useCallback(async () => {
     setLoading(true);
@@ -164,6 +190,20 @@ export default function VideoFeed() {
           <RefreshCw className="h-4 w-4 text-foreground" />
         </motion.button>
       </div>
+      <AnimatePresence>
+        {soundUnlockNeeded && (
+          <motion.button
+            type="button"
+            initial={{ opacity: 0, y: -12, scale: 0.96 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -12, scale: 0.96 }}
+            onClick={unlockFeedSound}
+            className="fixed left-1/2 top-[calc(max(1rem,var(--app-safe-top))+3.2rem)] z-50 flex -translate-x-1/2 items-center gap-2 rounded-full border border-border bg-card/92 px-3 py-2 text-xs font-black text-foreground shadow-2xl backdrop-blur-xl"
+          >
+            <Volume2 className="h-4 w-4 text-primary" /> Activer le son
+          </motion.button>
+        )}
+      </AnimatePresence>
 
       <div aria-hidden className="fixed -left-[9999px] top-0 h-1 w-1 overflow-hidden">
         {preloadVideos.map((video) => <video key={video.id} src={video.url} poster={video.poster} preload="auto" muted playsInline />)}
@@ -179,7 +219,10 @@ export default function VideoFeed() {
             video={video}
             isActive={i === activeIndex}
             isMuted={isMuted}
-            onToggleMute={() => setIsMuted((p) => !p)}
+            onToggleMute={() => {
+              setSoundUnlockNeeded(false);
+              setIsMuted((p) => !p);
+            }}
             onForceMute={forceMute}
             onOpenComments={(count) => {
               const v = videos[i] as any;

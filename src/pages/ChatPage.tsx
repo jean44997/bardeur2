@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, type CSSProperties, type ReactNode } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowLeft, Send, Smile, Image as ImageIcon, Mic, MicOff, Phone, Video, Check, CheckCheck, Trash2, MoreVertical, Flag, Ban, Flame, Wallpaper, PhoneOff, CameraOff, RotateCcw, Upload, Activity, BellRing, SignalHigh, Volume2, VolumeX, ShieldCheck, Plus, MapPin, FileUp, Contact, BarChart3, Sticker, Reply, ImagePlus, Music2, Gamepad2, Users, UserPlus, CheckCircle2, Crown, DoorOpen, UserMinus, X, ScreenShare, ScreenShareOff } from "lucide-react";
+import { ArrowLeft, ArrowDown, Send, Smile, Image as ImageIcon, Mic, MicOff, Phone, Video, Check, CheckCheck, Trash2, MoreVertical, Flag, Ban, Flame, Wallpaper, PhoneOff, CameraOff, RotateCcw, Upload, Activity, BellRing, SignalHigh, Volume2, VolumeX, ShieldCheck, Plus, MapPin, FileUp, Contact, BarChart3, Sticker, Reply, ImagePlus, Music2, Gamepad2, Users, UserPlus, CheckCircle2, Crown, DoorOpen, UserMinus, X, ScreenShare, ScreenShareOff } from "lucide-react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -32,6 +32,7 @@ interface CallState {
   muted: boolean;
   cameraOff: boolean;
   screenSharing: boolean;
+  screenShareMode?: "screen" | "camera" | null;
   speakerOn: boolean;
   quality: "HD" | "Auto" | "Eco";
 }
@@ -93,6 +94,7 @@ export default function ChatPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { user } = useAuth();
   const [messages, setMessages] = useState<Message[]>([]);
+  const [newMessagesCount, setNewMessagesCount] = useState(0);
   const [newMsg, setNewMsg] = useState("");
   const [showEmojis, setShowEmojis] = useState(false);
   const [showPlusDrawer, setShowPlusDrawer] = useState(false);
@@ -134,6 +136,7 @@ export default function ChatPage() {
   const [groupCallParticipants, setGroupCallParticipants] = useState<FriendOption[]>([]);
   const [showMentionPicker, setShowMentionPicker] = useState(false);
   const callStateRef = useRef<CallState | null>(null);
+  const messagesPaneRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const messageInputRef = useRef<HTMLInputElement>(null);
   const localVideoRef = useRef<HTMLVideoElement>(null);
@@ -163,7 +166,20 @@ export default function ChatPage() {
   const callReconnectTimerRef = useRef<number | null>(null);
   const cancelledAudioRef = useRef(false);
   const recentTextRef = useRef<string[]>([]);
+  const isNearChatBottomRef = useRef(true);
+  const pendingAutoScrollRef = useRef(true);
+  const previousMessageCountRef = useRef(0);
   const [remoteConnected, setRemoteConnected] = useState(false);
+
+  const isNearChatBottom = () => {
+    const el = messagesPaneRef.current;
+    if (!el) return true;
+    return el.scrollHeight - el.scrollTop - el.clientHeight < 160;
+  };
+
+  const scrollChatToBottom = (behavior: ScrollBehavior = "smooth") => {
+    bottomRef.current?.scrollIntoView({ behavior, block: "end" });
+  };
 
   const requestCallWakeLock = async () => {
     const nav = navigator as any;
@@ -233,8 +249,10 @@ export default function ChatPage() {
           if (payload?.eventType === "INSERT" && payload?.new?.sender_id === user?.id) return;
           if (payload?.eventType === "INSERT") {
             const mapped = await mapMessage(payload.new);
+            const shouldAutoRead = isNearChatBottom();
+            pendingAutoScrollRef.current = shouldAutoRead;
             setMessages((prev) => prev.some((m) => m.id === mapped.id) ? prev : [...prev, mapped]);
-            void markAsRead();
+            if (shouldAutoRead) void markAsRead();
             return;
           }
           if (payload?.eventType === "UPDATE" && payload?.new?.id) {
@@ -377,8 +395,50 @@ export default function ChatPage() {
   }, [callState?.status]);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+    previousMessageCountRef.current = 0;
+    pendingAutoScrollRef.current = true;
+    isNearChatBottomRef.current = true;
+    setNewMessagesCount(0);
+  }, [conversationId]);
+
+  useEffect(() => {
+    const el = messagesPaneRef.current;
+    if (!el) return;
+    const handleScroll = () => {
+      const nearBottom = isNearChatBottom();
+      isNearChatBottomRef.current = nearBottom;
+      if (nearBottom) {
+        setNewMessagesCount(0);
+        void markAsRead();
+      }
+    };
+    handleScroll();
+    el.addEventListener("scroll", handleScroll, { passive: true });
+    return () => el.removeEventListener("scroll", handleScroll);
+  }, [conversationId, user?.id]);
+
+  useEffect(() => {
+    const previousCount = previousMessageCountRef.current;
+    const nextCount = messages.length;
+    previousMessageCountRef.current = nextCount;
+    if (loading || nextCount === 0 || nextCount <= previousCount) return;
+
+    const addedMessages = messages.slice(previousCount);
+    const incomingCount = addedMessages.filter((message) => !message.fromMe).length;
+    const shouldStickToBottom = pendingAutoScrollRef.current || isNearChatBottomRef.current || addedMessages.some((message) => message.fromMe);
+    pendingAutoScrollRef.current = false;
+
+    if (shouldStickToBottom) {
+      setNewMessagesCount(0);
+      window.requestAnimationFrame(() => scrollChatToBottom(previousCount === 0 ? "auto" : "smooth"));
+      if (incomingCount > 0) void markAsRead();
+      return;
+    }
+
+    if (incomingCount > 0) {
+      setNewMessagesCount((current) => Math.min(99, current + incomingCount));
+    }
+  }, [messages, loading]);
 
   useEffect(() => {
     if (!user || !otherUserId || messages.length === 0) {
@@ -456,15 +516,36 @@ export default function ChatPage() {
   const fetchMessages = async (silent = false) => {
     if (!conversationId) return;
     if (!silent) setLoading(true);
-    const { data } = await supabase.from("messages").select("*").eq("conversation_id", conversationId).order("created_at", { ascending: true });
-    if (data) {
+    try {
+      pendingAutoScrollRef.current = !silent || isNearChatBottom();
+      let { data, error } = await supabase
+        .from("messages")
+        .select("id, content, sender_id, created_at, is_read, media_url, media_type, reply_to_id, reply_preview")
+        .eq("conversation_id", conversationId)
+        .order("created_at", { ascending: false })
+        .limit(160);
+      if (error) {
+        const fallback = await supabase
+          .from("messages")
+          .select("*")
+          .eq("conversation_id", conversationId)
+          .order("created_at", { ascending: false })
+          .limit(160);
+        data = fallback.data;
+        error = fallback.error;
+      }
+      if (error) throw error;
       const hidden = loadHiddenIds();
-      const mapped = await Promise.all(data.filter((m: any) => !hidden.has(m.id)).map(mapMessage));
+      const rows = [...(data || [])].reverse();
+      const mapped = await Promise.all(rows.filter((m: any) => !hidden.has(m.id)).map(mapMessage));
       setMessages(mapped);
       void fetchMessageReactions(mapped.map((m) => m.id));
       void fetchPollVotes(mapped.filter((m) => !!parsePollMessage(m.text)).map((m) => m.id));
+    } catch {
+      if (!silent) toast.error("Chargement des messages impossible");
+    } finally {
+      if (!silent) setLoading(false);
     }
-    if (!silent) setLoading(false);
   };
 
   const fetchMessageReactions = async (messageIds: string[]) => {
@@ -713,6 +794,7 @@ export default function ChatPage() {
     const optimisticId = `optim-${Date.now()}`;
     const now = new Date();
     const replyingTo = replyTarget;
+    pendingAutoScrollRef.current = true;
     // Optimistic append → no visible reload after send
     setMessages(prev => [...prev, {
       id: optimisticId,
@@ -728,7 +810,7 @@ export default function ChatPage() {
     setNewMsg("");
     setReplyTarget(null);
     setShowPlusDrawer(false);
-    setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" }), 40);
+    setTimeout(() => scrollChatToBottom("smooth"), 40);
 
     const messagePayload: any = {
       conversation_id: conversationId,
@@ -796,6 +878,7 @@ export default function ChatPage() {
       const mediaType = file.type || "application/octet-stream";
       const replyingTo = replyTarget;
       const label = mediaType.startsWith("video") ? "Video" : mediaType.startsWith("audio") ? "Audio" : mediaType.startsWith("image") ? "Image" : file.name;
+      pendingAutoScrollRef.current = true;
       setMessages(prev => [...prev, {
         id: optimisticId,
         text: label,
@@ -849,6 +932,7 @@ export default function ChatPage() {
     const now = new Date();
     const replyingTo = replyTarget;
     const encryptedContent = await encryptMessageContent(validation.value, conversationId);
+    pendingAutoScrollRef.current = true;
     setMessages(prev => [...prev, {
       id: optimisticId,
       text: validation.value,
@@ -1639,7 +1723,7 @@ export default function ChatPage() {
       callFacingModeRef.current = "user";
       setCallFacingMode("user");
       const profile = getCallProfile();
-      setCallState({ type, status: "requesting", direction: "outgoing", muted: false, cameraOff: false, screenSharing: false, speakerOn: true, quality: type === "video" ? profile.label : "Auto" });
+      setCallState({ type, status: "requesting", direction: "outgoing", muted: false, cameraOff: false, screenSharing: false, screenShareMode: null, speakerOn: true, quality: type === "video" ? profile.label : "Auto" });
       const media = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, sampleRate: 48000, channelCount: 1 },
         video: type === "video" ? { facingMode: "user", width: { ideal: profile.width }, height: { ideal: profile.height }, frameRate: { ideal: profile.frameRate, max: profile.frameRate } } : false,
@@ -1662,7 +1746,7 @@ export default function ChatPage() {
         reference_id: conversationId,
       });
       startRingtone();
-      setCallState({ type, status: "ringing", direction: "outgoing", muted: false, cameraOff: false, screenSharing: false, speakerOn: true, quality: type === "video" ? profile.label : "Auto" });
+      setCallState({ type, status: "ringing", direction: "outgoing", muted: false, cameraOff: false, screenSharing: false, screenShareMode: null, speakerOn: true, quality: type === "video" ? profile.label : "Auto" });
       clearCallAutoEnd();
       callAutoEndTimerRef.current = window.setTimeout(async () => {
         const sessionId = callSessionRef.current;
@@ -1692,7 +1776,7 @@ export default function ChatPage() {
       callFacingModeRef.current = "user";
       setCallFacingMode("user");
       const profile = getCallProfile();
-      setCallState({ type, status: "requesting", direction: "incoming", muted: false, cameraOff: false, screenSharing: false, speakerOn: true, quality: type === "video" ? profile.label : "Auto" });
+      setCallState({ type, status: "requesting", direction: "incoming", muted: false, cameraOff: false, screenSharing: false, screenShareMode: null, speakerOn: true, quality: type === "video" ? profile.label : "Auto" });
       const media = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, sampleRate: 48000, channelCount: 1 },
         video: type === "video" ? { facingMode: "user", width: { ideal: profile.width }, height: { ideal: profile.height }, frameRate: { ideal: profile.frameRate, max: profile.frameRate } } : false,
@@ -1703,7 +1787,7 @@ export default function ChatPage() {
       stopRingtone();
       setIncomingCall(null);
       await (supabase as any).from("direct_call_sessions").update({ status: "connected", started_at: new Date().toISOString() }).eq("id", callToAccept.id);
-      setCallState({ type, status: "connected", direction: "incoming", muted: false, cameraOff: false, screenSharing: false, speakerOn: true, quality: type === "video" ? profile.label : "Auto" });
+      setCallState({ type, status: "connected", direction: "incoming", muted: false, cameraOff: false, screenSharing: false, screenShareMode: null, speakerOn: true, quality: type === "video" ? profile.label : "Auto" });
     } catch {
       await (supabase as any).from("direct_call_sessions").update({ status: "declined", ended_at: new Date().toISOString() }).eq("id", callToAccept.id);
       cleanupCallUi("Appel refuse: permission micro/camera manquante");
@@ -1756,7 +1840,7 @@ export default function ChatPage() {
     screenStreamRef.current = null;
     if (!stream) {
       cameraTrackBeforeScreenRef.current = null;
-      setCallState((current) => current ? { ...current, screenSharing: false } : current);
+      setCallState((current) => current ? { ...current, screenSharing: false, screenShareMode: null } : current);
       return;
     }
 
@@ -1788,8 +1872,48 @@ export default function ChatPage() {
     cameraTrackBeforeScreenRef.current = null;
     await replaceOutgoingVideoTrack(restoredTrack);
     refreshLocalVideoPreview();
-    setCallState((current) => current ? { ...current, screenSharing: false, cameraOff: !restoredTrack, quality: restoredTrack ? current.quality : "Auto" } : current);
+    setCallState((current) => current ? { ...current, screenSharing: false, screenShareMode: null, cameraOff: !restoredTrack, quality: restoredTrack ? current.quality : "Auto" } : current);
     if (restoredTrack) toast.success("Camera restauree");
+  };
+
+  const startMobileCameraShareFallback = async () => {
+    const stream = callStreamRef.current;
+    if (!stream) throw new Error("call stream unavailable");
+    const currentTrack = stream.getVideoTracks()[0] || null;
+    cameraTrackBeforeScreenRef.current = currentTrack || cameraTrackBeforeScreenRef.current;
+
+    let fallbackStream: MediaStream | null = null;
+    let fallbackTrack: MediaStreamTrack | null = null;
+    try {
+      const profile = getCallProfile();
+      fallbackStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: "environment" }, width: { ideal: profile.width }, height: { ideal: profile.height }, frameRate: { ideal: profile.frameRate, max: profile.frameRate } },
+        audio: false,
+      });
+      fallbackTrack = fallbackStream.getVideoTracks()[0] || null;
+    } catch {
+      fallbackStream = null;
+      fallbackTrack = null;
+    }
+
+    if (fallbackTrack) {
+      stream.getVideoTracks().forEach(track => stream.removeTrack(track));
+      stream.addTrack(fallbackTrack);
+      screenStreamRef.current = fallbackStream;
+      await replaceOutgoingVideoTrack(fallbackTrack);
+      fallbackTrack.onended = () => { void stopScreenShare(); };
+      callFacingModeRef.current = "environment";
+      setCallFacingMode("environment");
+    } else if (currentTrack) {
+      await replaceOutgoingVideoTrack(currentTrack);
+      screenStreamRef.current = null;
+    } else {
+      throw new Error("mobile share unavailable");
+    }
+
+    refreshLocalVideoPreview();
+    setCallState((state) => state ? { ...state, screenSharing: true, screenShareMode: "camera", cameraOff: false, quality: "Auto" } : state);
+    toast.success(fallbackTrack ? "Partage mobile actif avec camera arriere" : "Partage mobile actif avec la camera actuelle");
   };
 
   const toggleScreenShare = async () => {
@@ -1801,7 +1925,7 @@ export default function ChatPage() {
     }
     const mediaDevices = navigator.mediaDevices as any;
     if (!mediaDevices?.getDisplayMedia) {
-      toast.error("Partage d'ecran non supporte sur cet appareil");
+      await startMobileCameraShareFallback().catch(() => toast.error("Partage mobile impossible sur cet appareil"));
       return;
     }
     try {
@@ -1819,11 +1943,11 @@ export default function ChatPage() {
       await replaceOutgoingVideoTrack(screenTrack);
       screenTrack.onended = () => { void stopScreenShare(); };
       refreshLocalVideoPreview();
-      setCallState((state) => state ? { ...state, screenSharing: true, cameraOff: false, quality: "HD" } : state);
+      setCallState((state) => state ? { ...state, screenSharing: true, screenShareMode: "screen", cameraOff: false, quality: "HD" } : state);
       toast.success("Partage d'ecran actif");
     } catch (err: any) {
       if (err?.name === "NotAllowedError") toast.info("Partage d'ecran annule");
-      else toast.error("Partage d'ecran impossible");
+      else await startMobileCameraShareFallback().catch(() => toast.error("Partage d'ecran impossible"));
     }
   };
 
@@ -1895,7 +2019,7 @@ export default function ChatPage() {
   };
 
   return (
-    <div className="app-shell-height flex flex-col overflow-hidden bg-background md:pl-[var(--sidebar-width,260px)]">
+    <div className="app-shell-height relative flex flex-col overflow-hidden bg-background md:pl-[var(--sidebar-width,260px)]">
       <div className="glass mobile-chat-header-safe z-10 flex shrink-0 items-center gap-1.5 border-b border-border px-2 py-2 sm:gap-3 sm:px-4 sm:py-3">
         <motion.button whileTap={{ scale: 0.9 }} onClick={() => navigate("/inbox")} className="tap-target grid place-items-center rounded-full">
           <ArrowLeft className="h-5 w-5 text-foreground" />
@@ -2083,7 +2207,7 @@ export default function ChatPage() {
                 )}
                 {callState.screenSharing && (
                   <div className="absolute right-3 top-4 flex items-center gap-1.5 rounded-full bg-primary/90 px-3 py-1 text-xs font-black text-primary-foreground shadow-lg">
-                    <ScreenShare className="h-3.5 w-3.5" /> Ecran partage
+                    <ScreenShare className="h-3.5 w-3.5" /> {callState.screenShareMode === "camera" ? "Partage mobile" : "Ecran partage"}
                   </div>
                 )}
               </div>
@@ -2111,7 +2235,7 @@ export default function ChatPage() {
                   </button>
                 )}
                 {callState.type === "video" && (
-                  <button type="button" onClick={toggleScreenShare} className={`grid h-12 w-12 place-items-center rounded-full ${callState.screenSharing ? "bg-primary text-primary-foreground" : "bg-secondary text-foreground"}`} aria-label={callState.screenSharing ? "Arreter le partage d'ecran" : "Partager l'ecran"}>
+                  <button type="button" onClick={toggleScreenShare} className={`grid h-12 w-12 place-items-center rounded-full ${callState.screenSharing ? "bg-primary text-primary-foreground" : "bg-secondary text-foreground"}`} aria-label={callState.screenSharing ? "Arreter le partage" : "Partager l'ecran ou la camera mobile"}>
                     {callState.screenSharing ? <ScreenShareOff className="h-5 w-5" /> : <ScreenShare className="h-5 w-5" />}
                   </button>
                 )}
@@ -2132,7 +2256,29 @@ export default function ChatPage() {
         )}
       </AnimatePresence>
 
-      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-4 sm:px-4 no-scrollbar" style={chatBackgroundStyle}>
+      <AnimatePresence>
+        {newMessagesCount > 0 && (
+          <motion.button
+            type="button"
+            initial={{ opacity: 0, y: -12, scale: 0.96 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -12, scale: 0.96 }}
+            onClick={() => {
+              pendingAutoScrollRef.current = true;
+              setNewMessagesCount(0);
+              scrollChatToBottom("smooth");
+              void markAsRead();
+            }}
+            className="absolute left-1/2 top-[calc(max(4.25rem,var(--app-safe-top))+0.35rem)] z-30 flex -translate-x-1/2 items-center gap-2 rounded-full border border-border bg-card/92 px-3 py-2 text-xs font-black text-foreground shadow-2xl backdrop-blur-xl"
+          >
+            <BellRing className="h-4 w-4 text-primary" />
+            {newMessagesCount > 1 ? `${newMessagesCount} nouveaux messages` : "Nouveau message"}
+            <ArrowDown className="h-4 w-4 text-muted-foreground" />
+          </motion.button>
+        )}
+      </AnimatePresence>
+
+      <div ref={messagesPaneRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-4 sm:px-4 no-scrollbar" style={chatBackgroundStyle}>
         {loading ? (
           <div className="text-center py-8">
             <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: "linear" }} className="h-6 w-6 border-2 border-primary border-t-transparent rounded-full mx-auto" />
@@ -2317,7 +2463,7 @@ export default function ChatPage() {
               <ImageIcon className="h-5 w-5 text-muted-foreground" />
             </motion.button>
             <div className="glass flex min-h-11 min-w-0 flex-1 items-center rounded-full px-4 py-2.5">
-              <input ref={messageInputRef} type="text" value={newMsg} onChange={e => setNewMsg(e.target.value)} onKeyDown={e => e.key === "Enter" && sendMessage()} onFocus={() => { setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" }), 280); }} placeholder={isBlocked || blockedByThem ? "Conversation bloquee" : "Message..."} disabled={isBlocked || blockedByThem} maxLength={500} enterKeyHint="send" autoComplete="off" className="min-w-0 flex-1 bg-transparent text-base leading-5 text-foreground placeholder:text-muted-foreground outline-none disabled:opacity-50" />
+              <input ref={messageInputRef} type="text" value={newMsg} onChange={e => setNewMsg(e.target.value)} onKeyDown={e => e.key === "Enter" && sendMessage()} onFocus={() => { setTimeout(() => scrollChatToBottom("smooth"), 280); }} placeholder={isBlocked || blockedByThem ? "Conversation bloquee" : "Message..."} disabled={isBlocked || blockedByThem} maxLength={500} enterKeyHint="send" autoComplete="off" className="min-w-0 flex-1 bg-transparent text-base leading-5 text-foreground placeholder:text-muted-foreground outline-none disabled:opacity-50" />
             </div>
 
             {newMsg.trim() ? (

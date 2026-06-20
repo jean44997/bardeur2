@@ -98,6 +98,7 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onFo
     const v = videoRef.current;
     if (!v) return;
     v.volume = 1;
+    v.muted = isMuted;
     if (isActive) {
       v.playbackRate = playbackRate;
       if (!pausedByUser) {
@@ -115,7 +116,7 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onFo
       setShowLongPress(false);
       setPausedByUser(false);
     }
-  }, [isActive, playbackRate, pausedByUser, onForceMute]);
+  }, [isActive, playbackRate, pausedByUser, isMuted, onForceMute]);
 
   useEffect(() => {
     const v = videoRef.current;
