@@ -1562,6 +1562,18 @@ export default function ChatPage() {
     });
   };
 
+  const broadcastCallEnded = async (callId: string) => {
+    try {
+      await signalChannelRef.current?.send({
+        type: "broadcast",
+        event: "call-ended",
+        payload: { callId, senderId: user?.id },
+      });
+    } catch {
+      // The database status update below remains the durable source of truth.
+    }
+  };
+
   const applyCallSignal = async (signal: any, pc: RTCPeerConnection, remoteUserId: string) => {
     if (!signal || signal.sender_id === user?.id) return;
     try {
@@ -1658,6 +1670,11 @@ export default function ChatPage() {
 
     const channel = supabase
       .channel(`direct-call-signals-${callId}-${user?.id}`)
+      .on("broadcast", { event: "call-ended" }, ({ payload }: any) => {
+        if (payload?.callId === callId && payload?.senderId !== user?.id) {
+          cleanupCallUi("Appel termine par l'autre utilisateur");
+        }
+      })
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "direct_call_signals", filter: `call_id=eq.${callId}` }, (payload) => {
         void applyCallSignal(payload.new as any, pc, remoteUserId);
       })
@@ -1748,13 +1765,6 @@ export default function ChatPage() {
       startRingtone();
       setCallState({ type, status: "ringing", direction: "outgoing", muted: false, cameraOff: false, screenSharing: false, screenShareMode: null, speakerOn: true, quality: type === "video" ? profile.label : "Auto" });
       clearCallAutoEnd();
-      callAutoEndTimerRef.current = window.setTimeout(async () => {
-        const sessionId = callSessionRef.current;
-        if (sessionId) {
-          await (supabase as any).from("direct_call_sessions").update({ status: "missed", ended_at: new Date().toISOString() }).eq("id", sessionId).eq("status", "ringing");
-        }
-        cleanupCallUi("Appel coupe automatiquement apres 30 secondes");
-      }, 30_000);
     } catch {
       stopRingtone();
       clearCallAutoEnd();
@@ -1801,24 +1811,18 @@ export default function ChatPage() {
   };
 
   const endCall = async () => {
+    const sessionId = callSessionRef.current;
     stopRingtone();
     clearCallAutoEnd();
-    void releaseCallWakeLock();
-    closePeer();
-    resetScreenShareRefs(true);
-    if (callMeterFrameRef.current) cancelAnimationFrame(callMeterFrameRef.current);
-    setCallAudioLevel(0);
-    callStreamRef.current?.getTracks().forEach(t => t.stop());
-    callStreamRef.current = null;
-    if (callSessionRef.current) {
+    if (sessionId) {
+      await broadcastCallEnded(sessionId);
       try {
-        await (supabase as any).from("direct_call_sessions").update({ status: "ended", ended_at: new Date().toISOString() }).eq("id", callSessionRef.current);
+        await (supabase as any).from("direct_call_sessions").update({ status: "ended", ended_at: new Date().toISOString() }).eq("id", sessionId);
       } catch {
         // The call may already be gone; stopping local tracks is the important part.
       }
     }
-    callSessionRef.current = null;
-    setCallState(null);
+    cleanupCallUi();
   };
 
   const replaceOutgoingVideoTrack = async (track: MediaStreamTrack | null) => {
@@ -1876,44 +1880,20 @@ export default function ChatPage() {
     if (restoredTrack) toast.success("Camera restauree");
   };
 
-  const startMobileCameraShareFallback = async () => {
-    const stream = callStreamRef.current;
-    if (!stream) throw new Error("call stream unavailable");
-    const currentTrack = stream.getVideoTracks()[0] || null;
-    cameraTrackBeforeScreenRef.current = currentTrack || cameraTrackBeforeScreenRef.current;
-
-    let fallbackStream: MediaStream | null = null;
-    let fallbackTrack: MediaStreamTrack | null = null;
-    try {
-      const profile = getCallProfile();
-      fallbackStream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: "environment" }, width: { ideal: profile.width }, height: { ideal: profile.height }, frameRate: { ideal: profile.frameRate, max: profile.frameRate } },
-        audio: false,
-      });
-      fallbackTrack = fallbackStream.getVideoTracks()[0] || null;
-    } catch {
-      fallbackStream = null;
-      fallbackTrack = null;
-    }
-
-    if (fallbackTrack) {
-      stream.getVideoTracks().forEach(track => stream.removeTrack(track));
-      stream.addTrack(fallbackTrack);
-      screenStreamRef.current = fallbackStream;
-      await replaceOutgoingVideoTrack(fallbackTrack);
-      fallbackTrack.onended = () => { void stopScreenShare(); };
-      callFacingModeRef.current = "environment";
-      setCallFacingMode("environment");
-    } else if (currentTrack) {
-      await replaceOutgoingVideoTrack(currentTrack);
-      screenStreamRef.current = null;
-    } else {
-      throw new Error("mobile share unavailable");
-    }
-
-    refreshLocalVideoPreview();
-    setCallState((state) => state ? { ...state, screenSharing: true, screenShareMode: "camera", cameraOff: false, quality: "Auto" } : state);
-    toast.success(fallbackTrack ? "Partage mobile actif avec camera arriere" : "Partage mobile actif avec la camera actuelle");
+  const requestScreenCaptureStream = async () => {
+    const mediaDevices = navigator.mediaDevices as MediaDevices & {
+      getDisplayMedia?: (constraints?: DisplayMediaStreamOptions) => Promise<MediaStream>;
+    };
+    if (!window.isSecureContext) throw new Error("secure-context-required");
+    if (!mediaDevices?.getDisplayMedia) throw new Error("screen-capture-unsupported");
+    return mediaDevices.getDisplayMedia({
+      video: {
+        width: { ideal: 1920 },
+        height: { ideal: 1080 },
+        frameRate: { ideal: 30, max: 30 },
+      },
+      audio: false,
+    });
   };
 
   const toggleScreenShare = async () => {
@@ -1923,16 +1903,8 @@ export default function ChatPage() {
       await stopScreenShare();
       return;
     }
-    const mediaDevices = navigator.mediaDevices as any;
-    if (!mediaDevices?.getDisplayMedia) {
-      await startMobileCameraShareFallback().catch(() => toast.error("Partage mobile impossible sur cet appareil"));
-      return;
-    }
     try {
-      const displayStream = await mediaDevices.getDisplayMedia({
-        video: { width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30, max: 30 } },
-        audio: false,
-      });
+      const displayStream = await requestScreenCaptureStream();
       const screenTrack = displayStream.getVideoTracks()[0];
       if (!screenTrack) throw new Error("screen track unavailable");
       const stream = callStreamRef.current;
@@ -1944,10 +1916,12 @@ export default function ChatPage() {
       screenTrack.onended = () => { void stopScreenShare(); };
       refreshLocalVideoPreview();
       setCallState((state) => state ? { ...state, screenSharing: true, screenShareMode: "screen", cameraOff: false, quality: "HD" } : state);
-      toast.success("Partage d'ecran actif");
+      toast.success("Capture d'ecran en temps reel activee");
     } catch (err: any) {
       if (err?.name === "NotAllowedError") toast.info("Partage d'ecran annule");
-      else await startMobileCameraShareFallback().catch(() => toast.error("Partage d'ecran impossible"));
+      else if (err?.message === "secure-context-required") toast.error("Partage d'ecran disponible uniquement en HTTPS/PWA securisee");
+      else if (err?.message === "screen-capture-unsupported") toast.error("Ce navigateur ne donne pas l'acces a la capture d'ecran");
+      else toast.error("Partage d'ecran impossible sur cet appareil");
     }
   };
 
