@@ -1,4 +1,4 @@
-const CACHE_VERSION = "bardeur-pwa-v2";
+const CACHE_VERSION = "bardeur-pwa-v3";
 const APP_SHELL = [
   "/",
   "/offline.html",
@@ -18,7 +18,7 @@ const SENSITIVE_PATHS = [
 ];
 
 const SECURITY_HEADERS = {
-  "X-Bardeur-Cache": "pwa-v2",
+  "X-Bardeur-Cache": "pwa-v3",
   "X-Bardeur-Offline": "safe-shell"
 };
 
@@ -82,4 +82,22 @@ self.addEventListener("fetch", (event) => {
       })
     );
   }
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const targetUrl = event.notification?.data?.url || "/inbox";
+  const url = new URL(targetUrl, self.location.origin).href;
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
+      for (const client of clients) {
+        if ("focus" in client) {
+          client.navigate?.(url);
+          return client.focus();
+        }
+      }
+      if (self.clients.openWindow) return self.clients.openWindow(url);
+      return undefined;
+    })
+  );
 });

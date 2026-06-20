@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, type CSSProperties, type ReactNode } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowLeft, Send, Smile, Image as ImageIcon, Mic, MicOff, Phone, Video, Check, CheckCheck, Trash2, MoreVertical, Flag, Ban, Flame, Wallpaper, PhoneOff, CameraOff, RotateCcw, Upload, Activity, BellRing, SignalHigh, Volume2, VolumeX, ShieldCheck, Plus, MapPin, FileUp, Contact, BarChart3, Sticker, Reply, ImagePlus, Music2, Gamepad2, Users, UserPlus, CheckCircle2, Crown, DoorOpen, UserMinus, X } from "lucide-react";
+import { ArrowLeft, Send, Smile, Image as ImageIcon, Mic, MicOff, Phone, Video, Check, CheckCheck, Trash2, MoreVertical, Flag, Ban, Flame, Wallpaper, PhoneOff, CameraOff, RotateCcw, Upload, Activity, BellRing, SignalHigh, Volume2, VolumeX, ShieldCheck, Plus, MapPin, FileUp, Contact, BarChart3, Sticker, Reply, ImagePlus, Music2, Gamepad2, Users, UserPlus, CheckCircle2, Crown, DoorOpen, UserMinus, X, ScreenShare, ScreenShareOff } from "lucide-react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -31,6 +31,7 @@ interface CallState {
   direction: "outgoing" | "incoming";
   muted: boolean;
   cameraOff: boolean;
+  screenSharing: boolean;
   speakerOn: boolean;
   quality: "HD" | "Auto" | "Eco";
 }
@@ -132,6 +133,7 @@ export default function ChatPage() {
   const [groupCallState, setGroupCallState] = useState<GroupCallState | null>(null);
   const [groupCallParticipants, setGroupCallParticipants] = useState<FriendOption[]>([]);
   const [showMentionPicker, setShowMentionPicker] = useState(false);
+  const callStateRef = useRef<CallState | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const messageInputRef = useRef<HTMLInputElement>(null);
   const localVideoRef = useRef<HTMLVideoElement>(null);
@@ -142,13 +144,17 @@ export default function ChatPage() {
   const audioChunksRef = useRef<Blob[]>([]);
   const audioStreamRef = useRef<MediaStream | null>(null);
   const callStreamRef = useRef<MediaStream | null>(null);
+  const screenStreamRef = useRef<MediaStream | null>(null);
   const peerRef = useRef<RTCPeerConnection | null>(null);
   const remoteStreamRef = useRef<MediaStream | null>(null);
   const signalChannelRef = useRef<any>(null);
+  const cameraTrackBeforeScreenRef = useRef<MediaStreamTrack | null>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const remoteAudioRef = useRef<HTMLAudioElement>(null);
   const callSessionRef = useRef<string | null>(null);
   const callFacingModeRef = useRef<"user" | "environment">("user");
+  const wakeLockRef = useRef<any>(null);
+  const backgroundCallNoticeRef = useRef(false);
   const ringtoneCtxRef = useRef<AudioContext | null>(null);
   const ringtoneTimerRef = useRef<number | null>(null);
   const callAutoEndTimerRef = useRef<number | null>(null);
@@ -158,6 +164,61 @@ export default function ChatPage() {
   const cancelledAudioRef = useRef(false);
   const recentTextRef = useRef<string[]>([]);
   const [remoteConnected, setRemoteConnected] = useState(false);
+
+  const requestCallWakeLock = async () => {
+    const nav = navigator as any;
+    if (!nav.wakeLock || wakeLockRef.current) return;
+    try {
+      wakeLockRef.current = await nav.wakeLock.request("screen");
+      wakeLockRef.current?.addEventListener?.("release", () => {
+        wakeLockRef.current = null;
+      });
+    } catch {
+      wakeLockRef.current = null;
+    }
+  };
+
+  const releaseCallWakeLock = async () => {
+    try {
+      await wakeLockRef.current?.release?.();
+    } catch {
+      // Wake lock may already be released by the OS.
+    } finally {
+      wakeLockRef.current = null;
+    }
+  };
+
+  const notifyOngoingCallInBackground = async () => {
+    const current = callStateRef.current;
+    if (!current || current.status !== "connected" || backgroundCallNoticeRef.current) return;
+    if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
+    backgroundCallNoticeRef.current = true;
+    const title = current.type === "video" ? "Appel video en cours" : "Appel audio en cours";
+    const body = "BARDEUR garde l'appel actif tant que la PWA reste ouverte.";
+    const url = conversationId ? `/chat/${conversationId}` : "/inbox";
+    try {
+      const reg = await navigator.serviceWorker?.getRegistration();
+      const opts: NotificationOptions = {
+        body,
+        icon: "/app-icon-512.png",
+        badge: "/app-icon-512.png",
+        tag: `active-call-${callSessionRef.current || conversationId || "bardeur"}`,
+        silent: true,
+        data: { url },
+      };
+      if (reg && (reg as any).showNotification) await (reg as any).showNotification(title, opts);
+      else {
+        const note = new Notification(title, opts);
+        note.onclick = () => {
+          window.focus();
+          navigate(url);
+          note.close();
+        };
+      }
+    } catch {
+      // Notification is a bonus; the call stream remains the source of truth.
+    }
+  };
 
   useEffect(() => {
     if (conversationId && user) {
@@ -201,6 +262,30 @@ export default function ChatPage() {
       return () => { supabase.removeChannel(channel); };
     }
   }, [conversationId, user]);
+
+  useEffect(() => {
+    callStateRef.current = callState;
+    if (callState) {
+      void requestCallWakeLock();
+      if (document.visibilityState === "visible") backgroundCallNoticeRef.current = false;
+      return;
+    }
+    backgroundCallNoticeRef.current = false;
+    void releaseCallWakeLock();
+  }, [callState]);
+
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") {
+        backgroundCallNoticeRef.current = false;
+        if (callStateRef.current) void requestCallWakeLock();
+      } else {
+        void notifyOngoingCallInBackground();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, []);
 
   useEffect(() => {
     const callId = searchParams.get("call");
@@ -270,6 +355,9 @@ export default function ChatPage() {
 
   useEffect(() => {
     return () => {
+      void releaseCallWakeLock();
+      screenStreamRef.current?.getTracks().forEach(t => t.stop());
+      cameraTrackBeforeScreenRef.current?.stop();
       callStreamRef.current?.getTracks().forEach(t => t.stop());
       stopRingtone();
       clearCallAutoEnd();
@@ -1270,6 +1358,15 @@ export default function ChatPage() {
     setRemoteConnected(false);
   };
 
+  const resetScreenShareRefs = (stopCameraBackup = false) => {
+    screenStreamRef.current?.getTracks().forEach(track => track.stop());
+    screenStreamRef.current = null;
+    if (stopCameraBackup) {
+      cameraTrackBeforeScreenRef.current?.stop();
+    }
+    cameraTrackBeforeScreenRef.current = null;
+  };
+
   const clearCallAutoEnd = () => {
     if (callAutoEndTimerRef.current) window.clearTimeout(callAutoEndTimerRef.current);
     callAutoEndTimerRef.current = null;
@@ -1278,7 +1375,9 @@ export default function ChatPage() {
   const cleanupCallUi = (message?: string) => {
     stopRingtone();
     clearCallAutoEnd();
+    void releaseCallWakeLock();
     closePeer();
+    resetScreenShareRefs(true);
     if (callMeterFrameRef.current) cancelAnimationFrame(callMeterFrameRef.current);
     callMeterFrameRef.current = null;
     setCallAudioLevel(0);
@@ -1430,8 +1529,11 @@ export default function ChatPage() {
 
     media.getTracks().forEach(track => pc.addTrack(track, media));
     pc.ontrack = (event) => {
-      const incoming = event.streams?.[0] || remoteStreamRef.current;
-      if (incoming) remoteStreamRef.current = incoming;
+      const incoming = event.streams?.[0] || remoteStreamRef.current || new MediaStream();
+      if (!event.streams?.[0] && !incoming.getTracks().some(track => track.id === event.track.id)) {
+        incoming.addTrack(event.track);
+      }
+      remoteStreamRef.current = incoming;
       event.track.onunmute = () => setRemoteConnected(true);
       setRemoteConnected(true);
     };
@@ -1458,6 +1560,10 @@ export default function ChatPage() {
           }
         }, 1200);
       }
+    };
+    pc.oniceconnectionstatechange = () => {
+      if (pc.iceConnectionState === "connected" || pc.iceConnectionState === "completed") setRemoteConnected(true);
+      if (pc.iceConnectionState === "failed") pc.restartIce?.();
     };
 
     if (type === "video") {
@@ -1533,7 +1639,7 @@ export default function ChatPage() {
       callFacingModeRef.current = "user";
       setCallFacingMode("user");
       const profile = getCallProfile();
-      setCallState({ type, status: "requesting", direction: "outgoing", muted: false, cameraOff: false, speakerOn: true, quality: type === "video" ? profile.label : "Auto" });
+      setCallState({ type, status: "requesting", direction: "outgoing", muted: false, cameraOff: false, screenSharing: false, speakerOn: true, quality: type === "video" ? profile.label : "Auto" });
       const media = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, sampleRate: 48000, channelCount: 1 },
         video: type === "video" ? { facingMode: "user", width: { ideal: profile.width }, height: { ideal: profile.height }, frameRate: { ideal: profile.frameRate, max: profile.frameRate } } : false,
@@ -1556,7 +1662,7 @@ export default function ChatPage() {
         reference_id: conversationId,
       });
       startRingtone();
-      setCallState({ type, status: "ringing", direction: "outgoing", muted: false, cameraOff: false, speakerOn: true, quality: type === "video" ? profile.label : "Auto" });
+      setCallState({ type, status: "ringing", direction: "outgoing", muted: false, cameraOff: false, screenSharing: false, speakerOn: true, quality: type === "video" ? profile.label : "Auto" });
       clearCallAutoEnd();
       callAutoEndTimerRef.current = window.setTimeout(async () => {
         const sessionId = callSessionRef.current;
@@ -1586,7 +1692,7 @@ export default function ChatPage() {
       callFacingModeRef.current = "user";
       setCallFacingMode("user");
       const profile = getCallProfile();
-      setCallState({ type, status: "requesting", direction: "incoming", muted: false, cameraOff: false, speakerOn: true, quality: type === "video" ? profile.label : "Auto" });
+      setCallState({ type, status: "requesting", direction: "incoming", muted: false, cameraOff: false, screenSharing: false, speakerOn: true, quality: type === "video" ? profile.label : "Auto" });
       const media = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, sampleRate: 48000, channelCount: 1 },
         video: type === "video" ? { facingMode: "user", width: { ideal: profile.width }, height: { ideal: profile.height }, frameRate: { ideal: profile.frameRate, max: profile.frameRate } } : false,
@@ -1597,7 +1703,7 @@ export default function ChatPage() {
       stopRingtone();
       setIncomingCall(null);
       await (supabase as any).from("direct_call_sessions").update({ status: "connected", started_at: new Date().toISOString() }).eq("id", callToAccept.id);
-      setCallState({ type, status: "connected", direction: "incoming", muted: false, cameraOff: false, speakerOn: true, quality: type === "video" ? profile.label : "Auto" });
+      setCallState({ type, status: "connected", direction: "incoming", muted: false, cameraOff: false, screenSharing: false, speakerOn: true, quality: type === "video" ? profile.label : "Auto" });
     } catch {
       await (supabase as any).from("direct_call_sessions").update({ status: "declined", ended_at: new Date().toISOString() }).eq("id", callToAccept.id);
       cleanupCallUi("Appel refuse: permission micro/camera manquante");
@@ -1613,7 +1719,9 @@ export default function ChatPage() {
   const endCall = async () => {
     stopRingtone();
     clearCallAutoEnd();
+    void releaseCallWakeLock();
     closePeer();
+    resetScreenShareRefs(true);
     if (callMeterFrameRef.current) cancelAnimationFrame(callMeterFrameRef.current);
     setCallAudioLevel(0);
     callStreamRef.current?.getTracks().forEach(t => t.stop());
@@ -1629,35 +1737,138 @@ export default function ChatPage() {
     setCallState(null);
   };
 
+  const replaceOutgoingVideoTrack = async (track: MediaStreamTrack | null) => {
+    const sender = peerRef.current?.getSenders().find((item) => item.track?.kind === "video");
+    if (!sender) return;
+    await sender.replaceTrack(track);
+  };
+
+  const refreshLocalVideoPreview = () => {
+    if (!localVideoRef.current) return;
+    localVideoRef.current.srcObject = callStreamRef.current;
+    localVideoRef.current.play().catch(() => {});
+  };
+
+  const stopScreenShare = async () => {
+    const stream = callStreamRef.current;
+    const cameraTrack = cameraTrackBeforeScreenRef.current;
+    screenStreamRef.current?.getTracks().forEach(track => track.stop());
+    screenStreamRef.current = null;
+    if (!stream) {
+      cameraTrackBeforeScreenRef.current = null;
+      setCallState((current) => current ? { ...current, screenSharing: false } : current);
+      return;
+    }
+
+    stream.getVideoTracks().forEach(track => {
+      if (track !== cameraTrack) {
+        track.stop();
+        stream.removeTrack(track);
+      }
+    });
+
+    let restoredTrack = cameraTrack && cameraTrack.readyState === "live" ? cameraTrack : null;
+    if (!restoredTrack && callStateRef.current?.type === "video") {
+      try {
+        const profile = getCallProfile();
+        const replacement = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: callFacingModeRef.current, width: { ideal: profile.width }, height: { ideal: profile.height }, frameRate: { ideal: profile.frameRate, max: profile.frameRate } },
+          audio: false,
+        });
+        restoredTrack = replacement.getVideoTracks()[0] || null;
+      } catch {
+        restoredTrack = null;
+      }
+    }
+
+    if (restoredTrack) {
+      restoredTrack.enabled = true;
+      if (!stream.getVideoTracks().includes(restoredTrack)) stream.addTrack(restoredTrack);
+    }
+    cameraTrackBeforeScreenRef.current = null;
+    await replaceOutgoingVideoTrack(restoredTrack);
+    refreshLocalVideoPreview();
+    setCallState((current) => current ? { ...current, screenSharing: false, cameraOff: !restoredTrack, quality: restoredTrack ? current.quality : "Auto" } : current);
+    if (restoredTrack) toast.success("Camera restauree");
+  };
+
+  const toggleScreenShare = async () => {
+    const current = callStateRef.current;
+    if (!current || current.type !== "video" || !callStreamRef.current) return;
+    if (current.screenSharing) {
+      await stopScreenShare();
+      return;
+    }
+    const mediaDevices = navigator.mediaDevices as any;
+    if (!mediaDevices?.getDisplayMedia) {
+      toast.error("Partage d'ecran non supporte sur cet appareil");
+      return;
+    }
+    try {
+      const displayStream = await mediaDevices.getDisplayMedia({
+        video: { width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30, max: 30 } },
+        audio: false,
+      });
+      const screenTrack = displayStream.getVideoTracks()[0];
+      if (!screenTrack) throw new Error("screen track unavailable");
+      const stream = callStreamRef.current;
+      cameraTrackBeforeScreenRef.current = stream.getVideoTracks()[0] || cameraTrackBeforeScreenRef.current;
+      stream.getVideoTracks().forEach(track => stream.removeTrack(track));
+      stream.addTrack(screenTrack);
+      screenStreamRef.current = displayStream;
+      await replaceOutgoingVideoTrack(screenTrack);
+      screenTrack.onended = () => { void stopScreenShare(); };
+      refreshLocalVideoPreview();
+      setCallState((state) => state ? { ...state, screenSharing: true, cameraOff: false, quality: "HD" } : state);
+      toast.success("Partage d'ecran actif");
+    } catch (err: any) {
+      if (err?.name === "NotAllowedError") toast.info("Partage d'ecran annule");
+      else toast.error("Partage d'ecran impossible");
+    }
+  };
+
   const toggleCallMute = () => {
-    callStreamRef.current?.getAudioTracks().forEach(t => { t.enabled = !t.enabled; });
-    setCallState((current) => current ? { ...current, muted: !current.muted } : current);
+    setCallState((current) => {
+      if (!current) return current;
+      const nextMuted = !current.muted;
+      callStreamRef.current?.getAudioTracks().forEach(t => { t.enabled = !nextMuted; });
+      return { ...current, muted: nextMuted };
+    });
   };
 
   const toggleCallCamera = () => {
-    callStreamRef.current?.getVideoTracks().forEach(t => { t.enabled = !t.enabled; });
-    setCallState((current) => current ? { ...current, cameraOff: !current.cameraOff } : current);
+    if (callStateRef.current?.screenSharing) {
+      void stopScreenShare();
+      return;
+    }
+    setCallState((current) => {
+      if (!current) return current;
+      const nextCameraOff = !current.cameraOff;
+      callStreamRef.current?.getVideoTracks().forEach(t => { t.enabled = !nextCameraOff; });
+      return { ...current, cameraOff: nextCameraOff };
+    });
   };
 
   const flipCallCamera = async () => {
     if (!callStreamRef.current || callState?.type !== "video") return;
+    if (callState.screenSharing) await stopScreenShare();
     const next = callFacingModeRef.current === "user" ? "environment" : "user";
     try {
       const replacement = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: next, width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 60, max: 60 } },
+        video: { facingMode: next, width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30, max: 30 } },
         audio: false,
       });
+      const nextTrack = replacement.getVideoTracks()[0];
+      if (!nextTrack) throw new Error("camera track unavailable");
       callStreamRef.current.getVideoTracks().forEach(track => {
         track.stop();
         callStreamRef.current?.removeTrack(track);
       });
-      replacement.getVideoTracks().forEach(track => callStreamRef.current?.addTrack(track));
+      callStreamRef.current?.addTrack(nextTrack);
+      await replaceOutgoingVideoTrack(nextTrack);
       callFacingModeRef.current = next;
       setCallFacingMode(next);
-      if (localVideoRef.current) {
-        localVideoRef.current.srcObject = callStreamRef.current;
-        localVideoRef.current.play().catch(() => {});
-      }
+      refreshLocalVideoPreview();
       setCallState((current) => current ? { ...current, cameraOff: false, quality: "HD" } : current);
       toast.success(next === "environment" ? "Camera arriere activee" : "Camera selfie activee");
     } catch {
@@ -1830,9 +2041,9 @@ export default function ChatPage() {
           </motion.div>
         )}
         {callState && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[80] flex items-center justify-center bg-background/88 px-4 backdrop-blur-xl">
-            <motion.div initial={{ scale: 0.94, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.94, y: 20 }} className="w-full max-w-sm overflow-hidden rounded-3xl border border-border bg-card shadow-2xl">
-              <div className="relative aspect-[3/4] bg-black">
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[80] flex items-center justify-center bg-background/88 px-3 py-[max(0.75rem,var(--app-safe-top))] backdrop-blur-xl">
+            <motion.div initial={{ scale: 0.94, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.94, y: 20 }} className="w-full max-w-[min(24rem,calc(100vw-1rem))] overflow-hidden rounded-3xl border border-border bg-card shadow-2xl">
+              <div className="relative h-[min(68svh,34rem)] bg-black sm:aspect-[3/4] sm:h-auto">
                 {callState.type === "video" && !callState.cameraOff ? (
                   <>
                     <video ref={remoteVideoRef} className="h-full w-full object-cover" playsInline autoPlay />
@@ -1845,7 +2056,14 @@ export default function ChatPage() {
                         </div>
                       </div>
                     )}
-                    <video ref={localVideoRef} className="absolute bottom-3 right-3 h-28 w-20 rounded-2xl border border-border bg-black object-cover shadow-2xl" muted playsInline autoPlay />
+                    <video
+                      ref={localVideoRef}
+                      className={`absolute bottom-3 right-3 rounded-2xl border border-border bg-black object-cover shadow-2xl ${callState.screenSharing ? "h-20 w-32" : "h-28 w-20"}`}
+                      style={{ transform: callFacingMode === "user" && !callState.screenSharing ? "scaleX(-1)" : undefined }}
+                      muted
+                      playsInline
+                      autoPlay
+                    />
                   </>
                 ) : (
                   <div className="flex h-full w-full flex-col items-center justify-center gap-3 bg-gradient-to-br from-background via-card to-background">
@@ -1858,10 +2076,21 @@ export default function ChatPage() {
                   {callState.status === "ringing" ? <BellRing className="h-3.5 w-3.5 text-primary" /> : <SignalHigh className="h-3.5 w-3.5 text-accent" />}
                   {callState.status === "requesting" ? "Permissions" : callState.status === "ringing" ? callState.direction === "outgoing" ? "En attente" : "Sonnerie" : fmtTime(callSeconds)}
                 </div>
+                {callState.muted && (
+                  <div className="absolute bottom-3 left-3 flex items-center gap-1.5 rounded-full bg-destructive/90 px-3 py-1 text-xs font-black text-destructive-foreground shadow-lg">
+                    <MicOff className="h-3.5 w-3.5" /> Micro coupe
+                  </div>
+                )}
+                {callState.screenSharing && (
+                  <div className="absolute right-3 top-4 flex items-center gap-1.5 rounded-full bg-primary/90 px-3 py-1 text-xs font-black text-primary-foreground shadow-lg">
+                    <ScreenShare className="h-3.5 w-3.5" /> Ecran partage
+                  </div>
+                )}
               </div>
               <div className="space-y-2 border-b border-border px-4 py-3">
-                <div className="flex items-center justify-between text-[11px] font-bold text-muted-foreground">
-                  <span className="flex items-center gap-1"><SignalHigh className="h-3.5 w-3.5 text-primary" /> {callState.type === "video" ? "Video 1080p/60" : "Audio 48 kHz"}</span>
+                <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] font-bold text-muted-foreground">
+                  <span className="flex items-center gap-1"><SignalHigh className="h-3.5 w-3.5 text-primary" /> {callState.type === "video" ? "Video 1080p/30" : "Audio 48 kHz"}</span>
+                  <span className="flex items-center gap-1"><ShieldCheck className="h-3.5 w-3.5 text-accent" /> Chiffre WebRTC</span>
                   <span>{remoteConnected ? "Pair a pair" : callState.quality}</span>
                 </div>
                 <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
@@ -1872,13 +2101,18 @@ export default function ChatPage() {
                   <span className="w-10 text-right tabular-nums">{callAudioLevel}%</span>
                 </div>
               </div>
-              <div className="flex items-center justify-center gap-3 p-4">
+              <div className="flex flex-wrap items-center justify-center gap-2 p-3 sm:gap-3 sm:p-4">
                 <button type="button" onClick={toggleCallMute} className={`grid h-12 w-12 place-items-center rounded-full ${callState.muted ? "bg-destructive text-destructive-foreground" : "bg-secondary text-foreground"}`} aria-label={callState.muted ? "Réactiver le micro" : "Couper le micro"}>
                   {callState.muted ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
                 </button>
                 {callState.type === "video" && (
                   <button type="button" onClick={toggleCallCamera} className={`grid h-12 w-12 place-items-center rounded-full ${callState.cameraOff ? "bg-destructive text-destructive-foreground" : "bg-secondary text-foreground"}`} aria-label={callState.cameraOff ? "Réactiver la camera" : "Couper la camera"}>
                     {callState.cameraOff ? <CameraOff className="h-5 w-5" /> : <Video className="h-5 w-5" />}
+                  </button>
+                )}
+                {callState.type === "video" && (
+                  <button type="button" onClick={toggleScreenShare} className={`grid h-12 w-12 place-items-center rounded-full ${callState.screenSharing ? "bg-primary text-primary-foreground" : "bg-secondary text-foreground"}`} aria-label={callState.screenSharing ? "Arreter le partage d'ecran" : "Partager l'ecran"}>
+                    {callState.screenSharing ? <ScreenShareOff className="h-5 w-5" /> : <ScreenShare className="h-5 w-5" />}
                   </button>
                 )}
                 <button type="button" onClick={toggleSpeaker} className={`grid h-12 w-12 place-items-center rounded-full ${callState.speakerOn ? "bg-secondary text-foreground" : "bg-card text-muted-foreground"}`} aria-label={callState.speakerOn ? "Passer en ecouteur" : "Activer haut-parleur"}>
@@ -1911,7 +2145,7 @@ export default function ChatPage() {
             const officialBody = isOfficial ? msg.text.replace("[BARDEUR · Équipe officielle]", "").trim() : msg.text;
             return (
             <motion.div key={msg.id} initial={{ opacity: 0, y: 10, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} className={`flex ${msg.fromMe ? "justify-end" : "justify-start"} group`}>
-              <div className="max-w-[82%] relative sm:max-w-[75%]">
+              <div className="relative max-w-[min(82vw,22rem)] sm:max-w-[min(75vw,28rem)]">
                 {isOfficial && (
                   <div className="mb-1 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-primary">
                     <span className="grid h-5 w-5 place-items-center rounded-full gradient-primary text-[10px] font-black text-primary-foreground">B</span>
@@ -1936,10 +2170,10 @@ export default function ChatPage() {
                     />
                   )}
                   {msg.mediaUrl && msg.mediaType?.startsWith("image") && (
-                    <img src={msg.mediaUrl} alt="" className="mb-2 aspect-[4/5] max-h-72 w-full max-w-[18rem] rounded-xl object-cover shadow-lg" loading="lazy" />
+                    <img src={msg.mediaUrl} alt="" className="mb-2 aspect-[4/5] max-h-[min(55svh,22rem)] w-full max-w-[min(76vw,20rem)] rounded-xl object-cover shadow-lg" loading="lazy" />
                   )}
                   {msg.mediaUrl && msg.mediaType?.startsWith("video") && (
-                    <video src={msg.mediaUrl} className="mb-2 aspect-[4/5] max-h-80 w-full max-w-[18rem] rounded-xl bg-black object-contain shadow-lg" controls playsInline preload="metadata" />
+                    <video src={msg.mediaUrl} className="mb-2 aspect-[4/5] max-h-[min(58svh,24rem)] w-full max-w-[min(76vw,20rem)] rounded-xl bg-black object-contain shadow-lg" controls playsInline preload="metadata" />
                   )}
                   {msg.mediaUrl && msg.mediaType?.startsWith("audio") && (
                     <div className="mb-1"><AudioBubble src={msg.mediaUrl} /></div>
@@ -2082,7 +2316,7 @@ export default function ChatPage() {
             <motion.button whileTap={{ scale: 0.9 }} onClick={() => imageInputRef.current?.click()} disabled={uploadingImage || isBlocked || blockedByThem} className="tap-target grid shrink-0 place-items-center rounded-full disabled:opacity-40 max-[360px]:hidden" aria-label="Joindre un media">
               <ImageIcon className="h-5 w-5 text-muted-foreground" />
             </motion.button>
-            <div className="glass flex min-w-0 flex-1 items-center rounded-full px-4 py-2.5">
+            <div className="glass flex min-h-11 min-w-0 flex-1 items-center rounded-full px-4 py-2.5">
               <input ref={messageInputRef} type="text" value={newMsg} onChange={e => setNewMsg(e.target.value)} onKeyDown={e => e.key === "Enter" && sendMessage()} onFocus={() => { setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" }), 280); }} placeholder={isBlocked || blockedByThem ? "Conversation bloquee" : "Message..."} disabled={isBlocked || blockedByThem} maxLength={500} enterKeyHint="send" autoComplete="off" className="min-w-0 flex-1 bg-transparent text-base leading-5 text-foreground placeholder:text-muted-foreground outline-none disabled:opacity-50" />
             </div>
 

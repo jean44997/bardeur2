@@ -90,14 +90,22 @@ export default function GlobalCallListener() {
             const title = call.call_type === "video" ? "Appel vidéo entrant" : "Appel audio entrant";
             const opts: NotificationOptions = {
               body: `${callerName} t'appelle`,
-              icon: (caller as any)?.avatar_url || "/icon-192.png",
-              badge: "/icon-192.png",
+              icon: (caller as any)?.avatar_url || "/app-icon-512.png",
+              badge: "/app-icon-512.png",
               tag: `call-${call.id}`,
+              renotify: true,
               requireInteraction: true,
               data: { url: `/chat/${call.conversation_id}?call=${call.id}&answer=1` },
             };
             if (reg && (reg as any).showNotification) await (reg as any).showNotification(title, opts);
-            else new Notification(title, opts);
+            else {
+              const note = new Notification(title, opts);
+              note.onclick = () => {
+                window.focus();
+                navigate(`/chat/${call.conversation_id}?call=${call.id}&answer=1`);
+                note.close();
+              };
+            }
           } catch {}
         }
       })

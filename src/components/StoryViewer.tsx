@@ -59,8 +59,10 @@ export default function StoryViewer({ stories, initialIndex = 0, onClose }: Prop
   const [muted, setMuted] = useState(false);
   const [replyText, setReplyText] = useState("");
   const [replyFile, setReplyFile] = useState<File | null>(null);
+  const [replyFilePreview, setReplyFilePreview] = useState<string | null>(null);
   const [sendingReply, setSendingReply] = useState(false);
   const [viewCount, setViewCount] = useState(0);
+  const [mediaReady, setMediaReady] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const replyFileRef = useRef<HTMLInputElement>(null);
   const rafRef = useRef<number | null>(null);
@@ -71,9 +73,61 @@ export default function StoryViewer({ stories, initialIndex = 0, onClose }: Prop
   const isVideo = !!current?.media_type?.startsWith("video");
   const isOwner = user?.id === current?.user_id;
 
+  const refreshViewCount = async () => {
+    if (!current) return;
+    try {
+      const { data: story } = await (supabase as any).from("stories").select("views_count").eq("id", current.id).maybeSingle();
+      if (typeof story?.views_count === "number") setViewCount(Math.max(0, story.views_count));
+    } catch {
+      // Realtime/refresh is best effort; recording the view remains independent.
+    }
+  };
+
   useEffect(() => {
     setViewCount(Math.max(0, current?.views_count || 0));
+    setMediaReady(false);
+    setReplyFile(null);
+    setReplyText("");
   }, [current?.id, current?.views_count]);
+
+  useEffect(() => {
+    if (!replyFile) {
+      setReplyFilePreview(null);
+      return;
+    }
+    if (!replyFile.type.startsWith("image/") && !replyFile.type.startsWith("video/")) {
+      setReplyFilePreview(null);
+      return;
+    }
+    const url = URL.createObjectURL(replyFile);
+    setReplyFilePreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [replyFile]);
+
+  useEffect(() => {
+    if (!current?.id) return;
+    const channel = supabase
+      .channel(`story-viewer-live-${current.id}-${user?.id || "anon"}`)
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "stories", filter: `id=eq.${current.id}` }, (payload: any) => {
+        const nextCount = payload?.new?.views_count;
+        if (typeof nextCount === "number") setViewCount(Math.max(0, nextCount));
+      })
+      .on("postgres_changes", { event: "DELETE", schema: "public", table: "stories", filter: `id=eq.${current.id}` }, () => {
+        toast.info("Cette story n'est plus disponible");
+        onClose();
+      })
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "story_views", filter: `story_id=eq.${current.id}` }, () => {
+        void refreshViewCount();
+      })
+      .subscribe();
+    const interval = window.setInterval(() => {
+      if (isOwner || document.visibilityState === "visible") void refreshViewCount();
+    }, 8000);
+    return () => {
+      window.clearInterval(interval);
+      supabase.removeChannel(channel);
+    };
+  }, [current?.id, isOwner, user?.id]);
 
   // Record a view (best effort)
   useEffect(() => {
@@ -271,6 +325,17 @@ export default function StoryViewer({ stories, initialIndex = 0, onClose }: Prop
       >
         {/* Media */}
         <div className="absolute inset-0 grid place-items-center">
+          {!mediaReady && (
+            <div className="absolute inset-0 z-10 grid place-items-center bg-black">
+              <div className="w-40 rounded-3xl border border-white/10 bg-white/10 p-4 text-center text-white shadow-2xl backdrop-blur">
+                <div className="mx-auto mb-3 h-12 w-12 animate-pulse rounded-full bg-white/20" />
+                <p className="text-xs font-bold uppercase text-white/70">Chargement story</p>
+                <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/15">
+                  <motion.div className="h-full w-1/2 rounded-full bg-white" animate={{ x: ["-100%", "220%"] }} transition={{ duration: 1, repeat: Infinity, ease: "easeInOut" }} />
+                </div>
+              </div>
+            </div>
+          )}
           {isVideo ? (
             <video
               ref={videoRef}
@@ -281,10 +346,11 @@ export default function StoryViewer({ stories, initialIndex = 0, onClose }: Prop
               playsInline
               className="h-full w-full object-contain"
               onEnded={next}
-              onLoadedMetadata={() => { startedAtRef.current = Date.now(); }}
+              onLoadedMetadata={() => { startedAtRef.current = Date.now(); setMediaReady(true); }}
+              onCanPlay={() => setMediaReady(true)}
             />
           ) : (
-            <img src={current.media_url} alt="" className="h-full w-full object-contain" />
+            <img src={current.media_url} alt="" className="h-full w-full object-contain" onLoad={() => setMediaReady(true)} />
           )}
         </div>
 
@@ -370,7 +436,7 @@ export default function StoryViewer({ stories, initialIndex = 0, onClose }: Prop
             </div>
             <div className="rounded-xl bg-white/10 p-2 backdrop-blur">
               <Eye className="mb-1 h-4 w-4 text-white" />
-              <p className="text-[10px] uppercase text-white/55">Vues</p>
+              <p className="text-[10px] uppercase text-white/55">{isOwner ? "Vues live" : "Stats"}</p>
               <p className="truncate text-xs font-bold">{isOwner ? viewCount : "Prive"}</p>
             </div>
           </div>
@@ -386,9 +452,20 @@ export default function StoryViewer({ stories, initialIndex = 0, onClose }: Prop
               onChange={(e) => setReplyFile(e.target.files?.[0] || null)}
             />
             {replyFile && (
-              <div className="mx-auto mb-2 flex max-w-lg items-center justify-between rounded-2xl bg-white/12 px-3 py-2 text-xs font-semibold text-white backdrop-blur">
-                <span className="truncate">{replyFile.name}</span>
-                <button type="button" onClick={() => setReplyFile(null)} className="rounded-full bg-black/30 p-1" aria-label="Retirer la piece jointe">
+              <div className="mx-auto mb-2 flex max-w-lg items-center gap-3 rounded-2xl bg-white/12 px-3 py-2 text-xs font-semibold text-white shadow-2xl backdrop-blur">
+                {replyFilePreview && replyFile.type.startsWith("image/") && (
+                  <img src={replyFilePreview} alt="" className="h-12 w-12 shrink-0 rounded-xl object-cover" />
+                )}
+                {replyFilePreview && replyFile.type.startsWith("video/") && (
+                  <video src={replyFilePreview} className="h-12 w-12 shrink-0 rounded-xl bg-black object-cover" muted playsInline />
+                )}
+                {!replyFilePreview && (
+                  <div className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-black/30">
+                    <Paperclip className="h-4 w-4" />
+                  </div>
+                )}
+                <span className="min-w-0 flex-1 truncate">{replyFile.name}</span>
+                <button type="button" onClick={() => { setReplyFile(null); if (replyFileRef.current) replyFileRef.current.value = ""; }} className="rounded-full bg-black/30 p-1" aria-label="Retirer la piece jointe">
                   <X className="h-3.5 w-3.5" />
                 </button>
               </div>
