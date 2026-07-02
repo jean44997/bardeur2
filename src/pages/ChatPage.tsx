@@ -54,6 +54,11 @@ interface FriendOption {
 interface GroupCallState {
   id: string;
   type: "audio" | "video";
+  startedAt: number;
+  micMuted: boolean;
+  camOff: boolean;
+  screenSharing: boolean;
+  screenSharers: string[];
 }
 
 interface PollPayload {
@@ -135,6 +140,8 @@ export default function ChatPage() {
   const [creatingGroup, setCreatingGroup] = useState(false);
   const [groupCallState, setGroupCallState] = useState<GroupCallState | null>(null);
   const [groupCallParticipants, setGroupCallParticipants] = useState<FriendOption[]>([]);
+  const [groupCallSeconds, setGroupCallSeconds] = useState(0);
+  const groupScreenStreamRef = useRef<MediaStream | null>(null);
   const [showMentionPicker, setShowMentionPicker] = useState(false);
   const callStateRef = useRef<CallState | null>(null);
   const messagesPaneRef = useRef<HTMLDivElement>(null);
@@ -301,6 +308,14 @@ export default function ChatPage() {
     stopBackgroundCallKeepalive();
     void releaseCallWakeLock();
   }, [callState]);
+
+  useEffect(() => {
+    if (!groupCallState) { setGroupCallSeconds(0); return; }
+    const started = groupCallState.startedAt;
+    setGroupCallSeconds(Math.floor((Date.now() - started) / 1000));
+    const id = window.setInterval(() => setGroupCallSeconds(Math.floor((Date.now() - started) / 1000)), 1000);
+    return () => window.clearInterval(id);
+  }, [groupCallState?.id]);
 
   useEffect(() => {
     const onVisibility = () => {
@@ -1216,7 +1231,7 @@ export default function ChatPage() {
       return;
     }
     const callId = crypto.randomUUID();
-    setGroupCallState({ id: callId, type });
+    setGroupCallState({ id: callId, type, startedAt: Date.now(), micMuted: false, camOff: false, screenSharing: false, screenSharers: [] });
     setGroupCallParticipants([{ id: user.id, username: "toi", displayName: "Toi", avatarUrl: "" }, ...members].slice(0, 5));
     try {
       if (type === "video") {
@@ -1254,8 +1269,65 @@ export default function ChatPage() {
   const endGroupCall = async () => {
     callStreamRef.current?.getTracks().forEach((track) => track.stop());
     callStreamRef.current = null;
+    if (groupScreenStreamRef.current) {
+      groupScreenStreamRef.current.getTracks().forEach((t) => t.stop());
+      groupScreenStreamRef.current = null;
+    }
     setGroupCallState(null);
     setGroupCallParticipants([]);
+    setGroupCallSeconds(0);
+  };
+
+  const toggleGroupMic = () => {
+    const stream = callStreamRef.current;
+    if (!stream) return;
+    const track = stream.getAudioTracks()[0];
+    if (!track) return;
+    track.enabled = !track.enabled;
+    setGroupCallState((prev) => prev ? { ...prev, micMuted: !track.enabled } : prev);
+  };
+
+  const toggleGroupCam = () => {
+    const stream = callStreamRef.current;
+    if (!stream) return;
+    const track = stream.getVideoTracks()[0];
+    if (!track) return;
+    track.enabled = !track.enabled;
+    setGroupCallState((prev) => prev ? { ...prev, camOff: !track.enabled } : prev);
+  };
+
+  const toggleGroupScreenShare = async () => {
+    if (!groupCallState) return;
+    if (groupCallState.screenSharing) {
+      groupScreenStreamRef.current?.getTracks().forEach((t) => t.stop());
+      groupScreenStreamRef.current = null;
+      setGroupCallState((prev) => prev ? { ...prev, screenSharing: false, screenSharers: prev.screenSharers.filter((id) => id !== user?.id) } : prev);
+      if (groupLocalVideoRef.current && callStreamRef.current) {
+        groupLocalVideoRef.current.srcObject = callStreamRef.current;
+        groupLocalVideoRef.current.play().catch(() => {});
+      }
+      return;
+    }
+    try {
+      const screen = await (navigator.mediaDevices as any).getDisplayMedia({ video: { frameRate: 30 }, audio: false });
+      groupScreenStreamRef.current = screen;
+      screen.getVideoTracks()[0].addEventListener("ended", () => {
+        groupScreenStreamRef.current = null;
+        setGroupCallState((prev) => prev ? { ...prev, screenSharing: false, screenSharers: prev.screenSharers.filter((id) => id !== user?.id) } : prev);
+        if (groupLocalVideoRef.current && callStreamRef.current) {
+          groupLocalVideoRef.current.srcObject = callStreamRef.current;
+          groupLocalVideoRef.current.play().catch(() => {});
+        }
+      });
+      if (groupLocalVideoRef.current) {
+        groupLocalVideoRef.current.srcObject = screen;
+        groupLocalVideoRef.current.play().catch(() => {});
+      }
+      setGroupCallState((prev) => prev ? { ...prev, screenSharing: true, screenSharers: [...prev.screenSharers.filter((id) => id !== user?.id), user?.id || ""] } : prev);
+      toast.success("Partage d'écran actif");
+    } catch {
+      toast.error("Partage d'écran refusé");
+    }
   };
 
   const deleteGroupConversation = async () => {
@@ -2695,38 +2767,84 @@ export default function ChatPage() {
           >
             <motion.div initial={{ scale: 0.94, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.94, y: 20 }} className="w-full max-w-sm overflow-hidden rounded-3xl border border-border bg-card shadow-2xl">
               <div className="relative aspect-[3/4] bg-black">
-                {groupCallState.type === "video" ? (
+                {groupCallState.type === "video" || groupCallState.screenSharing ? (
                   <video ref={groupLocalVideoRef} className="h-full w-full object-cover" muted playsInline autoPlay />
                 ) : (
                   <div className="grid h-full place-items-center bg-gradient-to-br from-background via-card to-background text-center">
                     <div>
                       <Users className="mx-auto mb-3 h-10 w-10 text-primary" />
                       <p className="text-lg font-black text-foreground">Appel audio groupe</p>
+                      <p className="mt-1 text-xs text-muted-foreground">{otherUserName}</p>
                     </div>
                   </div>
                 )}
-                <div className="absolute left-4 top-4 rounded-full bg-background/70 px-3 py-1 text-xs font-bold text-foreground backdrop-blur">
-                  {groupCallParticipants.length}/5 connectes
+                {groupCallState.camOff && groupCallState.type === "video" && !groupCallState.screenSharing && (
+                  <div className="absolute inset-0 grid place-items-center bg-black/80">
+                    <CameraOff className="h-10 w-10 text-muted-foreground" />
+                  </div>
+                )}
+                <div className="absolute left-3 top-3 flex items-center gap-2">
+                  <div className="flex items-center gap-1.5 rounded-full bg-background/75 px-2.5 py-1 text-[11px] font-bold text-foreground backdrop-blur">
+                    <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-red-500" />
+                    LIVE
+                  </div>
+                  <div className="rounded-full bg-background/75 px-2.5 py-1 font-mono text-[11px] font-bold tabular-nums text-foreground backdrop-blur">
+                    {`${String(Math.floor(groupCallSeconds / 60)).padStart(2, "0")}:${String(groupCallSeconds % 60).padStart(2, "0")}`}
+                  </div>
                 </div>
+                <div className="absolute right-3 top-3 rounded-full bg-background/75 px-2.5 py-1 text-[11px] font-bold text-foreground backdrop-blur">
+                  {groupCallParticipants.length}/5
+                </div>
+                {groupCallState.screenSharing && (
+                  <div className="absolute bottom-3 left-3 flex items-center gap-1.5 rounded-full bg-primary/90 px-2.5 py-1 text-[11px] font-bold text-primary-foreground shadow-lg">
+                    <ScreenShare className="h-3 w-3" />
+                    Tu partages ton écran
+                  </div>
+                )}
               </div>
-              <div className="space-y-2 p-4">
+              <div className="space-y-3 p-4">
                 <div className="grid grid-cols-5 gap-2">
-                  {groupCallParticipants.map((participant) => (
-                    <div key={participant.id} className="text-center">
-                      <div className="mx-auto grid h-10 w-10 place-items-center overflow-hidden rounded-full bg-secondary text-xs font-black text-foreground">
-                        {participant.avatarUrl ? <img src={participant.avatarUrl} alt="" className="h-full w-full object-cover" /> : participant.displayName[0]?.toUpperCase()}
+                  {groupCallParticipants.map((participant) => {
+                    const isMe = participant.id === user?.id;
+                    const isSharing = groupCallState.screenSharers.includes(participant.id);
+                    return (
+                      <div key={participant.id} className="text-center">
+                        <div className="relative mx-auto h-11 w-11">
+                          <div className="grid h-full w-full place-items-center overflow-hidden rounded-full bg-secondary text-xs font-black text-foreground ring-2 ring-primary/40">
+                            {participant.avatarUrl ? <img src={participant.avatarUrl} alt="" className="h-full w-full object-cover" /> : (participant.displayName[0] || "?").toUpperCase()}
+                          </div>
+                          <span className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-card bg-emerald-500" title="Connecté" />
+                          {isSharing && (
+                            <span className="absolute -top-1 -right-1 grid h-4 w-4 place-items-center rounded-full bg-primary text-primary-foreground shadow" title="Partage d'écran">
+                              <ScreenShare className="h-2.5 w-2.5" />
+                            </span>
+                          )}
+                          {isMe && groupCallState.micMuted && (
+                            <span className="absolute -bottom-0.5 -left-0.5 grid h-4 w-4 place-items-center rounded-full bg-destructive text-destructive-foreground shadow" title="Micro coupé">
+                              <MicOff className="h-2.5 w-2.5" />
+                            </span>
+                          )}
+                        </div>
+                        <p className="mt-1 truncate text-[10px] text-muted-foreground">{isMe ? "Toi" : participant.displayName}</p>
                       </div>
-                      <p className="mt-1 truncate text-[10px] text-muted-foreground">{participant.displayName}</p>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
-                <div className="flex items-center justify-center gap-3 pt-2">
-                  <button type="button" onClick={() => toast.info("Micro local gere par la permission appareil")} className="grid h-12 w-12 place-items-center rounded-full bg-secondary text-foreground" aria-label="Micro groupe">
-                    <Mic className="h-5 w-5" />
-                  </button>
-                  <button type="button" onClick={endGroupCall} className="grid h-12 w-12 place-items-center rounded-full bg-destructive text-destructive-foreground" aria-label="Quitter l'appel groupe">
-                    <PhoneOff className="h-5 w-5" />
-                  </button>
+                <div className="flex items-center justify-center gap-3 pt-1">
+                  <motion.button whileTap={{ scale: 0.9 }} type="button" onClick={toggleGroupMic} className={`grid h-12 w-12 place-items-center rounded-full transition ${groupCallState.micMuted ? "bg-destructive text-destructive-foreground" : "bg-secondary text-foreground"}`} aria-label="Micro">
+                    {groupCallState.micMuted ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
+                  </motion.button>
+                  {groupCallState.type === "video" && (
+                    <motion.button whileTap={{ scale: 0.9 }} type="button" onClick={toggleGroupCam} className={`grid h-12 w-12 place-items-center rounded-full transition ${groupCallState.camOff ? "bg-destructive text-destructive-foreground" : "bg-secondary text-foreground"}`} aria-label="Camera">
+                      {groupCallState.camOff ? <CameraOff className="h-5 w-5" /> : <Video className="h-5 w-5" />}
+                    </motion.button>
+                  )}
+                  <motion.button whileTap={{ scale: 0.9 }} type="button" onClick={toggleGroupScreenShare} className={`grid h-12 w-12 place-items-center rounded-full transition ${groupCallState.screenSharing ? "bg-primary text-primary-foreground" : "bg-secondary text-foreground"}`} aria-label="Partage d'écran">
+                    {groupCallState.screenSharing ? <ScreenShareOff className="h-5 w-5" /> : <ScreenShare className="h-5 w-5" />}
+                  </motion.button>
+                  <motion.button whileTap={{ scale: 0.9 }} type="button" onClick={endGroupCall} className="grid h-14 w-14 place-items-center rounded-full bg-destructive text-destructive-foreground shadow-lg" aria-label="Quitter l'appel groupe">
+                    <PhoneOff className="h-6 w-6" />
+                  </motion.button>
                 </div>
               </div>
             </motion.div>
