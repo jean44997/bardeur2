@@ -287,9 +287,18 @@ export default function ChatPage() {
     if (callState) {
       void requestCallWakeLock();
       if (document.visibilityState === "visible") backgroundCallNoticeRef.current = false;
+      if (callState.status === "connected") {
+        startBackgroundCallKeepalive({
+          title: callState.type === "video" ? "Appel video en cours" : "Appel audio en cours",
+          peerName: otherUserName || "Contact",
+          peerAvatar: otherUserAvatar || null,
+          onHangup: () => { void endCurrentCall(); },
+        });
+      }
       return;
     }
     backgroundCallNoticeRef.current = false;
+    stopBackgroundCallKeepalive();
     void releaseCallWakeLock();
   }, [callState]);
 
