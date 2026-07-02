@@ -1259,8 +1259,65 @@ export default function ChatPage() {
   const endGroupCall = async () => {
     callStreamRef.current?.getTracks().forEach((track) => track.stop());
     callStreamRef.current = null;
+    if (groupScreenStreamRef.current) {
+      groupScreenStreamRef.current.getTracks().forEach((t) => t.stop());
+      groupScreenStreamRef.current = null;
+    }
     setGroupCallState(null);
     setGroupCallParticipants([]);
+    setGroupCallSeconds(0);
+  };
+
+  const toggleGroupMic = () => {
+    const stream = callStreamRef.current;
+    if (!stream) return;
+    const track = stream.getAudioTracks()[0];
+    if (!track) return;
+    track.enabled = !track.enabled;
+    setGroupCallState((prev) => prev ? { ...prev, micMuted: !track.enabled } : prev);
+  };
+
+  const toggleGroupCam = () => {
+    const stream = callStreamRef.current;
+    if (!stream) return;
+    const track = stream.getVideoTracks()[0];
+    if (!track) return;
+    track.enabled = !track.enabled;
+    setGroupCallState((prev) => prev ? { ...prev, camOff: !track.enabled } : prev);
+  };
+
+  const toggleGroupScreenShare = async () => {
+    if (!groupCallState) return;
+    if (groupCallState.screenSharing) {
+      groupScreenStreamRef.current?.getTracks().forEach((t) => t.stop());
+      groupScreenStreamRef.current = null;
+      setGroupCallState((prev) => prev ? { ...prev, screenSharing: false, screenSharers: prev.screenSharers.filter((id) => id !== user?.id) } : prev);
+      if (groupLocalVideoRef.current && callStreamRef.current) {
+        groupLocalVideoRef.current.srcObject = callStreamRef.current;
+        groupLocalVideoRef.current.play().catch(() => {});
+      }
+      return;
+    }
+    try {
+      const screen = await (navigator.mediaDevices as any).getDisplayMedia({ video: { frameRate: 30 }, audio: false });
+      groupScreenStreamRef.current = screen;
+      screen.getVideoTracks()[0].addEventListener("ended", () => {
+        groupScreenStreamRef.current = null;
+        setGroupCallState((prev) => prev ? { ...prev, screenSharing: false, screenSharers: prev.screenSharers.filter((id) => id !== user?.id) } : prev);
+        if (groupLocalVideoRef.current && callStreamRef.current) {
+          groupLocalVideoRef.current.srcObject = callStreamRef.current;
+          groupLocalVideoRef.current.play().catch(() => {});
+        }
+      });
+      if (groupLocalVideoRef.current) {
+        groupLocalVideoRef.current.srcObject = screen;
+        groupLocalVideoRef.current.play().catch(() => {});
+      }
+      setGroupCallState((prev) => prev ? { ...prev, screenSharing: true, screenSharers: [...prev.screenSharers.filter((id) => id !== user?.id), user?.id || ""] } : prev);
+      toast.success("Partage d'écran actif");
+    } catch {
+      toast.error("Partage d'écran refusé");
+    }
   };
 
   const deleteGroupConversation = async () => {
