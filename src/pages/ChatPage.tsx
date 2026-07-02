@@ -54,6 +54,11 @@ interface FriendOption {
 interface GroupCallState {
   id: string;
   type: "audio" | "video";
+  startedAt: number;
+  micMuted: boolean;
+  camOff: boolean;
+  screenSharing: boolean;
+  screenSharers: string[];
 }
 
 interface PollPayload {
