@@ -119,9 +119,9 @@ export default function ProfilePage() {
     setStats({
       followers: followers.count || 0,
       following: following.count || 0,
-      likes: canSeePerformanceStats ? totalLikes.data?.reduce((sum: number, v: any) => sum + Math.max(0, v.likes_count || 0), 0) || 0 : 0,
+      likes: canSeePerformanceStats ? (totalLikes.data as any[])?.reduce((sum: number, v: any) => sum + Math.max(0, v.likes_count || 0), 0) || 0 : 0,
       videos: videoData.count || 0,
-      views: canSeePerformanceStats ? totalLikes.data?.reduce((sum: number, v: any) => sum + Math.max(0, v.views_count || 0), 0) || 0 : 0,
+      views: canSeePerformanceStats ? (totalLikes.data as any[])?.reduce((sum: number, v: any) => sum + Math.max(0, v.views_count || 0), 0) || 0 : 0,
     });
   };
 
