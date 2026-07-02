@@ -291,8 +291,8 @@ export default function ChatPage() {
         startBackgroundCallKeepalive({
           title: callState.type === "video" ? "Appel video en cours" : "Appel audio en cours",
           peerName: otherUserName || "Contact",
-          peerAvatar: otherUserAvatar || null,
-          onHangup: () => { void endCurrentCall(); },
+          peerAvatar: null,
+          onHangup: () => { void endCall(); },
         });
       }
       return;
