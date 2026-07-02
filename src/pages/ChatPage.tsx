@@ -140,6 +140,8 @@ export default function ChatPage() {
   const [creatingGroup, setCreatingGroup] = useState(false);
   const [groupCallState, setGroupCallState] = useState<GroupCallState | null>(null);
   const [groupCallParticipants, setGroupCallParticipants] = useState<FriendOption[]>([]);
+  const [groupCallSeconds, setGroupCallSeconds] = useState(0);
+  const groupScreenStreamRef = useRef<MediaStream | null>(null);
   const [showMentionPicker, setShowMentionPicker] = useState(false);
   const callStateRef = useRef<CallState | null>(null);
   const messagesPaneRef = useRef<HTMLDivElement>(null);
