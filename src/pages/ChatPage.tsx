@@ -51,6 +51,19 @@ interface FriendOption {
   avatarUrl: string;
 }
 
+interface GroupCallQuality {
+  latencyMs: number;
+  bitrateKbps: number;
+  packetLossPct: number;
+  status: "excellent" | "good" | "unstable" | "poor" | "unknown";
+  updatedAt?: string;
+}
+
+interface GroupCallParticipant extends FriendOption {
+  joined?: boolean;
+  quality?: GroupCallQuality;
+}
+
 interface GroupCallState {
   id: string;
   type: "audio" | "video";
@@ -59,6 +72,8 @@ interface GroupCallState {
   camOff: boolean;
   screenSharing: boolean;
   screenSharers: string[];
+  hostId?: string;
+  status?: "active" | "ended" | "missed";
 }
 
 interface PollPayload {
@@ -139,8 +154,9 @@ export default function ChatPage() {
   const [groupName, setGroupName] = useState("");
   const [creatingGroup, setCreatingGroup] = useState(false);
   const [groupCallState, setGroupCallState] = useState<GroupCallState | null>(null);
-  const [groupCallParticipants, setGroupCallParticipants] = useState<FriendOption[]>([]);
+  const [groupCallParticipants, setGroupCallParticipants] = useState<GroupCallParticipant[]>([]);
   const [groupCallSeconds, setGroupCallSeconds] = useState(0);
+  const [groupCallBusy, setGroupCallBusy] = useState(false);
   const groupScreenStreamRef = useRef<MediaStream | null>(null);
   const [showMentionPicker, setShowMentionPicker] = useState(false);
   const callStateRef = useRef<CallState | null>(null);
@@ -172,6 +188,7 @@ export default function ChatPage() {
   const callMeterFrameRef = useRef<number | null>(null);
   const callQualityTimerRef = useRef<number | null>(null);
   const callReconnectTimerRef = useRef<number | null>(null);
+  const groupQualityTimerRef = useRef<number | null>(null);
   const cancelledAudioRef = useRef(false);
   const recentTextRef = useRef<string[]>([]);
   const isNearChatBottomRef = useRef(true);
@@ -244,6 +261,77 @@ export default function ChatPage() {
     }
   };
 
+  const showGroupCallNotification = async (
+    title: string,
+    body: string,
+    callId: string,
+    conversationTargetId: string,
+    action: "started" | "ended",
+  ) => {
+    if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
+    const joinUrl = `/chat/${conversationTargetId}?groupCall=${callId}&groupAction=join`;
+    const hangupUrl = `/chat/${conversationTargetId}?groupCall=${callId}&groupAction=hangup`;
+    const baseUrl = action === "started" ? joinUrl : `/chat/${conversationTargetId}`;
+    try {
+      const reg = await navigator.serviceWorker?.getRegistration();
+      const opts: NotificationOptions & { actions?: Array<{ action: string; title: string }>; renotify?: boolean; requireInteraction?: boolean } = {
+        body,
+        icon: "/app-icon-512.png",
+        badge: "/app-icon-512.png",
+        tag: `group-call-${callId}`,
+        renotify: true,
+        requireInteraction: action === "started",
+        data: {
+          url: baseUrl,
+          actions: {
+            join: joinUrl,
+            hangup: hangupUrl,
+          },
+        },
+        actions: action === "started"
+          ? [
+              { action: "join", title: "Rejoindre" },
+              { action: "hangup", title: "Raccrocher" },
+            ]
+          : [{ action: "open", title: "Ouvrir" }],
+      };
+      if (reg?.showNotification) await reg.showNotification(title, opts);
+      else {
+        const note = new Notification(title, opts);
+        note.onclick = () => {
+          window.focus();
+          navigate(baseUrl);
+          note.close();
+        };
+      }
+    } catch {
+      // In-app realtime state remains active even if system notifications are unavailable.
+    }
+  };
+
+  const estimateGroupCallQuality = (): GroupCallQuality => {
+    const info = getConnectionInfo();
+    const latencyMs = Math.max(40, Math.round(info.rtt || (info.effectiveType === "4g" ? 80 : info.effectiveType === "3g" ? 180 : 380)));
+    const bitrateKbps = Math.max(120, Math.round((info.downlink || (info.effectiveType === "4g" ? 4.5 : info.effectiveType === "3g" ? 1.6 : 0.45)) * 1000));
+    const packetLossPct = Number((info.saveData || latencyMs > 300 ? 4.8 : latencyMs > 180 ? 2.1 : 0.6).toFixed(1));
+    const status: GroupCallQuality["status"] = latencyMs < 120 && packetLossPct < 1.2
+      ? "excellent"
+      : latencyMs < 220 && packetLossPct < 3
+        ? "good"
+        : latencyMs < 420
+          ? "unstable"
+          : "poor";
+    return { latencyMs, bitrateKbps, packetLossPct, status, updatedAt: new Date().toISOString() };
+  };
+
+  const qualityClassName = (status?: GroupCallQuality["status"]) => {
+    if (status === "excellent") return "bg-emerald-500";
+    if (status === "good") return "bg-accent";
+    if (status === "unstable") return "bg-yellow-500";
+    if (status === "poor") return "bg-destructive";
+    return "bg-muted-foreground";
+  };
+
   useEffect(() => {
     if (conversationId && user) {
       fetchMessages();
@@ -283,6 +371,9 @@ export default function ChatPage() {
         .on("postgres_changes", { event: "*", schema: "public", table: "direct_call_sessions", filter: `conversation_id=eq.${conversationId}` }, (payload) => {
           handleCallSignal(payload.new as any);
         })
+        .on("postgres_changes", { event: "*", schema: "public", table: "group_call_sessions", filter: `conversation_id=eq.${conversationId}` }, (payload: any) => {
+          void handleGroupCallSession(payload);
+        })
         .subscribe();
 
       return () => { supabase.removeChannel(channel); };
@@ -316,6 +407,38 @@ export default function ChatPage() {
     const id = window.setInterval(() => setGroupCallSeconds(Math.floor((Date.now() - started) / 1000)), 1000);
     return () => window.clearInterval(id);
   }, [groupCallState?.id]);
+
+  useEffect(() => {
+    if (!groupCallState?.id || !user) return;
+    const updateQuality = async () => {
+      const quality = estimateGroupCallQuality();
+      setGroupCallParticipants((current) => current.map((participant) => (
+        participant.id === user.id ? { ...participant, joined: true, quality } : participant
+      )));
+      try {
+        await (supabase as any)
+          .from("group_call_participants")
+          .update({
+            latency_ms: quality.latencyMs,
+            bitrate_kbps: quality.bitrateKbps,
+            packet_loss_pct: quality.packetLossPct,
+            quality_status: quality.status,
+            last_quality_at: quality.updatedAt,
+          })
+          .eq("session_id", groupCallState.id)
+          .eq("user_id", user.id);
+      } catch {
+        // Older databases without quality columns still keep the local indicator live.
+      }
+    };
+    void updateQuality();
+    if (groupQualityTimerRef.current) window.clearInterval(groupQualityTimerRef.current);
+    groupQualityTimerRef.current = window.setInterval(updateQuality, 2500);
+    return () => {
+      if (groupQualityTimerRef.current) window.clearInterval(groupQualityTimerRef.current);
+      groupQualityTimerRef.current = null;
+    };
+  }, [groupCallState?.id, user?.id]);
 
   useEffect(() => {
     const onVisibility = () => {
@@ -354,6 +477,34 @@ export default function ChatPage() {
       setSearchParams({}, { replace: true });
     })();
   }, [conversationId, searchParams, setSearchParams, user]);
+
+  useEffect(() => {
+    const groupCallId = searchParams.get("groupCall");
+    const groupAction = searchParams.get("groupAction");
+    if (!groupCallId || !conversationId || !user) return;
+    void (async () => {
+      if (groupAction === "hangup" || groupAction === "end") {
+        await endGroupCall(groupCallId, { notify: false });
+      } else {
+        await joinGroupCall(groupCallId);
+      }
+      const next = new URLSearchParams(searchParams);
+      next.delete("groupCall");
+      next.delete("groupAction");
+      setSearchParams(next, { replace: true });
+    })();
+  }, [conversationId, searchParams, setSearchParams, user]);
+
+  useEffect(() => {
+    if (!groupCallState?.id || !conversationId || !user) return;
+    const channel = supabase
+      .channel(`group-call-participants-${groupCallState.id}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "group_call_participants", filter: `session_id=eq.${groupCallState.id}` }, (payload: any) => {
+        void handleGroupCallParticipant(payload);
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [conversationId, groupCallState?.id, user?.id]);
 
   useEffect(() => {
     if (!conversationId || !user) return;
@@ -407,6 +558,8 @@ export default function ChatPage() {
       if (callMeterFrameRef.current) cancelAnimationFrame(callMeterFrameRef.current);
       if (callQualityTimerRef.current) window.clearInterval(callQualityTimerRef.current);
       if (callReconnectTimerRef.current) window.clearTimeout(callReconnectTimerRef.current);
+      if (groupQualityTimerRef.current) window.clearInterval(groupQualityTimerRef.current);
+      groupScreenStreamRef.current?.getTracks().forEach(t => t.stop());
     };
   }, []);
 
@@ -1149,29 +1302,19 @@ export default function ChatPage() {
   const createGroupConversation = async (memberIds: string[], name: string) => {
     const cleanName = name.trim() || "Groupe amis";
     try {
-      const { data: conversation, error: conversationError } = await (supabase as any)
-        .from("conversations")
-        .insert({ is_group: true, group_name: cleanName })
-        .select("id")
-        .single();
-      if (conversationError || !conversation?.id) throw conversationError || new Error("Conversation impossible");
-
-      const participants = [user?.id, ...memberIds].filter(Boolean).map((participantId) => ({
-        conversation_id: conversation.id,
-        user_id: participantId,
-      }));
-      const { error: participantError } = await (supabase as any)
-        .from("conversation_participants")
-        .insert(participants);
-      if (participantError) throw participantError;
-
-      return { data: conversation.id, error: null };
+      const { data, error } = await (supabase as any)
+        .rpc("create_group_conversation_atomic", {
+          _group_name: cleanName,
+          _member_ids: memberIds,
+        });
+      if (error || !data) throw error || new Error("Conversation impossible");
+      return { data, error: null };
     } catch (directError: any) {
       return {
         data: null,
         error: {
-          message: directError?.message?.includes("row-level security")
-            ? "Supabase bloque la creation de groupe: il faut retrouver l'acces au projet pour autoriser l'insertion."
+          message: directError?.message?.includes("Could not find the function")
+            ? "Migration Supabase requise: create_group_conversation_atomic manque dans le schema cache."
             : directError?.message || "Creation groupe impossible",
         },
       };
@@ -1223,6 +1366,164 @@ export default function ChatPage() {
     await fetchConversationMeta();
   };
 
+  const buildGroupCallState = (
+    id: string,
+    type: "audio" | "video",
+    patch: Partial<Omit<GroupCallState, "id" | "type">> = {},
+  ): GroupCallState => ({
+    id,
+    type,
+    startedAt: Date.now(),
+    micMuted: false,
+    camOff: false,
+    screenSharing: false,
+    screenSharers: [],
+    status: "active",
+    ...patch,
+  });
+
+  const refreshGroupCallParticipants = async (
+    sessionId: string,
+    type = groupCallState?.type || "audio",
+    hostId = groupCallState?.hostId,
+  ) => {
+    const { data } = await (supabase as any)
+      .from("group_call_participants")
+      .select("*")
+      .eq("session_id", sessionId)
+      .order("joined_at", { ascending: true });
+    const rows = data || [];
+    const rowsByUser = new Map(rows.map((row: any) => [row.user_id, row]));
+    const fallback = conversationParticipants.slice(0, 5);
+    const orderedIds = Array.from(new Set([
+      user?.id,
+      hostId,
+      ...rows.map((row: any) => row.user_id),
+      ...fallback.map((participant) => participant.id),
+    ].filter(Boolean) as string[])).slice(0, 5);
+    const byId = new Map(conversationParticipants.map((participant) => [participant.id, participant]));
+    if (user) byId.set(user.id, { id: user.id, username: "toi", displayName: "Toi", avatarUrl: "" });
+    setGroupCallState((current) => buildGroupCallState(sessionId, type, {
+      startedAt: current?.id === sessionId ? current.startedAt : Date.now(),
+      micMuted: current?.id === sessionId ? current.micMuted : false,
+      camOff: current?.id === sessionId ? current.camOff : false,
+      screenSharing: current?.id === sessionId ? current.screenSharing : false,
+      screenSharers: current?.id === sessionId ? current.screenSharers : [],
+      hostId,
+      status: "active",
+    }));
+    setGroupCallParticipants(orderedIds.map((id) => {
+      const participant = byId.get(id) || { id, username: "user", displayName: "Utilisateur", avatarUrl: "" };
+      const row = rowsByUser.get(id) as any;
+      return {
+        ...participant,
+        joined: !!row && !row.left_at,
+        quality: {
+          latencyMs: Number(row?.latency_ms || 0),
+          bitrateKbps: Number(row?.bitrate_kbps || 0),
+          packetLossPct: Number(row?.packet_loss_pct || 0),
+          status: (row?.quality_status || "unknown") as GroupCallQuality["status"],
+          updatedAt: row?.last_quality_at || undefined,
+        },
+      };
+    }));
+  };
+
+  const notifyGroupCallMembers = async (sessionId: string, type: "audio" | "video", status: "started" | "ended") => {
+    if (!conversationId || !user) return;
+    const targets = conversationParticipants.filter((participant) => participant.id !== user.id).slice(0, 20);
+    const content = status === "started"
+      ? `Appel de groupe ${type === "video" ? "video" : "audio"} demarre`
+      : "Appel de groupe termine";
+    if (targets.length > 0) {
+      await supabase.from("notifications").insert(targets.map((target) => ({
+        user_id: target.id,
+        from_user_id: user.id,
+        type: "message",
+        content,
+        reference_id: conversationId,
+      })));
+    }
+    await showGroupCallNotification(
+      status === "started" ? "Appel de groupe" : "Appel groupe termine",
+      status === "started" ? `${otherUserName}: ${content}` : `${otherUserName}: l'appel est termine`,
+      sessionId,
+      conversationId,
+      status,
+    );
+  };
+
+  const joinGroupCall = async (sessionId: string, knownType?: "audio" | "video") => {
+    if (!conversationId || !user) return;
+    setGroupCallBusy(true);
+    try {
+      const { data: session, error } = await (supabase as any)
+        .from("group_call_sessions")
+        .select("*")
+        .eq("id", sessionId)
+        .eq("conversation_id", conversationId)
+        .maybeSingle();
+      if (error || !session || session.status !== "active") throw error || new Error("Appel groupe termine");
+      const type = (session.call_type === "video" ? "video" : knownType || "audio") as "audio" | "video";
+      setGroupCallState(buildGroupCallState(session.id, type, {
+        hostId: session.host_id,
+        status: "active",
+        startedAt: session.created_at ? new Date(session.created_at).getTime() : Date.now(),
+      }));
+      const stream = type === "video"
+        ? await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } }, audio: true })
+        : await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+      callStreamRef.current = stream;
+      if (groupLocalVideoRef.current && type === "video") {
+        groupLocalVideoRef.current.srcObject = stream;
+        groupLocalVideoRef.current.play().catch(() => {});
+      }
+      const quality = estimateGroupCallQuality();
+      await (supabase as any).from("group_call_participants").upsert({
+        session_id: session.id,
+        user_id: user.id,
+        joined_at: new Date().toISOString(),
+        left_at: null,
+        latency_ms: quality.latencyMs,
+        bitrate_kbps: quality.bitrateKbps,
+        packet_loss_pct: quality.packetLossPct,
+        quality_status: quality.status,
+        last_quality_at: quality.updatedAt,
+      }, { onConflict: "session_id,user_id" });
+      await refreshGroupCallParticipants(session.id, type, session.host_id);
+      toast.success("Appel groupe rejoint");
+    } catch (err: any) {
+      toast.error(err?.message || "Impossible de rejoindre l'appel groupe");
+    } finally {
+      setGroupCallBusy(false);
+    }
+  };
+
+  const handleGroupCallSession = async (payload: any) => {
+    const session = payload?.new || payload?.old;
+    if (!session?.id || session.conversation_id !== conversationId) return;
+    if (payload.eventType === "INSERT" && session.status === "active" && session.host_id !== user?.id) {
+      await refreshGroupCallParticipants(session.id, session.call_type === "video" ? "video" : "audio", session.host_id);
+      await showGroupCallNotification("Appel de groupe", `${otherUserName}: appuie pour rejoindre`, session.id, session.conversation_id, "started");
+      return;
+    }
+    if (session.status === "ended" || payload.eventType === "DELETE") {
+      if (groupCallState?.id === session.id) await endGroupCall(session.id, { notify: false, remote: true });
+      await showGroupCallNotification("Appel groupe termine", `${otherUserName}: appel termine`, session.id, session.conversation_id, "ended");
+      return;
+    }
+    if (session.status === "active") {
+      await refreshGroupCallParticipants(session.id, session.call_type === "video" ? "video" : "audio", session.host_id);
+    }
+  };
+
+  const handleGroupCallParticipant = async (payload: any) => {
+    const row = payload?.new || payload?.old;
+    const sessionId = row?.session_id;
+    if (!sessionId || sessionId !== groupCallState?.id) return;
+    await refreshGroupCallParticipants(sessionId);
+  };
+
   const startGroupCall = async (type: "audio" | "video") => {
     if (!conversationId || !user || !isGroupConversation) return;
     const members = conversationParticipants.filter((p) => p.id !== user.id).slice(0, 4);
@@ -1231,8 +1532,10 @@ export default function ChatPage() {
       return;
     }
     const callId = crypto.randomUUID();
-    setGroupCallState({ id: callId, type, startedAt: Date.now(), micMuted: false, camOff: false, screenSharing: false, screenSharers: [] });
-    setGroupCallParticipants([{ id: user.id, username: "toi", displayName: "Toi", avatarUrl: "" }, ...members].slice(0, 5));
+    setGroupCallBusy(true);
+    const quality = estimateGroupCallQuality();
+    setGroupCallState(buildGroupCallState(callId, type, { hostId: user.id, status: "active" }));
+    setGroupCallParticipants([{ id: user.id, username: "toi", displayName: "Toi", avatarUrl: "", joined: true, quality }, ...members].slice(0, 5));
     try {
       if (type === "video") {
         const stream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } }, audio: true });
@@ -1258,20 +1561,48 @@ export default function ChatPage() {
         session_id: callId,
         user_id: user.id,
         joined_at: new Date().toISOString(),
+        left_at: null,
+        latency_ms: quality.latencyMs,
+        bitrate_kbps: quality.bitrateKbps,
+        packet_loss_pct: quality.packetLossPct,
+        quality_status: quality.status,
+        last_quality_at: quality.updatedAt,
       }, { onConflict: "session_id,user_id" });
-      await sendStructuredMessage(`Appel de groupe ${type === "video" ? "video" : "audio"} lance: 5 participants max`);
-    } catch {
+      await notifyGroupCallMembers(callId, type, "started");
+      await sendStructuredMessage(`Appel de groupe ${type === "video" ? "video" : "audio"} lance: rejoins depuis la notification ou ce chat`);
+    } catch (err: any) {
       setGroupCallState(null);
-      toast.error(type === "video" ? "Autorise camera et micro" : "Autorise le micro");
+      setGroupCallParticipants([]);
+      toast.error(err?.message || (type === "video" ? "Autorise camera et micro" : "Autorise le micro"));
+    } finally {
+      setGroupCallBusy(false);
     }
   };
 
-  const endGroupCall = async () => {
+  const endGroupCall = async (sessionId = groupCallState?.id, opts: { notify?: boolean; remote?: boolean } = {}) => {
+    if (groupQualityTimerRef.current) window.clearInterval(groupQualityTimerRef.current);
+    groupQualityTimerRef.current = null;
     callStreamRef.current?.getTracks().forEach((track) => track.stop());
     callStreamRef.current = null;
     if (groupScreenStreamRef.current) {
       groupScreenStreamRef.current.getTracks().forEach((t) => t.stop());
       groupScreenStreamRef.current = null;
+    }
+    if (sessionId && user && !opts.remote) {
+      try {
+        const isHost = groupCallState?.hostId === user.id;
+        await (supabase as any)
+          .from("group_call_participants")
+          .update({ left_at: new Date().toISOString() })
+          .eq("session_id", sessionId)
+          .eq("user_id", user.id);
+        if (isHost) {
+          await (supabase as any).from("group_call_sessions").update({ status: "ended", ended_at: new Date().toISOString() }).eq("id", sessionId);
+        }
+        if (isHost && opts.notify !== false) await notifyGroupCallMembers(sessionId, groupCallState?.type || "audio", "ended");
+      } catch {
+        // Local cleanup must always win so the user can leave the call.
+      }
     }
     setGroupCallState(null);
     setGroupCallParticipants([]);
@@ -2813,7 +3144,7 @@ export default function ChatPage() {
                           <div className="grid h-full w-full place-items-center overflow-hidden rounded-full bg-secondary text-xs font-black text-foreground ring-2 ring-primary/40">
                             {participant.avatarUrl ? <img src={participant.avatarUrl} alt="" className="h-full w-full object-cover" /> : (participant.displayName[0] || "?").toUpperCase()}
                           </div>
-                          <span className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-card bg-emerald-500" title="Connecté" />
+                          <span className={`absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-card ${qualityClassName(participant.quality?.status)}`} title="Connecte" />
                           {isSharing && (
                             <span className="absolute -top-1 -right-1 grid h-4 w-4 place-items-center rounded-full bg-primary text-primary-foreground shadow" title="Partage d'écran">
                               <ScreenShare className="h-2.5 w-2.5" />
@@ -2826,6 +3157,11 @@ export default function ChatPage() {
                           )}
                         </div>
                         <p className="mt-1 truncate text-[10px] text-muted-foreground">{isMe ? "Toi" : participant.displayName}</p>
+                        {participant.joined && (
+                          <p className="truncate text-[9px] text-muted-foreground">
+                            {participant.quality?.latencyMs || 0}ms {participant.quality?.packetLossPct || 0}%
+                          </p>
+                        )}
                       </div>
                     );
                   })}
@@ -2842,7 +3178,7 @@ export default function ChatPage() {
                   <motion.button whileTap={{ scale: 0.9 }} type="button" onClick={toggleGroupScreenShare} className={`grid h-12 w-12 place-items-center rounded-full transition ${groupCallState.screenSharing ? "bg-primary text-primary-foreground" : "bg-secondary text-foreground"}`} aria-label="Partage d'écran">
                     {groupCallState.screenSharing ? <ScreenShareOff className="h-5 w-5" /> : <ScreenShare className="h-5 w-5" />}
                   </motion.button>
-                  <motion.button whileTap={{ scale: 0.9 }} type="button" onClick={endGroupCall} className="grid h-14 w-14 place-items-center rounded-full bg-destructive text-destructive-foreground shadow-lg" aria-label="Quitter l'appel groupe">
+                  <motion.button whileTap={{ scale: 0.9 }} type="button" onClick={() => endGroupCall()} className="grid h-14 w-14 place-items-center rounded-full bg-destructive text-destructive-foreground shadow-lg" aria-label="Quitter l'appel groupe">
                     <PhoneOff className="h-6 w-6" />
                   </motion.button>
                 </div>

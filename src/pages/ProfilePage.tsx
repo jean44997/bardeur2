@@ -116,12 +116,13 @@ export default function ProfilePage() {
       canSeePerformanceStats ? supabase.from("videos").select("likes_count, views_count").eq("user_id", userId) : Promise.resolve({ data: [] as any[] }),
       supabase.from("videos").select("*", { count: "exact", head: true }).eq("user_id", userId),
     ]);
+    const performanceRows = (totalLikes.data || []) as Array<{ likes_count?: number | null; views_count?: number | null }>;
     setStats({
       followers: followers.count || 0,
       following: following.count || 0,
-      likes: canSeePerformanceStats ? (totalLikes.data as any[])?.reduce((sum: number, v: any) => sum + Math.max(0, v.likes_count || 0), 0) || 0 : 0,
+      likes: canSeePerformanceStats ? performanceRows.reduce((sum, v) => sum + Math.max(0, v.likes_count || 0), 0) : 0,
       videos: videoData.count || 0,
-      views: canSeePerformanceStats ? (totalLikes.data as any[])?.reduce((sum: number, v: any) => sum + Math.max(0, v.views_count || 0), 0) || 0 : 0,
+      views: canSeePerformanceStats ? performanceRows.reduce((sum, v) => sum + Math.max(0, v.views_count || 0), 0) : 0,
     });
   };
 

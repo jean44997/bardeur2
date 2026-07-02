@@ -13,12 +13,26 @@ interface IncomingCallNotice {
   callerId: string;
   callType: "audio" | "video";
   callerName: string;
+  mode: "direct" | "group";
 }
 
 type DirectCallSession = Tables<"direct_call_sessions">;
 type MessageNotification = Tables<"notifications">;
 type CallerProfile = Pick<Tables<"profiles">, "username" | "display_name" | "avatar_url">;
 type WindowWithWebkitAudio = Window & typeof globalThis & { webkitAudioContext?: typeof AudioContext };
+type NotificationActionOptions = NotificationOptions & {
+  actions?: Array<{ action: string; title: string; icon?: string }>;
+  renotify?: boolean;
+  requireInteraction?: boolean;
+};
+
+interface GroupCallSession {
+  id: string;
+  conversation_id: string;
+  host_id: string;
+  call_type: "audio" | "video" | string;
+  status: "active" | "ended" | "missed" | string;
+}
 
 export default function GlobalCallListener() {
   const { user } = useAuth();
@@ -94,7 +108,7 @@ export default function GlobalCallListener() {
       try {
         const reg = await navigator.serviceWorker?.getRegistration();
         const title = call.call_type === "video" ? "Appel video entrant" : "Appel audio entrant";
-        const opts: NotificationOptions & { renotify?: boolean } = {
+        const opts: NotificationActionOptions = {
           body: `${callerName} t'appelle`,
           icon: icon || "/app-icon-512.png",
           badge: "/app-icon-512.png",
@@ -129,10 +143,71 @@ export default function GlobalCallListener() {
         callerId: call.caller_id,
         callType: call.call_type === "video" ? "video" : "audio",
         callerName,
+        mode: "direct",
       });
       startRing();
       navigator.vibrate?.([220, 90, 220, 90, 220, 90, 220]);
       void notifyIncomingCall(call, callerName, profile?.avatar_url);
+    };
+
+    const notifyIncomingGroupCall = async (call: GroupCallSession, callerName: string, icon?: string | null) => {
+      if (!call?.id || typeof Notification === "undefined" || Notification.permission !== "granted") return;
+      if (notifiedIdsRef.current.has(`group-${call.id}`)) return;
+      notifiedIdsRef.current.add(`group-${call.id}`);
+      const joinUrl = `/chat/${call.conversation_id}?groupCall=${call.id}&groupAction=join`;
+      const hangupUrl = `/chat/${call.conversation_id}?groupCall=${call.id}&groupAction=hangup`;
+      try {
+        const reg = await navigator.serviceWorker?.getRegistration();
+        const opts: NotificationActionOptions = {
+          body: `${callerName} a lance un appel de groupe`,
+          icon: icon || "/app-icon-512.png",
+          badge: "/app-icon-512.png",
+          tag: `group-call-${call.id}`,
+          renotify: true,
+          requireInteraction: true,
+          data: {
+            url: joinUrl,
+            actions: {
+              join: joinUrl,
+              hangup: hangupUrl,
+            },
+          },
+          actions: [
+            { action: "join", title: "Rejoindre" },
+            { action: "hangup", title: "Raccrocher" },
+          ],
+        };
+        if (reg?.showNotification) await reg.showNotification(call.call_type === "video" ? "Appel video groupe" : "Appel audio groupe", opts);
+        else {
+          const note = new Notification(call.call_type === "video" ? "Appel video groupe" : "Appel audio groupe", opts);
+          note.onclick = () => {
+            window.focus();
+            navigate(joinUrl);
+            note.close();
+          };
+        }
+      } catch {
+        // The in-app modal and vibration still warn the user.
+      }
+    };
+
+    const showIncomingGroupCall = async (call: GroupCallSession | null) => {
+      if (!call || call.status !== "active" || call.host_id === user.id) return;
+      if (incomingIdRef.current === call.id) return;
+      const { data: caller } = await supabase.from("profiles").select("username, display_name, avatar_url").eq("id", call.host_id).maybeSingle();
+      const profile = caller as CallerProfile | null;
+      const callerName = profile?.display_name || profile?.username || "Utilisateur";
+      setIncoming({
+        id: call.id,
+        conversationId: call.conversation_id,
+        callerId: call.host_id,
+        callType: call.call_type === "video" ? "video" : "audio",
+        callerName,
+        mode: "group",
+      });
+      startRing();
+      navigator.vibrate?.([220, 90, 220, 90, 220, 90, 220]);
+      void notifyIncomingGroupCall(call, callerName, profile?.avatar_url);
     };
 
     const channel = supabase
@@ -143,6 +218,26 @@ export default function GlobalCallListener() {
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "notifications", filter: `user_id=eq.${user.id}` }, async (payload) => {
         const notification = payload.new as MessageNotification;
         if (!notification?.reference_id || !String(notification?.content || "").toLowerCase().includes("appel")) return;
+        if (String(notification.content || "").toLowerCase().includes("groupe")) {
+          if (String(notification.content || "").toLowerCase().includes("termine")) {
+            if (incomingIdRef.current) {
+              setIncoming(null);
+              stopRing();
+            }
+            toast.info("Appel de groupe termine");
+            return;
+          }
+          const { data: groupCall } = await (supabase as any)
+            .from("group_call_sessions")
+            .select("*")
+            .eq("conversation_id", notification.reference_id)
+            .eq("status", "active")
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          if (groupCall) await showIncomingGroupCall(groupCall as GroupCallSession);
+          return;
+        }
         const { data: call } = await supabase
           .from("direct_call_sessions")
           .select("*")
@@ -174,6 +269,15 @@ export default function GlobalCallListener() {
         .limit(1)
         .maybeSingle();
       if (call) await showIncomingCall(call);
+      if (incomingIdRef.current) return;
+      const { data: groupCall } = await (supabase as any)
+        .from("group_call_sessions")
+        .select("*")
+        .eq("status", "active")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (groupCall) await showIncomingGroupCall(groupCall as GroupCallSession);
     }, 4500);
 
     return () => {
@@ -188,16 +292,22 @@ export default function GlobalCallListener() {
     stopRing();
     const call = incoming;
     setIncoming(null);
-    navigate(`/chat/${call.conversationId}?call=${call.id}&answer=1`);
+    if (call.mode === "group") navigate(`/chat/${call.conversationId}?groupCall=${call.id}&groupAction=join`);
+    else navigate(`/chat/${call.conversationId}?call=${call.id}&answer=1`);
   };
 
   const decline = async () => {
     if (!incoming) return;
     const callId = incoming.id;
+    const mode = incoming.mode;
     setIncoming(null);
     stopRing();
-    await supabase.from("direct_call_sessions").update({ status: "declined", ended_at: new Date().toISOString() }).eq("id", callId);
-    toast.info("Appel refuse");
+    if (mode === "direct") {
+      await supabase.from("direct_call_sessions").update({ status: "declined", ended_at: new Date().toISOString() }).eq("id", callId);
+      toast.info("Appel refuse");
+    } else {
+      toast.info("Invitation groupe ignoree");
+    }
   };
 
   return (
@@ -214,7 +324,11 @@ export default function GlobalCallListener() {
               {incoming.callType === "video" ? <Video className="h-8 w-8" /> : <BellRing className="h-8 w-8" />}
             </div>
             <p className="text-lg font-bold text-foreground">{incoming.callerName}</p>
-            <p className="mt-1 text-xs font-semibold text-primary">{incoming.callType === "video" ? "Appel video entrant" : "Appel audio entrant"}</p>
+            <p className="mt-1 text-xs font-semibold text-primary">
+              {incoming.mode === "group"
+                ? (incoming.callType === "video" ? "Appel video groupe" : "Appel audio groupe")
+                : (incoming.callType === "video" ? "Appel video entrant" : "Appel audio entrant")}
+            </p>
             <div className="mt-5 flex items-center justify-center gap-5">
               <button type="button" onClick={decline} className="grid h-14 w-14 place-items-center rounded-full bg-destructive text-destructive-foreground" aria-label="Refuser l'appel">
                 <PhoneOff className="h-6 w-6" />

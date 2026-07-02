@@ -1,4 +1,4 @@
-const CACHE_VERSION = "bardeur-pwa-v3";
+const CACHE_VERSION = "bardeur-pwa-v4";
 const APP_SHELL = [
   "/",
   "/offline.html",
@@ -18,7 +18,7 @@ const SENSITIVE_PATHS = [
 ];
 
 const SECURITY_HEADERS = {
-  "X-Bardeur-Cache": "pwa-v3",
+  "X-Bardeur-Cache": "pwa-v4",
   "X-Bardeur-Offline": "safe-shell"
 };
 
@@ -86,7 +86,8 @@ self.addEventListener("fetch", (event) => {
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  const targetUrl = event.notification?.data?.url || "/inbox";
+  const data = event.notification?.data || {};
+  const targetUrl = (event.action && data.actions?.[event.action]) || data.url || "/inbox";
   const url = new URL(targetUrl, self.location.origin).href;
   event.waitUntil(
     self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
