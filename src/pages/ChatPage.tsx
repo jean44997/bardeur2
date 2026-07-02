@@ -10,6 +10,7 @@ import { getBestAudioRecorderOptions, getConnectionInfo } from "@/lib/mediaCapab
 import { checkClientRateLimit, formatRetryAfter } from "@/lib/clientRateLimit";
 import { looksLikeRepeatedSpam, validateUploadFile, validateUserText } from "@/lib/contentSafety";
 import { decryptMessageContent, encryptMessageContent, isEncryptedContent } from "@/lib/messageCrypto";
+import { startBackgroundCallKeepalive, stopBackgroundCallKeepalive } from "@/lib/backgroundCall";
 
 interface Message {
   id: string;
@@ -286,9 +287,18 @@ export default function ChatPage() {
     if (callState) {
       void requestCallWakeLock();
       if (document.visibilityState === "visible") backgroundCallNoticeRef.current = false;
+      if (callState.status === "connected") {
+        startBackgroundCallKeepalive({
+          title: callState.type === "video" ? "Appel video en cours" : "Appel audio en cours",
+          peerName: otherUserName || "Contact",
+          peerAvatar: null,
+          onHangup: () => { void endCall(); },
+        });
+      }
       return;
     }
     backgroundCallNoticeRef.current = false;
+    stopBackgroundCallKeepalive();
     void releaseCallWakeLock();
   }, [callState]);
 
