@@ -1221,7 +1221,7 @@ export default function ChatPage() {
       return;
     }
     const callId = crypto.randomUUID();
-    setGroupCallState({ id: callId, type });
+    setGroupCallState({ id: callId, type, startedAt: Date.now(), micMuted: false, camOff: false, screenSharing: false, screenSharers: [] });
     setGroupCallParticipants([{ id: user.id, username: "toi", displayName: "Toi", avatarUrl: "" }, ...members].slice(0, 5));
     try {
       if (type === "video") {
