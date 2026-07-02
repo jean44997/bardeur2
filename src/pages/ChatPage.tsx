@@ -520,10 +520,10 @@ export default function ChatPage() {
       pendingAutoScrollRef.current = !silent || isNearChatBottom();
       let { data, error } = await supabase
         .from("messages")
-        .select("id, content, sender_id, created_at, is_read, media_url, media_type, reply_to_id, reply_preview")
+        .select("id, content, sender_id, created_at, is_read, media_url, media_type, reply_to_id, reply_preview" as any)
         .eq("conversation_id", conversationId)
         .order("created_at", { ascending: false })
-        .limit(160);
+        .limit(160) as any;
       if (error) {
         const fallback = await supabase
           .from("messages")
@@ -531,7 +531,7 @@ export default function ChatPage() {
           .eq("conversation_id", conversationId)
           .order("created_at", { ascending: false })
           .limit(160);
-        data = fallback.data;
+        data = fallback.data as any;
         error = fallback.error;
       }
       if (error) throw error;
