@@ -94,7 +94,7 @@ export default function GlobalCallListener() {
       try {
         const reg = await navigator.serviceWorker?.getRegistration();
         const title = call.call_type === "video" ? "Appel video entrant" : "Appel audio entrant";
-        const opts: NotificationOptions = {
+        const opts: NotificationOptions & { renotify?: boolean } = {
           body: `${callerName} t'appelle`,
           icon: icon || "/app-icon-512.png",
           badge: "/app-icon-512.png",

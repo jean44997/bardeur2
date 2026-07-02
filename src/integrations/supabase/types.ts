@@ -1471,9 +1471,11 @@ export type Database = {
           display_name: string | null
           id: string | null
           is_private: boolean | null
-          updated_at: string | null
+          thought_of_day: string | null
+          thought_updated_at: string | null
           username: string | null
           website: string | null
+          xp_total: number | null
         }
         Insert: {
           avatar_url?: string | null
@@ -1482,9 +1484,11 @@ export type Database = {
           display_name?: string | null
           id?: string | null
           is_private?: boolean | null
-          updated_at?: string | null
+          thought_of_day?: string | null
+          thought_updated_at?: string | null
           username?: string | null
           website?: string | null
+          xp_total?: number | null
         }
         Update: {
           avatar_url?: string | null
@@ -1493,9 +1497,11 @@ export type Database = {
           display_name?: string | null
           id?: string | null
           is_private?: boolean | null
-          updated_at?: string | null
+          thought_of_day?: string | null
+          thought_updated_at?: string | null
           username?: string | null
           website?: string | null
+          xp_total?: number | null
         }
         Relationships: []
       }
