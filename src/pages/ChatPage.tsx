@@ -310,6 +310,14 @@ export default function ChatPage() {
   }, [callState]);
 
   useEffect(() => {
+    if (!groupCallState) { setGroupCallSeconds(0); return; }
+    const started = groupCallState.startedAt;
+    setGroupCallSeconds(Math.floor((Date.now() - started) / 1000));
+    const id = window.setInterval(() => setGroupCallSeconds(Math.floor((Date.now() - started) / 1000)), 1000);
+    return () => window.clearInterval(id);
+  }, [groupCallState?.id]);
+
+  useEffect(() => {
     const onVisibility = () => {
       if (document.visibilityState === "visible") {
         backgroundCallNoticeRef.current = false;
