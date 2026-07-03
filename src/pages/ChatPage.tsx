@@ -1600,13 +1600,20 @@ export default function ChatPage() {
     if (!session?.id || session.conversation_id !== conversationId) return;
     if (payload.eventType === "INSERT" && session.status === "active" && session.host_id !== user?.id) {
       await refreshGroupCallParticipants(session.id, session.call_type === "video" ? "video" : "audio", session.host_id);
+      setGroupIncomingRing({ sessionId: session.id, type: session.call_type === "video" ? "video" : "audio", hostId: session.host_id });
       await showGroupCallNotification("Appel de groupe", `${otherUserName}: appuie pour rejoindre`, session.id, session.conversation_id, "started");
       return;
     }
     if (session.status === "ended" || payload.eventType === "DELETE") {
+      setGroupIncomingRing((current) => (current?.sessionId === session.id ? null : current));
       if (groupCallState?.id === session.id) await endGroupCall(session.id, { notify: false, remote: true });
       await showGroupCallNotification("Appel groupe termine", `${otherUserName}: appel termine`, session.id, session.conversation_id, "ended");
       return;
+    }
+    if (payload.eventType === "UPDATE" && session.preferred_quality && groupCallState?.id === session.id) {
+      const q = session.preferred_quality as QualityTier;
+      if (q !== preferredQualityRef.current) await applyLocalCallQuality(q);
+      setQualityLocked(!!session.quality_locked);
     }
     if (session.status === "active") {
       await refreshGroupCallParticipants(session.id, session.call_type === "video" ? "video" : "audio", session.host_id);
