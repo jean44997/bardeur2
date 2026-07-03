@@ -1567,7 +1567,7 @@ export default function ChatPage() {
         startedAt: session.created_at ? new Date(session.created_at).getTime() : Date.now(),
       }));
       const stream = type === "video"
-        ? await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } }, audio: true })
+        ? await navigator.mediaDevices.getUserMedia({ video: qualityToConstraints(preferredQualityRef.current), audio: true })
         : await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
       callStreamRef.current = stream;
       if (groupLocalVideoRef.current && type === "video") {
