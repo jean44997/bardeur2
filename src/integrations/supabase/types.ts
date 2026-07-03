@@ -1507,6 +1507,10 @@ export type Database = {
       }
     }
     Functions: {
+      add_friend_group_members: {
+        Args: { _conversation_id: string; _member_ids: string[] }
+        Returns: number
+      }
       add_profile_xp: {
         Args: { _profile_id: string; _xp: number }
         Returns: undefined
@@ -1516,6 +1520,14 @@ export type Database = {
         Returns: boolean
       }
       cleanup_expired_stories: { Args: never; Returns: number }
+      create_group_conversation_atomic: {
+        Args: { _group_name: string; _member_ids: string[] }
+        Returns: string
+      }
+      delete_friend_group_conversation: {
+        Args: { _conversation_id: string }
+        Returns: boolean
+      }
       find_or_create_direct_conversation: {
         Args: { _other_user_id: string }
         Returns: string
