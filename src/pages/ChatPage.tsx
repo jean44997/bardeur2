@@ -515,6 +515,93 @@ export default function ChatPage() {
     return () => { supabase.removeChannel(channel); };
   }, [conversationId, groupCallState?.id, user?.id]);
 
+  // Load memorized preferred quality on mount
+  useEffect(() => {
+    if (!user) return;
+    void (async () => {
+      const { data } = await (supabase as any)
+        .from("user_call_preferences").select("preferred_quality").eq("user_id", user.id).maybeSingle();
+      const q = (data?.preferred_quality as QualityTier | undefined) || "auto";
+      preferredQualityRef.current = q;
+      setPreferredQuality(q);
+    })();
+  }, [user?.id]);
+
+  // Presence + typing broadcast channel (works for direct and group)
+  useEffect(() => {
+    if (!conversationId || !user) return;
+    const ch = supabase.channel(`chat-presence-${conversationId}`, {
+      config: { broadcast: { self: false }, presence: { key: user.id } },
+    });
+    ch.on("broadcast", { event: "typing" }, (payload: any) => {
+      const { userId, name } = payload.payload || {};
+      if (!userId || userId === user.id) return;
+      setTypingUsers((current) => ({ ...current, [userId]: { name: name || "Quelqu'un", ts: Date.now() } }));
+    });
+    ch.subscribe();
+    presenceChannelRef.current = ch;
+    const cleanup = window.setInterval(() => {
+      const now = Date.now();
+      setTypingUsers((current) => {
+        const next: typeof current = {};
+        let changed = false;
+        for (const [id, info] of Object.entries(current)) {
+          if (now - info.ts < 3500) next[id] = info; else changed = true;
+        }
+        return changed ? next : current;
+      });
+    }, 1200);
+    return () => {
+      supabase.removeChannel(ch);
+      presenceChannelRef.current = null;
+      window.clearInterval(cleanup);
+    };
+  }, [conversationId, user?.id]);
+
+  const broadcastTyping = () => {
+    if (!presenceChannelRef.current || !user) return;
+    const now = Date.now();
+    if (now - typingSentAtRef.current < 1500) return;
+    typingSentAtRef.current = now;
+    void presenceChannelRef.current.send({
+      type: "broadcast",
+      event: "typing",
+      payload: { userId: user.id, name: (user.user_metadata as any)?.display_name || (user.user_metadata as any)?.username || "Toi" },
+    });
+  };
+
+  const qualityToConstraints = (q: QualityTier) => {
+    if (q === "eco") return { width: { ideal: 640 }, height: { ideal: 360 }, frameRate: { ideal: 24 } };
+    if (q === "hd") return { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } };
+    if (q === "fhd") return { width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } };
+    return { width: { ideal: 960 }, height: { ideal: 540 }, frameRate: { ideal: 28 } };
+  };
+
+  const applyLocalCallQuality = async (q: QualityTier) => {
+    preferredQualityRef.current = q;
+    setPreferredQuality(q);
+    const track = callStreamRef.current?.getVideoTracks?.()[0];
+    if (!track) return;
+    try { await track.applyConstraints(qualityToConstraints(q)); } catch { /* device may refuse */ }
+  };
+
+  const setGroupCallQuality = async (q: QualityTier, lock?: boolean) => {
+    if (!groupCallState) return;
+    try {
+      const { error } = await (supabase as any).rpc("set_group_call_quality", {
+        _session_id: groupCallState.id,
+        _quality: q,
+        _lock: typeof lock === "boolean" ? lock : null,
+      });
+      if (error) throw error;
+      await applyLocalCallQuality(q);
+      toast.success(`Qualité: ${q.toUpperCase()}`);
+    } catch (err: any) {
+      toast.error(err?.message?.includes("locked") ? "Seul l'hôte peut changer la qualité" : "Impossible de changer la qualité");
+    }
+  };
+
+
   useEffect(() => {
     if (!conversationId || !user) return;
     const key = `chat-bg:${conversationId}:${user.id}`;
