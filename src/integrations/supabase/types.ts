@@ -647,6 +647,94 @@ export type Database = {
           },
         ]
       }
+      group_call_participants: {
+        Row: {
+          bitrate_kbps: number
+          joined_at: string
+          last_quality_at: string | null
+          latency_ms: number
+          left_at: string | null
+          packet_loss_pct: number
+          quality_status: string
+          session_id: string
+          user_id: string
+        }
+        Insert: {
+          bitrate_kbps?: number
+          joined_at?: string
+          last_quality_at?: string | null
+          latency_ms?: number
+          left_at?: string | null
+          packet_loss_pct?: number
+          quality_status?: string
+          session_id: string
+          user_id: string
+        }
+        Update: {
+          bitrate_kbps?: number
+          joined_at?: string
+          last_quality_at?: string | null
+          latency_ms?: number
+          left_at?: string | null
+          packet_loss_pct?: number
+          quality_status?: string
+          session_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "group_call_participants_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "group_call_sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      group_call_sessions: {
+        Row: {
+          call_type: string
+          conversation_id: string
+          created_at: string
+          ended_at: string | null
+          host_id: string
+          id: string
+          preferred_quality: string
+          quality_locked: boolean
+          status: string
+        }
+        Insert: {
+          call_type?: string
+          conversation_id: string
+          created_at?: string
+          ended_at?: string | null
+          host_id: string
+          id?: string
+          preferred_quality?: string
+          quality_locked?: boolean
+          status?: string
+        }
+        Update: {
+          call_type?: string
+          conversation_id?: string
+          created_at?: string
+          ended_at?: string | null
+          host_id?: string
+          id?: string
+          preferred_quality?: string
+          quality_locked?: boolean
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "group_call_sessions_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       likes: {
         Row: {
           created_at: string | null
@@ -1332,6 +1420,24 @@ export type Database = {
           },
         ]
       }
+      user_call_preferences: {
+        Row: {
+          preferred_quality: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          preferred_quality?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          preferred_quality?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       user_roles: {
         Row: {
           created_at: string | null
@@ -1574,6 +1680,10 @@ export type Database = {
             }
             Returns: string
           }
+      set_group_call_quality: {
+        Args: { _lock?: boolean; _quality: string; _session_id: string }
+        Returns: undefined
+      }
       set_thought_of_day: { Args: { _thought: string }; Returns: undefined }
     }
     Enums: {

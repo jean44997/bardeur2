@@ -11,6 +11,7 @@ import { checkClientRateLimit, formatRetryAfter } from "@/lib/clientRateLimit";
 import { looksLikeRepeatedSpam, validateUploadFile, validateUserText } from "@/lib/contentSafety";
 import { decryptMessageContent, encryptMessageContent, isEncryptedContent } from "@/lib/messageCrypto";
 import { startBackgroundCallKeepalive, stopBackgroundCallKeepalive } from "@/lib/backgroundCall";
+import { TypingBubble3D, IncomingCallBubble3D } from "@/components/Chat3DBubbles";
 
 interface Message {
   id: string;
@@ -158,6 +159,14 @@ export default function ChatPage() {
   const [groupCallSeconds, setGroupCallSeconds] = useState(0);
   const [groupCallBusy, setGroupCallBusy] = useState(false);
   const groupScreenStreamRef = useRef<MediaStream | null>(null);
+  type QualityTier = "eco" | "auto" | "hd" | "fhd";
+  const [preferredQuality, setPreferredQuality] = useState<QualityTier>("auto");
+  const [qualityLocked, setQualityLocked] = useState(true);
+  const preferredQualityRef = useRef<QualityTier>("auto");
+  const [typingUsers, setTypingUsers] = useState<Record<string, { name: string; ts: number }>>({});
+  const presenceChannelRef = useRef<any>(null);
+  const typingSentAtRef = useRef(0);
+  const [groupIncomingRing, setGroupIncomingRing] = useState<{ sessionId: string; type: "audio" | "video"; hostId: string } | null>(null);
   const [showMentionPicker, setShowMentionPicker] = useState(false);
   const callStateRef = useRef<CallState | null>(null);
   const messagesPaneRef = useRef<HTMLDivElement>(null);
@@ -505,6 +514,93 @@ export default function ChatPage() {
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [conversationId, groupCallState?.id, user?.id]);
+
+  // Load memorized preferred quality on mount
+  useEffect(() => {
+    if (!user) return;
+    void (async () => {
+      const { data } = await (supabase as any)
+        .from("user_call_preferences").select("preferred_quality").eq("user_id", user.id).maybeSingle();
+      const q = (data?.preferred_quality as QualityTier | undefined) || "auto";
+      preferredQualityRef.current = q;
+      setPreferredQuality(q);
+    })();
+  }, [user?.id]);
+
+  // Presence + typing broadcast channel (works for direct and group)
+  useEffect(() => {
+    if (!conversationId || !user) return;
+    const ch = supabase.channel(`chat-presence-${conversationId}`, {
+      config: { broadcast: { self: false }, presence: { key: user.id } },
+    });
+    ch.on("broadcast", { event: "typing" }, (payload: any) => {
+      const { userId, name } = payload.payload || {};
+      if (!userId || userId === user.id) return;
+      setTypingUsers((current) => ({ ...current, [userId]: { name: name || "Quelqu'un", ts: Date.now() } }));
+    });
+    ch.subscribe();
+    presenceChannelRef.current = ch;
+    const cleanup = window.setInterval(() => {
+      const now = Date.now();
+      setTypingUsers((current) => {
+        const next: typeof current = {};
+        let changed = false;
+        for (const [id, info] of Object.entries(current)) {
+          if (now - info.ts < 3500) next[id] = info; else changed = true;
+        }
+        return changed ? next : current;
+      });
+    }, 1200);
+    return () => {
+      supabase.removeChannel(ch);
+      presenceChannelRef.current = null;
+      window.clearInterval(cleanup);
+    };
+  }, [conversationId, user?.id]);
+
+  const broadcastTyping = () => {
+    if (!presenceChannelRef.current || !user) return;
+    const now = Date.now();
+    if (now - typingSentAtRef.current < 1500) return;
+    typingSentAtRef.current = now;
+    void presenceChannelRef.current.send({
+      type: "broadcast",
+      event: "typing",
+      payload: { userId: user.id, name: (user.user_metadata as any)?.display_name || (user.user_metadata as any)?.username || "Toi" },
+    });
+  };
+
+  const qualityToConstraints = (q: QualityTier) => {
+    if (q === "eco") return { width: { ideal: 640 }, height: { ideal: 360 }, frameRate: { ideal: 24 } };
+    if (q === "hd") return { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } };
+    if (q === "fhd") return { width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } };
+    return { width: { ideal: 960 }, height: { ideal: 540 }, frameRate: { ideal: 28 } };
+  };
+
+  const applyLocalCallQuality = async (q: QualityTier) => {
+    preferredQualityRef.current = q;
+    setPreferredQuality(q);
+    const track = callStreamRef.current?.getVideoTracks?.()[0];
+    if (!track) return;
+    try { await track.applyConstraints(qualityToConstraints(q)); } catch { /* device may refuse */ }
+  };
+
+  const setGroupCallQuality = async (q: QualityTier, lock?: boolean) => {
+    if (!groupCallState) return;
+    try {
+      const { error } = await (supabase as any).rpc("set_group_call_quality", {
+        _session_id: groupCallState.id,
+        _quality: q,
+        _lock: typeof lock === "boolean" ? lock : null,
+      });
+      if (error) throw error;
+      await applyLocalCallQuality(q);
+      toast.success(`Qualité: ${q.toUpperCase()}`);
+    } catch (err: any) {
+      toast.error(err?.message?.includes("locked") ? "Seul l'hôte peut changer la qualité" : "Impossible de changer la qualité");
+    }
+  };
+
 
   useEffect(() => {
     if (!conversationId || !user) return;
@@ -1471,7 +1567,7 @@ export default function ChatPage() {
         startedAt: session.created_at ? new Date(session.created_at).getTime() : Date.now(),
       }));
       const stream = type === "video"
-        ? await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } }, audio: true })
+        ? await navigator.mediaDevices.getUserMedia({ video: qualityToConstraints(preferredQualityRef.current), audio: true })
         : await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
       callStreamRef.current = stream;
       if (groupLocalVideoRef.current && type === "video") {
@@ -1504,13 +1600,20 @@ export default function ChatPage() {
     if (!session?.id || session.conversation_id !== conversationId) return;
     if (payload.eventType === "INSERT" && session.status === "active" && session.host_id !== user?.id) {
       await refreshGroupCallParticipants(session.id, session.call_type === "video" ? "video" : "audio", session.host_id);
+      setGroupIncomingRing({ sessionId: session.id, type: session.call_type === "video" ? "video" : "audio", hostId: session.host_id });
       await showGroupCallNotification("Appel de groupe", `${otherUserName}: appuie pour rejoindre`, session.id, session.conversation_id, "started");
       return;
     }
     if (session.status === "ended" || payload.eventType === "DELETE") {
+      setGroupIncomingRing((current) => (current?.sessionId === session.id ? null : current));
       if (groupCallState?.id === session.id) await endGroupCall(session.id, { notify: false, remote: true });
       await showGroupCallNotification("Appel groupe termine", `${otherUserName}: appel termine`, session.id, session.conversation_id, "ended");
       return;
+    }
+    if (payload.eventType === "UPDATE" && session.preferred_quality && groupCallState?.id === session.id) {
+      const q = session.preferred_quality as QualityTier;
+      if (q !== preferredQualityRef.current) await applyLocalCallQuality(q);
+      setQualityLocked(!!session.quality_locked);
     }
     if (session.status === "active") {
       await refreshGroupCallParticipants(session.id, session.call_type === "video" ? "video" : "audio", session.host_id);
@@ -1538,7 +1641,7 @@ export default function ChatPage() {
     setGroupCallParticipants([{ id: user.id, username: "toi", displayName: "Toi", avatarUrl: "", joined: true, quality }, ...members].slice(0, 5));
     try {
       if (type === "video") {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } }, audio: true });
+        const stream = await navigator.mediaDevices.getUserMedia({ video: qualityToConstraints(preferredQualityRef.current), audio: true });
         callStreamRef.current = stream;
         setTimeout(() => {
           if (groupLocalVideoRef.current) {
@@ -2436,8 +2539,17 @@ export default function ChatPage() {
     backgroundSize: "cover",
   };
 
+  const typingNames = Object.values(typingUsers).map((t) => t.name).slice(0, 3);
   return (
     <div className="app-shell-height relative flex flex-col overflow-hidden bg-background md:pl-[var(--sidebar-width,260px)]">
+      <IncomingCallBubble3D
+        visible={!!groupIncomingRing && !groupCallState}
+        name={otherUserName}
+        type={groupIncomingRing?.type || "audio"}
+        onAccept={() => { if (groupIncomingRing) { void joinGroupCall(groupIncomingRing.sessionId, groupIncomingRing.type); setGroupIncomingRing(null); } }}
+        onDismiss={() => setGroupIncomingRing(null)}
+      />
+      {isGroupConversation && <TypingBubble3D names={typingNames} />}
       <div className="glass mobile-chat-header-safe z-10 flex shrink-0 items-center gap-1.5 border-b border-border px-2 py-2 sm:gap-3 sm:px-4 sm:py-3">
         <motion.button whileTap={{ scale: 0.9 }} onClick={() => navigate("/inbox")} className="tap-target grid place-items-center rounded-full">
           <ArrowLeft className="h-5 w-5 text-foreground" />
@@ -2881,7 +2993,7 @@ export default function ChatPage() {
               <ImageIcon className="h-5 w-5 text-muted-foreground" />
             </motion.button>
             <div className="glass flex min-h-11 min-w-0 flex-1 items-center rounded-full px-4 py-2.5">
-              <input ref={messageInputRef} type="text" value={newMsg} onChange={e => setNewMsg(e.target.value)} onKeyDown={e => e.key === "Enter" && sendMessage()} onFocus={() => { setTimeout(() => scrollChatToBottom("smooth"), 280); }} placeholder={isBlocked || blockedByThem ? "Conversation bloquee" : "Message..."} disabled={isBlocked || blockedByThem} maxLength={500} enterKeyHint="send" autoComplete="off" className="min-w-0 flex-1 bg-transparent text-base leading-5 text-foreground placeholder:text-muted-foreground outline-none disabled:opacity-50" />
+              <input ref={messageInputRef} type="text" value={newMsg} onChange={e => { setNewMsg(e.target.value); if (e.target.value.trim()) broadcastTyping(); }} onKeyDown={e => e.key === "Enter" && sendMessage()} onFocus={() => { setTimeout(() => scrollChatToBottom("smooth"), 280); }} placeholder={isBlocked || blockedByThem ? "Conversation bloquee" : "Message..."} disabled={isBlocked || blockedByThem} maxLength={500} enterKeyHint="send" autoComplete="off" className="min-w-0 flex-1 bg-transparent text-base leading-5 text-foreground placeholder:text-muted-foreground outline-none disabled:opacity-50" />
             </div>
 
             {newMsg.trim() ? (
@@ -3213,6 +3325,36 @@ export default function ChatPage() {
                     <PhoneOff className="h-6 w-6" />
                   </motion.button>
                 </div>
+                {groupCallState.type === "video" && (
+                  <div className="flex flex-wrap items-center justify-center gap-1.5 pt-1">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mr-1">Qualité</span>
+                    {(["eco","auto","hd","fhd"] as const).map((q) => {
+                      const active = preferredQuality === q;
+                      const disabled = qualityLocked && groupCallState.hostId !== user?.id;
+                      return (
+                        <button
+                          key={q}
+                          type="button"
+                          disabled={disabled && !active}
+                          onClick={() => setGroupCallQuality(q)}
+                          className={`rounded-full px-2.5 py-1 text-[10px] font-black uppercase transition ${active ? "bg-primary text-primary-foreground shadow" : "bg-secondary text-foreground"} ${disabled && !active ? "opacity-40" : ""}`}
+                        >
+                          {q}
+                        </button>
+                      );
+                    })}
+                    {groupCallState.hostId === user?.id && (
+                      <button
+                        type="button"
+                        onClick={() => setGroupCallQuality(preferredQuality, !qualityLocked)}
+                        className={`ml-1 rounded-full px-2 py-1 text-[10px] font-bold transition ${qualityLocked ? "bg-amber-500/20 text-amber-500" : "bg-secondary text-muted-foreground"}`}
+                        title="Verrouiller pour tout le monde"
+                      >
+                        {qualityLocked ? "🔒 verrouillée" : "🔓 libre"}
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
             </motion.div>
           </motion.div>
