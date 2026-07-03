@@ -2354,6 +2354,7 @@ export default function ChatPage() {
       cameraTrackBeforeScreenRef.current = stream.getVideoTracks()[0] || cameraTrackBeforeScreenRef.current;
       stream.getVideoTracks().forEach(track => stream.removeTrack(track));
       stream.addTrack(screenTrack);
+      try { (screenTrack as any).contentHint = "motion"; } catch {}
       screenStreamRef.current = displayStream;
       await replaceOutgoingVideoTrack(screenTrack);
       screenTrack.onended = () => { void stopScreenShare(); };
