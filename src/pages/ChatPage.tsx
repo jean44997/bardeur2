@@ -1641,7 +1641,7 @@ export default function ChatPage() {
     setGroupCallParticipants([{ id: user.id, username: "toi", displayName: "Toi", avatarUrl: "", joined: true, quality }, ...members].slice(0, 5));
     try {
       if (type === "video") {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } }, audio: true });
+        const stream = await navigator.mediaDevices.getUserMedia({ video: qualityToConstraints(preferredQualityRef.current), audio: true });
         callStreamRef.current = stream;
         setTimeout(() => {
           if (groupLocalVideoRef.current) {
