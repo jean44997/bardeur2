@@ -159,6 +159,14 @@ export default function ChatPage() {
   const [groupCallSeconds, setGroupCallSeconds] = useState(0);
   const [groupCallBusy, setGroupCallBusy] = useState(false);
   const groupScreenStreamRef = useRef<MediaStream | null>(null);
+  type QualityTier = "eco" | "auto" | "hd" | "fhd";
+  const [preferredQuality, setPreferredQuality] = useState<QualityTier>("auto");
+  const [qualityLocked, setQualityLocked] = useState(true);
+  const preferredQualityRef = useRef<QualityTier>("auto");
+  const [typingUsers, setTypingUsers] = useState<Record<string, { name: string; ts: number }>>({});
+  const presenceChannelRef = useRef<any>(null);
+  const typingSentAtRef = useRef(0);
+  const [groupIncomingRing, setGroupIncomingRing] = useState<{ sessionId: string; type: "audio" | "video"; hostId: string } | null>(null);
   const [showMentionPicker, setShowMentionPicker] = useState(false);
   const callStateRef = useRef<CallState | null>(null);
   const messagesPaneRef = useRef<HTMLDivElement>(null);
