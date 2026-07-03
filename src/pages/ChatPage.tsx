@@ -2539,8 +2539,17 @@ export default function ChatPage() {
     backgroundSize: "cover",
   };
 
+  const typingNames = Object.values(typingUsers).map((t) => t.name).slice(0, 3);
   return (
     <div className="app-shell-height relative flex flex-col overflow-hidden bg-background md:pl-[var(--sidebar-width,260px)]">
+      <IncomingCallBubble3D
+        visible={!!groupIncomingRing && !groupCallState}
+        name={otherUserName}
+        type={groupIncomingRing?.type || "audio"}
+        onAccept={() => { if (groupIncomingRing) { void joinGroupCall(groupIncomingRing.sessionId, groupIncomingRing.type); setGroupIncomingRing(null); } }}
+        onDismiss={() => setGroupIncomingRing(null)}
+      />
+      {isGroupConversation && <TypingBubble3D names={typingNames} />}
       <div className="glass mobile-chat-header-safe z-10 flex shrink-0 items-center gap-1.5 border-b border-border px-2 py-2 sm:gap-3 sm:px-4 sm:py-3">
         <motion.button whileTap={{ scale: 0.9 }} onClick={() => navigate("/inbox")} className="tap-target grid place-items-center rounded-full">
           <ArrowLeft className="h-5 w-5 text-foreground" />
