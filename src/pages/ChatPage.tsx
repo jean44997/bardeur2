@@ -2326,11 +2326,16 @@ export default function ChatPage() {
     if (!mediaDevices?.getDisplayMedia) throw new Error("screen-capture-unsupported");
     return mediaDevices.getDisplayMedia({
       video: {
-        width: { ideal: 1920 },
-        height: { ideal: 1080 },
-        frameRate: { ideal: 30, max: 30 },
+        width: { ideal: 1920, max: 2560 },
+        height: { ideal: 1080, max: 1440 },
+        frameRate: { ideal: 30, max: 60 },
       },
-      audio: false,
+      audio: {
+        echoCancellation: false,
+        noiseSuppression: false,
+        autoGainControl: false,
+        sampleRate: 48000,
+      },
     });
   };
 
