@@ -3316,6 +3316,36 @@ export default function ChatPage() {
                     <PhoneOff className="h-6 w-6" />
                   </motion.button>
                 </div>
+                {groupCallState.type === "video" && (
+                  <div className="flex flex-wrap items-center justify-center gap-1.5 pt-1">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mr-1">Qualité</span>
+                    {(["eco","auto","hd","fhd"] as const).map((q) => {
+                      const active = preferredQuality === q;
+                      const disabled = qualityLocked && groupCallState.hostId !== user?.id;
+                      return (
+                        <button
+                          key={q}
+                          type="button"
+                          disabled={disabled && !active}
+                          onClick={() => setGroupCallQuality(q)}
+                          className={`rounded-full px-2.5 py-1 text-[10px] font-black uppercase transition ${active ? "bg-primary text-primary-foreground shadow" : "bg-secondary text-foreground"} ${disabled && !active ? "opacity-40" : ""}`}
+                        >
+                          {q}
+                        </button>
+                      );
+                    })}
+                    {groupCallState.hostId === user?.id && (
+                      <button
+                        type="button"
+                        onClick={() => setGroupCallQuality(preferredQuality, !qualityLocked)}
+                        className={`ml-1 rounded-full px-2 py-1 text-[10px] font-bold transition ${qualityLocked ? "bg-amber-500/20 text-amber-500" : "bg-secondary text-muted-foreground"}`}
+                        title="Verrouiller pour tout le monde"
+                      >
+                        {qualityLocked ? "🔒 verrouillée" : "🔓 libre"}
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
             </motion.div>
           </motion.div>
