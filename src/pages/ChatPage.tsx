@@ -1637,27 +1637,52 @@ export default function ChatPage() {
         groupLocalVideoRef.current.srcObject = callStreamRef.current;
         groupLocalVideoRef.current.play().catch(() => {});
       }
+      toast.success("Partage d'écran arrêté");
+      return;
+    }
+    const md: any = navigator.mediaDevices;
+    if (!md?.getDisplayMedia) {
+      toast.error("Partage d'écran non supporté sur ce navigateur");
       return;
     }
     try {
-      const screen = await (navigator.mediaDevices as any).getDisplayMedia({ video: { frameRate: 30 }, audio: false });
+      const screen: MediaStream = await md.getDisplayMedia({
+        video: {
+          frameRate: { ideal: 30, max: 60 },
+          width: { ideal: 1920, max: 2560 },
+          height: { ideal: 1080, max: 1440 },
+        },
+        audio: {
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
+          sampleRate: 48000,
+        },
+      });
+      const vTrack = screen.getVideoTracks()[0];
+      try { (vTrack as any).contentHint = "motion"; } catch {}
+      try { await (vTrack as any).applyConstraints?.({ frameRate: 30 }); } catch {}
+
       groupScreenStreamRef.current = screen;
-      screen.getVideoTracks()[0].addEventListener("ended", () => {
+      vTrack.addEventListener("ended", () => {
         groupScreenStreamRef.current = null;
         setGroupCallState((prev) => prev ? { ...prev, screenSharing: false, screenSharers: prev.screenSharers.filter((id) => id !== user?.id) } : prev);
         if (groupLocalVideoRef.current && callStreamRef.current) {
           groupLocalVideoRef.current.srcObject = callStreamRef.current;
           groupLocalVideoRef.current.play().catch(() => {});
         }
+        toast.info("Partage d'écran terminé");
       });
       if (groupLocalVideoRef.current) {
         groupLocalVideoRef.current.srcObject = screen;
         groupLocalVideoRef.current.play().catch(() => {});
       }
       setGroupCallState((prev) => prev ? { ...prev, screenSharing: true, screenSharers: [...prev.screenSharers.filter((id) => id !== user?.id), user?.id || ""] } : prev);
-      toast.success("Partage d'écran actif");
-    } catch {
-      toast.error("Partage d'écran refusé");
+      toast.success(screen.getAudioTracks().length ? "Partage d'écran + audio actif" : "Partage d'écran actif");
+    } catch (err: any) {
+      if (err?.name === "NotAllowedError") toast.error("Autorisation refusée pour le partage d'écran");
+      else if (err?.name === "NotFoundError") toast.error("Aucun écran disponible à partager");
+      else toast.error("Partage d'écran impossible");
     }
   };
 
@@ -2301,11 +2326,16 @@ export default function ChatPage() {
     if (!mediaDevices?.getDisplayMedia) throw new Error("screen-capture-unsupported");
     return mediaDevices.getDisplayMedia({
       video: {
-        width: { ideal: 1920 },
-        height: { ideal: 1080 },
-        frameRate: { ideal: 30, max: 30 },
+        width: { ideal: 1920, max: 2560 },
+        height: { ideal: 1080, max: 1440 },
+        frameRate: { ideal: 30, max: 60 },
       },
-      audio: false,
+      audio: {
+        echoCancellation: false,
+        noiseSuppression: false,
+        autoGainControl: false,
+        sampleRate: 48000,
+      },
     });
   };
 
@@ -2324,6 +2354,7 @@ export default function ChatPage() {
       cameraTrackBeforeScreenRef.current = stream.getVideoTracks()[0] || cameraTrackBeforeScreenRef.current;
       stream.getVideoTracks().forEach(track => stream.removeTrack(track));
       stream.addTrack(screenTrack);
+      try { (screenTrack as any).contentHint = "motion"; } catch {}
       screenStreamRef.current = displayStream;
       await replaceOutgoingVideoTrack(screenTrack);
       screenTrack.onended = () => { void stopScreenShare(); };
