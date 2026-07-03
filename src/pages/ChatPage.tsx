@@ -2984,7 +2984,7 @@ export default function ChatPage() {
               <ImageIcon className="h-5 w-5 text-muted-foreground" />
             </motion.button>
             <div className="glass flex min-h-11 min-w-0 flex-1 items-center rounded-full px-4 py-2.5">
-              <input ref={messageInputRef} type="text" value={newMsg} onChange={e => setNewMsg(e.target.value)} onKeyDown={e => e.key === "Enter" && sendMessage()} onFocus={() => { setTimeout(() => scrollChatToBottom("smooth"), 280); }} placeholder={isBlocked || blockedByThem ? "Conversation bloquee" : "Message..."} disabled={isBlocked || blockedByThem} maxLength={500} enterKeyHint="send" autoComplete="off" className="min-w-0 flex-1 bg-transparent text-base leading-5 text-foreground placeholder:text-muted-foreground outline-none disabled:opacity-50" />
+              <input ref={messageInputRef} type="text" value={newMsg} onChange={e => { setNewMsg(e.target.value); if (e.target.value.trim()) broadcastTyping(); }} onKeyDown={e => e.key === "Enter" && sendMessage()} onFocus={() => { setTimeout(() => scrollChatToBottom("smooth"), 280); }} placeholder={isBlocked || blockedByThem ? "Conversation bloquee" : "Message..."} disabled={isBlocked || blockedByThem} maxLength={500} enterKeyHint="send" autoComplete="off" className="min-w-0 flex-1 bg-transparent text-base leading-5 text-foreground placeholder:text-muted-foreground outline-none disabled:opacity-50" />
             </div>
 
             {newMsg.trim() ? (
