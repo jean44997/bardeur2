@@ -371,11 +371,16 @@ export default function ChatPage() {
           }
           fetchMessages(true);
         })
-        .on("postgres_changes", { event: "*", schema: "public", table: "message_reactions", filter: `conversation_id=eq.${conversationId}` }, (payload: any) => {
-          applyRealtimeReaction(payload);
-        })
-        .on("postgres_changes", { event: "*", schema: "public", table: "message_poll_votes", filter: `conversation_id=eq.${conversationId}` }, (payload: any) => {
-          applyRealtimePollVote(payload);
+        .on("postgres_changes", { event: "INSERT", schema: "public", table: "message_reads" }, (payload: any) => {
+          const row = payload?.new;
+          if (!row?.message_id || !row?.user_id) return;
+          setReadReceipts((prev) => {
+            const next = { ...prev };
+            const set = new Set(next[row.message_id] || []);
+            set.add(row.user_id);
+            next[row.message_id] = Array.from(set);
+            return next;
+          });
         })
         .on("postgres_changes", { event: "*", schema: "public", table: "direct_call_sessions", filter: `conversation_id=eq.${conversationId}` }, (payload) => {
           handleCallSignal(payload.new as any);
