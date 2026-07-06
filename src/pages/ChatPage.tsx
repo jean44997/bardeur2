@@ -997,6 +997,12 @@ export default function ChatPage() {
       supabase.from("messages").update({ is_read: true }).eq("conversation_id", conversationId).neq("sender_id", user.id).eq("is_read", false),
       supabase.from("notifications").update({ is_read: true }).eq("user_id", user.id).eq("type", "message").eq("reference_id", conversationId).eq("is_read", false),
     ]);
+    // Per-user read receipts (needed to show sent/received/read in groups).
+    const targets = messages.filter((m) => !m.fromMe && m.senderId && !m.id.startsWith("optim") && !(readReceipts[m.id] || []).includes(user.id));
+    if (targets.length) {
+      const rows = targets.map((m) => ({ message_id: m.id, user_id: user.id }));
+      await (supabase as any).from("message_reads").upsert(rows, { onConflict: "message_id,user_id", ignoreDuplicates: true });
+    }
   };
 
   const getMessagePreview = (message: Message) => {
