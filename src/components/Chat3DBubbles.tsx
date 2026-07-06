@@ -1,5 +1,67 @@
 import { motion, AnimatePresence } from "framer-motion";
-import { PhoneCall, Video, Keyboard } from "lucide-react";
+import { PhoneCall, Video, Keyboard, History } from "lucide-react";
+
+// Ambient floating orbs — subtle 3D backdrop that can be reused across screens.
+export function AmbientBubbles3D({ density = 6, className = "" }: { density?: number; className?: string }) {
+  const bubbles = Array.from({ length: density }, (_, i) => i);
+  const palette = [
+    "from-fuchsia-500/30 via-primary/20 to-sky-500/20",
+    "from-emerald-500/30 via-teal-500/20 to-cyan-500/20",
+    "from-amber-400/30 via-rose-500/20 to-fuchsia-500/20",
+    "from-indigo-500/30 via-sky-500/20 to-emerald-400/20",
+  ];
+  return (
+    <div className={`pointer-events-none absolute inset-0 overflow-hidden ${className}`} aria-hidden style={{ perspective: 900 }}>
+      {bubbles.map((i) => {
+        const size = 90 + ((i * 37) % 140);
+        const left = (i * 53) % 100;
+        const top = (i * 29) % 100;
+        const duration = 9 + (i % 5);
+        return (
+          <motion.div
+            key={i}
+            initial={{ opacity: 0, scale: 0.6 }}
+            animate={{
+              opacity: [0.35, 0.7, 0.35],
+              y: [0, -18, 0],
+              x: [0, i % 2 ? 12 : -12, 0],
+              rotateX: [0, 12, 0],
+              rotateY: [0, -8, 0],
+              scale: [0.9, 1.05, 0.9],
+            }}
+            transition={{ duration, repeat: Infinity, ease: "easeInOut", delay: i * 0.35 }}
+            style={{ left: `${left}%`, top: `${top}%`, width: size, height: size, transformStyle: "preserve-3d" }}
+            className={`absolute rounded-full bg-gradient-to-br ${palette[i % palette.length]} blur-2xl`}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+// Persistent summary chip that lists the most recent typers during active presence.
+export function RecentTypersBubble3D({ typers, activeCount }: { typers: { userId: string; name: string; ts: number }[]; activeCount: number }) {
+  if (activeCount > 0 || typers.length === 0) return null;
+  const label = typers.slice(0, 3).map((t) => t.name.split(" ")[0]).join(", ");
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 10, scale: 0.9 }}
+      animate={{ opacity: 0.9, y: 0, scale: 1 }}
+      exit={{ opacity: 0, y: 8 }}
+      transition={{ type: "spring", stiffness: 220, damping: 22 }}
+      className="pointer-events-none absolute bottom-24 left-1/2 z-30 -translate-x-1/2"
+      style={{ perspective: 700 }}
+    >
+      <div
+        className="flex items-center gap-1.5 rounded-full border border-white/10 bg-background/70 px-2.5 py-1 text-[10px] font-semibold text-muted-foreground shadow-[0_10px_30px_-15px_rgba(0,0,0,0.6)] backdrop-blur-md"
+        style={{ transform: "translateZ(0)" }}
+      >
+        <History className="h-3 w-3 opacity-70" />
+        <span className="max-w-[55vw] truncate">Récents: {label}{typers.length > 3 ? ` +${typers.length - 3}` : ""}</span>
+      </div>
+    </motion.div>
+  );
+}
 
 // Small 3D-looking floating bubble used to show group typing activity.
 export function TypingBubble3D({ names }: { names: string[] }) {
