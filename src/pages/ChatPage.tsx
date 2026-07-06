@@ -2603,6 +2603,8 @@ export default function ChatPage() {
         onDismiss={() => setGroupIncomingRing(null)}
       />
       {isGroupConversation && <TypingBubble3D names={typingNames} />}
+      {isGroupConversation && <RecentTypersBubble3D typers={recentTypers} activeCount={typingNames.length} />}
+      <AmbientBubbles3D density={5} className="opacity-40" />
       <div className="glass mobile-chat-header-safe z-10 flex shrink-0 items-center gap-1.5 border-b border-border px-2 py-2 sm:gap-3 sm:px-4 sm:py-3">
         <motion.button whileTap={{ scale: 0.9 }} onClick={() => navigate("/inbox")} className="tap-target grid place-items-center rounded-full">
           <ArrowLeft className="h-5 w-5 text-foreground" />
@@ -2917,7 +2919,7 @@ export default function ChatPage() {
 
                 <div className={`flex items-center gap-1 mt-0.5 ${msg.fromMe ? "justify-end" : "justify-start"}`}>
                   <span className="text-[10px] text-muted-foreground">{msg.time}</span>
-                  {msg.fromMe && <StatusIcon status={msg.status} />}
+                  {msg.fromMe && <StatusIcon status={msg.status} messageId={msg.id} />}
                   <button type="button" onClick={() => { setReplyTarget(msg); setShowPlusDrawer(false); }} className="rounded-full px-1.5 py-0.5 text-[10px] font-bold text-muted-foreground">Repondre</button>
                   <button type="button" onClick={() => setReactionTarget(msg)} className="rounded-full px-1.5 py-0.5 text-[10px] font-bold text-muted-foreground">React</button>
                 </div>
