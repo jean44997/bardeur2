@@ -11,7 +11,7 @@ import { checkClientRateLimit, formatRetryAfter } from "@/lib/clientRateLimit";
 import { looksLikeRepeatedSpam, validateUploadFile, validateUserText } from "@/lib/contentSafety";
 import { decryptMessageContent, encryptMessageContent, isEncryptedContent } from "@/lib/messageCrypto";
 import { startBackgroundCallKeepalive, stopBackgroundCallKeepalive } from "@/lib/backgroundCall";
-import { TypingBubble3D, IncomingCallBubble3D } from "@/components/Chat3DBubbles";
+import { TypingBubble3D, IncomingCallBubble3D, RecentTypersBubble3D, AmbientBubbles3D } from "@/components/Chat3DBubbles";
 
 interface Message {
   id: string;
@@ -164,6 +164,8 @@ export default function ChatPage() {
   const [qualityLocked, setQualityLocked] = useState(true);
   const preferredQualityRef = useRef<QualityTier>("auto");
   const [typingUsers, setTypingUsers] = useState<Record<string, { name: string; ts: number }>>({});
+  const [recentTypers, setRecentTypers] = useState<{ userId: string; name: string; ts: number }[]>([]);
+  const [readReceipts, setReadReceipts] = useState<Record<string, string[]>>({});
   const presenceChannelRef = useRef<any>(null);
   const typingSentAtRef = useRef(0);
   const [groupIncomingRing, setGroupIncomingRing] = useState<{ sessionId: string; type: "audio" | "video"; hostId: string } | null>(null);
@@ -371,11 +373,16 @@ export default function ChatPage() {
           }
           fetchMessages(true);
         })
-        .on("postgres_changes", { event: "*", schema: "public", table: "message_reactions", filter: `conversation_id=eq.${conversationId}` }, (payload: any) => {
-          applyRealtimeReaction(payload);
-        })
-        .on("postgres_changes", { event: "*", schema: "public", table: "message_poll_votes", filter: `conversation_id=eq.${conversationId}` }, (payload: any) => {
-          applyRealtimePollVote(payload);
+        .on("postgres_changes", { event: "INSERT", schema: "public", table: "message_reads" }, (payload: any) => {
+          const row = payload?.new;
+          if (!row?.message_id || !row?.user_id) return;
+          setReadReceipts((prev) => {
+            const next = { ...prev };
+            const set = new Set(next[row.message_id] || []);
+            set.add(row.user_id);
+            next[row.message_id] = Array.from(set);
+            return next;
+          });
         })
         .on("postgres_changes", { event: "*", schema: "public", table: "direct_call_sessions", filter: `conversation_id=eq.${conversationId}` }, (payload) => {
           handleCallSignal(payload.new as any);
@@ -536,7 +543,12 @@ export default function ChatPage() {
     ch.on("broadcast", { event: "typing" }, (payload: any) => {
       const { userId, name } = payload.payload || {};
       if (!userId || userId === user.id) return;
-      setTypingUsers((current) => ({ ...current, [userId]: { name: name || "Quelqu'un", ts: Date.now() } }));
+      const now = Date.now();
+      setTypingUsers((current) => ({ ...current, [userId]: { name: name || "Quelqu'un", ts: now } }));
+      setRecentTypers((current) => {
+        const filtered = current.filter((t) => t.userId !== userId);
+        return [{ userId, name: name || "Quelqu'un", ts: now }, ...filtered].slice(0, 5);
+      });
     });
     ch.subscribe();
     presenceChannelRef.current = ch;
@@ -549,6 +561,10 @@ export default function ChatPage() {
           if (now - info.ts < 3500) next[id] = info; else changed = true;
         }
         return changed ? next : current;
+      });
+      setRecentTypers((current) => {
+        const filtered = current.filter((t) => now - t.ts < 20000);
+        return filtered.length === current.length ? current : filtered;
       });
     }, 1200);
     return () => {
@@ -815,6 +831,7 @@ export default function ChatPage() {
       setMessages(mapped);
       void fetchMessageReactions(mapped.map((m) => m.id));
       void fetchPollVotes(mapped.filter((m) => !!parsePollMessage(m.text)).map((m) => m.id));
+      void fetchReadReceipts(mapped.map((m) => m.id));
     } catch {
       if (!silent) toast.error("Chargement des messages impossible");
     } finally {
@@ -984,12 +1001,35 @@ export default function ChatPage() {
     setBlockedByThem(blocks.some((b: any) => b.blocker_id === targetId));
   };
 
+  const fetchReadReceipts = async (messageIds: string[]) => {
+    if (!messageIds.length) return;
+    const clean = messageIds.filter((id) => !!id && !id.startsWith("optim"));
+    if (!clean.length) return;
+    const { data } = await (supabase as any).from("message_reads").select("message_id, user_id").in("message_id", clean);
+    if (!data) return;
+    setReadReceipts((prev) => {
+      const next = { ...prev };
+      for (const row of data as { message_id: string; user_id: string }[]) {
+        const set = new Set(next[row.message_id] || []);
+        set.add(row.user_id);
+        next[row.message_id] = Array.from(set);
+      }
+      return next;
+    });
+  };
+
   const markAsRead = async () => {
     if (!conversationId || !user) return;
     await Promise.all([
       supabase.from("messages").update({ is_read: true }).eq("conversation_id", conversationId).neq("sender_id", user.id).eq("is_read", false),
       supabase.from("notifications").update({ is_read: true }).eq("user_id", user.id).eq("type", "message").eq("reference_id", conversationId).eq("is_read", false),
     ]);
+    // Per-user read receipts (needed to show sent/received/read in groups).
+    const targets = messages.filter((m) => !m.fromMe && m.senderId && !m.id.startsWith("optim") && !(readReceipts[m.id] || []).includes(user.id));
+    if (targets.length) {
+      const rows = targets.map((m) => ({ message_id: m.id, user_id: user.id }));
+      await (supabase as any).from("message_reads").upsert(rows, { onConflict: "message_id,user_id", ignoreDuplicates: true });
+    }
   };
 
   const getMessagePreview = (message: Message) => {
@@ -2526,7 +2566,20 @@ export default function ChatPage() {
     toast.success(callState?.speakerOn ? "Mode ecouteur demande" : "Haut-parleur demande");
   };
 
-  const StatusIcon = ({ status }: { status: string }) => {
+  const StatusIcon = ({ status, messageId }: { status: string; messageId?: string }) => {
+    if (isGroupConversation && messageId) {
+      const others = Math.max(0, (conversationParticipants?.length || 1));
+      const readers = (readReceipts[messageId] || []).filter((uid) => uid !== user?.id).length;
+      if (readers > 0) {
+        return (
+          <span className="flex items-center gap-0.5 text-[10px] font-semibold text-accent">
+            <CheckCheck className="h-3 w-3" />
+            {readers}{others > 1 ? `/${others}` : ""}
+          </span>
+        );
+      }
+      return <Check className="h-3 w-3 text-muted-foreground" />;
+    }
     if (status === "read") return <CheckCheck className="h-3 w-3 text-accent" />;
     if (status === "delivered") return <CheckCheck className="h-3 w-3 text-muted-foreground" />;
     return <Check className="h-3 w-3 text-muted-foreground" />;
@@ -2550,6 +2603,8 @@ export default function ChatPage() {
         onDismiss={() => setGroupIncomingRing(null)}
       />
       {isGroupConversation && <TypingBubble3D names={typingNames} />}
+      {isGroupConversation && <RecentTypersBubble3D typers={recentTypers} activeCount={typingNames.length} />}
+      <AmbientBubbles3D density={5} className="opacity-40" />
       <div className="glass mobile-chat-header-safe z-10 flex shrink-0 items-center gap-1.5 border-b border-border px-2 py-2 sm:gap-3 sm:px-4 sm:py-3">
         <motion.button whileTap={{ scale: 0.9 }} onClick={() => navigate("/inbox")} className="tap-target grid place-items-center rounded-full">
           <ArrowLeft className="h-5 w-5 text-foreground" />
@@ -2864,7 +2919,7 @@ export default function ChatPage() {
 
                 <div className={`flex items-center gap-1 mt-0.5 ${msg.fromMe ? "justify-end" : "justify-start"}`}>
                   <span className="text-[10px] text-muted-foreground">{msg.time}</span>
-                  {msg.fromMe && <StatusIcon status={msg.status} />}
+                  {msg.fromMe && <StatusIcon status={msg.status} messageId={msg.id} />}
                   <button type="button" onClick={() => { setReplyTarget(msg); setShowPlusDrawer(false); }} className="rounded-full px-1.5 py-0.5 text-[10px] font-bold text-muted-foreground">Repondre</button>
                   <button type="button" onClick={() => setReactionTarget(msg)} className="rounded-full px-1.5 py-0.5 text-[10px] font-bold text-muted-foreground">React</button>
                 </div>
