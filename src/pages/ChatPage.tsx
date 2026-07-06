@@ -164,6 +164,8 @@ export default function ChatPage() {
   const [qualityLocked, setQualityLocked] = useState(true);
   const preferredQualityRef = useRef<QualityTier>("auto");
   const [typingUsers, setTypingUsers] = useState<Record<string, { name: string; ts: number }>>({});
+  const [recentTypers, setRecentTypers] = useState<{ userId: string; name: string; ts: number }[]>([]);
+  const [readReceipts, setReadReceipts] = useState<Record<string, string[]>>({});
   const presenceChannelRef = useRef<any>(null);
   const typingSentAtRef = useRef(0);
   const [groupIncomingRing, setGroupIncomingRing] = useState<{ sessionId: string; type: "audio" | "video"; hostId: string } | null>(null);
