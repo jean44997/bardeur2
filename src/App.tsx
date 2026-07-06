@@ -31,6 +31,7 @@ import WatchLivePage from "./pages/WatchLivePage";
 import LivesListPage from "./pages/LivesListPage";
 import LiveDebugPage from "./pages/LiveDebugPage";
 import NotFound from "./pages/NotFound";
+import OAuthConsentPage from "./pages/OAuthConsentPage";
 
 const queryClient = new QueryClient();
 
@@ -54,6 +55,7 @@ const App = () => (
 
             <Route path="/auth" element={<AuthPage />} />
             <Route path="/reset-password" element={<ResetPasswordPage />} />
+            <Route path="/.lovable/oauth/consent" element={<OAuthConsentPage />} />
             <Route path="/chat/:id" element={<AuthGuard><ChatPage /></AuthGuard>} />
             <Route path="/live" element={<AuthGuard><LivePage /></AuthGuard>} />
             <Route path="/live/:id" element={<AuthGuard><WatchLivePage /></AuthGuard>} />
