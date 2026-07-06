@@ -992,6 +992,23 @@ export default function ChatPage() {
     setBlockedByThem(blocks.some((b: any) => b.blocker_id === targetId));
   };
 
+  const fetchReadReceipts = async (messageIds: string[]) => {
+    if (!messageIds.length) return;
+    const clean = messageIds.filter((id) => !!id && !id.startsWith("optim"));
+    if (!clean.length) return;
+    const { data } = await (supabase as any).from("message_reads").select("message_id, user_id").in("message_id", clean);
+    if (!data) return;
+    setReadReceipts((prev) => {
+      const next = { ...prev };
+      for (const row of data as { message_id: string; user_id: string }[]) {
+        const set = new Set(next[row.message_id] || []);
+        set.add(row.user_id);
+        next[row.message_id] = Array.from(set);
+      }
+      return next;
+    });
+  };
+
   const markAsRead = async () => {
     if (!conversationId || !user) return;
     await Promise.all([
