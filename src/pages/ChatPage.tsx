@@ -543,7 +543,12 @@ export default function ChatPage() {
     ch.on("broadcast", { event: "typing" }, (payload: any) => {
       const { userId, name } = payload.payload || {};
       if (!userId || userId === user.id) return;
-      setTypingUsers((current) => ({ ...current, [userId]: { name: name || "Quelqu'un", ts: Date.now() } }));
+      const now = Date.now();
+      setTypingUsers((current) => ({ ...current, [userId]: { name: name || "Quelqu'un", ts: now } }));
+      setRecentTypers((current) => {
+        const filtered = current.filter((t) => t.userId !== userId);
+        return [{ userId, name: name || "Quelqu'un", ts: now }, ...filtered].slice(0, 5);
+      });
     });
     ch.subscribe();
     presenceChannelRef.current = ch;
