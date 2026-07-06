@@ -562,6 +562,10 @@ export default function ChatPage() {
         }
         return changed ? next : current;
       });
+      setRecentTypers((current) => {
+        const filtered = current.filter((t) => now - t.ts < 20000);
+        return filtered.length === current.length ? current : filtered;
+      });
     }, 1200);
     return () => {
       supabase.removeChannel(ch);
