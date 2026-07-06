@@ -167,7 +167,9 @@ export default function AuthPage() {
       const { error } = await signIn(email, password);
       if (error) { toast.error(error.message); return; }
       toast.success("Connexion réussie ! 🎉");
-      navigate("/");
+      const nextParam = new URLSearchParams(window.location.search).get("next");
+      const safeNext = nextParam && nextParam.startsWith("/") && !nextParam.startsWith("//") ? nextParam : "/";
+      navigate(safeNext);
     } finally {
       setIsLoading(false);
     }
