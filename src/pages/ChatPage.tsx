@@ -822,6 +822,7 @@ export default function ChatPage() {
       setMessages(mapped);
       void fetchMessageReactions(mapped.map((m) => m.id));
       void fetchPollVotes(mapped.filter((m) => !!parsePollMessage(m.text)).map((m) => m.id));
+      void fetchReadReceipts(mapped.map((m) => m.id));
     } catch {
       if (!silent) toast.error("Chargement des messages impossible");
     } finally {
