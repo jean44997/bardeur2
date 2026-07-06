@@ -2566,7 +2566,20 @@ export default function ChatPage() {
     toast.success(callState?.speakerOn ? "Mode ecouteur demande" : "Haut-parleur demande");
   };
 
-  const StatusIcon = ({ status }: { status: string }) => {
+  const StatusIcon = ({ status, messageId }: { status: string; messageId?: string }) => {
+    if (isGroupConversation && messageId) {
+      const others = Math.max(0, (conversationParticipants?.length || 1));
+      const readers = (readReceipts[messageId] || []).filter((uid) => uid !== user?.id).length;
+      if (readers > 0) {
+        return (
+          <span className="flex items-center gap-0.5 text-[10px] font-semibold text-accent">
+            <CheckCheck className="h-3 w-3" />
+            {readers}{others > 1 ? `/${others}` : ""}
+          </span>
+        );
+      }
+      return <Check className="h-3 w-3 text-muted-foreground" />;
+    }
     if (status === "read") return <CheckCheck className="h-3 w-3 text-accent" />;
     if (status === "delivered") return <CheckCheck className="h-3 w-3 text-muted-foreground" />;
     return <Check className="h-3 w-3 text-muted-foreground" />;
