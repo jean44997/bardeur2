@@ -11,7 +11,7 @@ import { checkClientRateLimit, formatRetryAfter } from "@/lib/clientRateLimit";
 import { looksLikeRepeatedSpam, validateUploadFile, validateUserText } from "@/lib/contentSafety";
 import { decryptMessageContent, encryptMessageContent, isEncryptedContent } from "@/lib/messageCrypto";
 import { startBackgroundCallKeepalive, stopBackgroundCallKeepalive } from "@/lib/backgroundCall";
-import { TypingBubble3D, IncomingCallBubble3D } from "@/components/Chat3DBubbles";
+import { TypingBubble3D, IncomingCallBubble3D, RecentTypersBubble3D, AmbientBubbles3D } from "@/components/Chat3DBubbles";
 
 interface Message {
   id: string;
