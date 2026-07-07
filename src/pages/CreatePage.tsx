@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 import { sanitizeHashtags, validateUploadFile, validateUserText } from "@/lib/contentSafety";
 import { checkClientRateLimit, formatRetryAfter } from "@/lib/clientRateLimit";
+import SeoHead from "@/components/SeoHead";
 
 const creatorToolOptions = [
   { id: "autoCaptions", label: "Captions auto", icon: Sparkles },
@@ -412,10 +413,16 @@ export default function CreatePage() {
 
   return (
     <div className="min-h-[100svh] bg-background mobile-page-bottom-safe md:pb-8 md:pl-[var(--sidebar-width,260px)] flex items-center justify-center relative overflow-hidden">
+      <SeoHead
+        title="Publier une vidéo — BARDEUR YK"
+        description="Enregistre ou importe ta vidéo courte, ajoute des effets, hashtags et publie sur BARDEUR YK en quelques secondes."
+        path="/create"
+      />
       {/* 3D Background Canvas */}
       <canvas ref={canvasRef} className="absolute inset-0 w-full h-full pointer-events-none opacity-60" />
 
       <div className="mx-auto max-w-md px-4 w-full relative z-10">
+        <h1 className="sr-only">Publier une nouvelle vidéo</h1>
 
         {/* Camera View */}
         <AnimatePresence>

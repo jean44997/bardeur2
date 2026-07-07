@@ -5,6 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
+import SeoHead from "@/components/SeoHead";
 
 import StoriesGrid from "@/components/StoriesGrid";
 
@@ -73,7 +74,13 @@ export default function ExplorePage() {
 
   return (
     <div className="min-h-[100svh] bg-background mobile-page-bottom-safe md:pb-8 md:pl-[var(--sidebar-width,260px)]">
+      <SeoHead
+        title="Explorer — Vidéos et créateurs BARDEUR YK"
+        description="Recherche des utilisateurs, hashtags et catégories tendances : gaming, musique, sport, humour, danse et plus sur BARDEUR YK."
+        path="/explore"
+      />
       <div className="mobile-page-top-safe mx-auto max-w-3xl px-4">
+        <h1 className="sr-only">Découvrir des vidéos et des créateurs</h1>
         <div className="glass flex items-center gap-3 rounded-2xl px-4 py-3 mb-4 mt-1">
           <Search className="h-5 w-5 text-muted-foreground" />
           <input type="text" placeholder="Rechercher utilisateurs, hashtags..." value={query} onChange={e => setQuery(e.target.value)} className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none" />
@@ -95,7 +102,7 @@ export default function ExplorePage() {
                 searchResults.map((u: any) => (
                   <motion.button key={u.id} whileTap={{ scale: 0.98 }} onClick={() => navigate(`/profile/${u.username}`)} className="flex items-center gap-3 w-full glass rounded-xl px-4 py-3">
                     <div className="h-10 w-10 rounded-full bg-secondary flex items-center justify-center text-sm font-bold text-secondary-foreground overflow-hidden">
-                      {u.avatar_url ? <img src={u.avatar_url} className="h-full w-full object-cover" /> : u.display_name?.[0]}
+                      {u.avatar_url ? <img src={u.avatar_url} alt={`Avatar de ${u.display_name || u.username}`} className="h-full w-full object-cover" /> : u.display_name?.[0]}
                     </div>
                     <div className="flex-1 text-left">
                       <span className="text-sm font-semibold text-foreground">@{u.username}</span>
