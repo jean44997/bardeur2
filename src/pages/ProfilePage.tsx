@@ -13,6 +13,7 @@ import StoryRing from "@/components/StoryRing";
 import StoryViewer from "@/components/StoryViewer";
 import ThoughtOfDay from "@/components/ThoughtOfDay";
 import { getProfileUrl } from "@/lib/publicUrl";
+import SeoHead from "@/components/SeoHead";
 
 
 export default function ProfilePage() {
@@ -433,6 +434,25 @@ export default function ProfilePage() {
 
   return (
     <div className="min-h-[100svh] bg-background mobile-page-bottom-safe md:pb-8 md:pl-[var(--sidebar-width,260px)]">
+      <SeoHead
+        title={`${currentProfile.display_name || currentProfile.username} (@${currentProfile.username}) — BARDEUR YK`}
+        description={(currentProfile.bio && currentProfile.bio.slice(0, 155)) || `Profil de ${currentProfile.display_name || currentProfile.username} sur BARDEUR YK : vidéos, lives et actualités.`}
+        path={`/profile/${currentProfile.username}`}
+        type="profile"
+        image={currentProfile.avatar_url || undefined}
+        jsonLd={{
+          "@context": "https://schema.org",
+          "@type": "ProfilePage",
+          mainEntity: {
+            "@type": "Person",
+            name: currentProfile.display_name || currentProfile.username,
+            alternateName: currentProfile.username,
+            description: currentProfile.bio || undefined,
+            image: currentProfile.avatar_url || undefined,
+            url: `https://bardeur2.lovable.app/profile/${currentProfile.username}`,
+          },
+        }}
+      />
       <div className="mobile-page-top-safe mx-auto max-w-lg px-4">
         {/* Header */}
         <div className="mb-6 flex items-center justify-between gap-3">
