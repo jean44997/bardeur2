@@ -13,6 +13,7 @@ import StoryRing from "@/components/StoryRing";
 import StoryViewer from "@/components/StoryViewer";
 import ThoughtOfDay from "@/components/ThoughtOfDay";
 import { getProfileUrl } from "@/lib/publicUrl";
+import SeoHead from "@/components/SeoHead";
 
 
 export default function ProfilePage() {
@@ -433,6 +434,25 @@ export default function ProfilePage() {
 
   return (
     <div className="min-h-[100svh] bg-background mobile-page-bottom-safe md:pb-8 md:pl-[var(--sidebar-width,260px)]">
+      <SeoHead
+        title={`${currentProfile.display_name || currentProfile.username} (@${currentProfile.username}) — BARDEUR YK`}
+        description={(currentProfile.bio && currentProfile.bio.slice(0, 155)) || `Profil de ${currentProfile.display_name || currentProfile.username} sur BARDEUR YK : vidéos, lives et actualités.`}
+        path={`/profile/${currentProfile.username}`}
+        type="profile"
+        image={currentProfile.avatar_url || undefined}
+        jsonLd={{
+          "@context": "https://schema.org",
+          "@type": "ProfilePage",
+          mainEntity: {
+            "@type": "Person",
+            name: currentProfile.display_name || currentProfile.username,
+            alternateName: currentProfile.username,
+            description: currentProfile.bio || undefined,
+            image: currentProfile.avatar_url || undefined,
+            url: `https://bardeur2.lovable.app/profile/${currentProfile.username}`,
+          },
+        }}
+      />
       <div className="mobile-page-top-safe mx-auto max-w-lg px-4">
         {/* Header */}
         <div className="mb-6 flex items-center justify-between gap-3">
@@ -467,7 +487,7 @@ export default function ProfilePage() {
               <StoryRing hasUnseen={activeStories.length > 0} isOwn={isOwnProfile} size={104}>
                 <div className="grid h-full w-full place-items-center overflow-hidden rounded-full gradient-primary text-3xl font-bold text-primary-foreground">
                   {currentProfile.avatar_url ? (
-                    <img src={currentProfile.avatar_url} alt="" className="h-full w-full object-cover" />
+                    <img src={currentProfile.avatar_url} alt={`Avatar de ${currentProfile.display_name || currentProfile.username}`} className="h-full w-full object-cover" />
                   ) : (
                     currentProfile.display_name?.[0] || "?"
                   )}
@@ -476,7 +496,7 @@ export default function ProfilePage() {
             </button>
             {isOwnProfile && (
               <>
-                <motion.button whileTap={{ scale: 0.9 }} onClick={() => fileInputRef.current?.click()} className="absolute bottom-0 right-0 h-8 w-8 rounded-full bg-primary flex items-center justify-center ring-2 ring-background">
+                <motion.button whileTap={{ scale: 0.9 }} onClick={() => fileInputRef.current?.click()} aria-label="Changer la photo de profil" className="absolute bottom-0 right-0 h-8 w-8 rounded-full bg-primary flex items-center justify-center ring-2 ring-background">
                   <Camera className="h-4 w-4 text-primary-foreground" />
                 </motion.button>
                 <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarUpload} />
@@ -661,7 +681,7 @@ export default function ProfilePage() {
                 <h3 className="text-lg font-bold text-foreground mb-1">@{currentProfile.username}</h3>
                 <p className="text-xs text-muted-foreground mb-4">Scanne pour voir le profil</p>
                 {qrDataUrl ? (
-                  <img src={qrDataUrl} alt="QR Code" className="h-40 w-40 mx-auto rounded-xl mb-4" />
+                  <img src={qrDataUrl} alt={`Code QR du profil de ${currentProfile.display_name || currentProfile.username}`} className="h-40 w-40 mx-auto rounded-xl mb-4" />
                 ) : (
                   <div className="h-40 w-40 mx-auto rounded-xl bg-card flex items-center justify-center mb-4">
                     <QrCode className="h-16 w-16 text-muted-foreground animate-pulse" />
