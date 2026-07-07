@@ -1,0 +1,12 @@
+# BARDEUR YK
+
+> BARDEUR YK est une application PWA mobile de partage de vidéos courtes, de lives et de messagerie.
+
+BARDEUR YK permet aux créateurs de publier des vidéos verticales, de diffuser en direct, d'échanger via messages privés et de découvrir des tendances communautaires.
+
+## Pages
+
+- [Accueil](/): Fil de vidéos courtes verticales personnalisé.
+- [Explorer](/explore): Recherche d'utilisateurs, hashtags et catégories tendances.
+- [Lives](/lives): Diffusions en direct actives sur BARDEUR YK.
+- [Connexion](/auth): Créer un compte ou se connecter.
