@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { readCache, writeCache } from "@/lib/instantCache";
 import VideoCard from "./VideoCard";
 import CommentsDrawer from "./CommentsDrawer";
 import GamificationPanel from "./GamificationPanel";
