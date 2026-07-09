@@ -12,6 +12,7 @@ import { looksLikeRepeatedSpam, validateUploadFile, validateUserText } from "@/l
 import { decryptMessageContent, encryptMessageContent, isEncryptedContent } from "@/lib/messageCrypto";
 import { startBackgroundCallKeepalive, stopBackgroundCallKeepalive } from "@/lib/backgroundCall";
 import { TypingBubble3D, IncomingCallBubble3D, RecentTypersBubble3D, AmbientBubbles3D } from "@/components/Chat3DBubbles";
+import { readCache, writeCache } from "@/lib/instantCache";
 
 interface Message {
   id: string;
