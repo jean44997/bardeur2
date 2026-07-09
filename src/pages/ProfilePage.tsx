@@ -88,7 +88,7 @@ export default function ProfilePage() {
   }, [targetUserId, user?.id, isOwnProfile]);
 
   const fetchUserByUsername = async (username: string) => {
-    const { data } = await supabase.from("profiles").select("*").eq("username", username).single();
+    const { data } = await supabase.from("profiles").select("id, username, display_name, bio, avatar_url, website, is_private, xp_total, thought_of_day, thought_updated_at, created_at").eq("username", username).single();
     if (data) {
       setViewedProfile(data);
       setIsOwnProfile(user?.id === data.id);

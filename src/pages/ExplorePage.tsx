@@ -52,7 +52,7 @@ export default function ExplorePage() {
   const searchContent = async () => {
     if (!query.trim()) return;
     if (searchType === "users") {
-      const { data } = await supabase.from("profiles").select("*").ilike("username", `%${query}%`).limit(10);
+      const { data } = await supabase.from("profiles").select("id, username, display_name, bio, avatar_url, is_private, xp_total").ilike("username", `%${query}%`).limit(10);
       setSearchResults(data || []);
     } else {
       const { data } = await supabase.from("videos").select("hashtags").eq("is_published", true);
