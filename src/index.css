@@ -325,3 +325,21 @@ select {
   0% { opacity: 1; transform: translateY(0) scale(1); }
   100% { opacity: 0; transform: translateY(-120px) scale(0.5); }
 }
+
+/* Perf: virtualize off-screen feed items + smooth scroll on iOS */
+.pwa-feed-scroll > * {
+  content-visibility: auto;
+  contain-intrinsic-size: 100svh;
+}
+.pwa-feed-scroll {
+  -webkit-overflow-scrolling: touch;
+  scroll-snap-stop: always;
+  overscroll-behavior-y: contain;
+}
+/* GPU-accelerate common animated surfaces */
+.glass, .gradient-primary, .pulse-glow {
+  will-change: transform, opacity;
+  transform: translateZ(0);
+}
+/* Respect safe areas on notched devices for chat + composer */
+.chat-safe-bottom { padding-bottom: max(0.5rem, env(safe-area-inset-bottom)); }
