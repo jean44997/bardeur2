@@ -12,6 +12,7 @@ import { looksLikeRepeatedSpam, validateUploadFile, validateUserText } from "@/l
 import { decryptMessageContent, encryptMessageContent, isEncryptedContent } from "@/lib/messageCrypto";
 import { startBackgroundCallKeepalive, stopBackgroundCallKeepalive } from "@/lib/backgroundCall";
 import { TypingBubble3D, IncomingCallBubble3D, RecentTypersBubble3D, AmbientBubbles3D } from "@/components/Chat3DBubbles";
+import { readCache, writeCache } from "@/lib/instantCache";
 
 interface Message {
   id: string;
@@ -805,7 +806,18 @@ export default function ChatPage() {
 
   const fetchMessages = async (silent = false) => {
     if (!conversationId) return;
-    if (!silent) setLoading(true);
+    const cacheKey = `msgs:${conversationId}`;
+    // Instant paint from cache (skip crypto — already-decrypted text stored)
+    if (!silent) {
+      const cached = readCache<Message[]>(cacheKey);
+      if (cached && cached.length) {
+        setMessages(cached);
+        setLoading(false);
+        silent = true; // network refresh runs quietly behind the paint
+      } else {
+        setLoading(true);
+      }
+    }
     try {
       pendingAutoScrollRef.current = !silent || isNearChatBottom();
       let { data, error } = await supabase
@@ -813,14 +825,14 @@ export default function ChatPage() {
         .select("id, content, sender_id, created_at, is_read, media_url, media_type, reply_to_id, reply_preview" as any)
         .eq("conversation_id", conversationId)
         .order("created_at", { ascending: false })
-        .limit(160) as any;
+        .limit(60) as any;
       if (error) {
         const fallback = await supabase
           .from("messages")
           .select("*")
           .eq("conversation_id", conversationId)
           .order("created_at", { ascending: false })
-          .limit(160);
+          .limit(60);
         data = fallback.data as any;
         error = fallback.error;
       }
@@ -829,6 +841,7 @@ export default function ChatPage() {
       const rows = [...(data || [])].reverse();
       const mapped = await Promise.all(rows.filter((m: any) => !hidden.has(m.id)).map(mapMessage));
       setMessages(mapped);
+      writeCache(cacheKey, mapped);
       void fetchMessageReactions(mapped.map((m) => m.id));
       void fetchPollVotes(mapped.filter((m) => !!parsePollMessage(m.text)).map((m) => m.id));
       void fetchReadReceipts(mapped.map((m) => m.id));
