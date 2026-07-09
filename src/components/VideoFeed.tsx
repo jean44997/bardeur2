@@ -53,13 +53,21 @@ export default function VideoFeed() {
   }, [soundUnlockNeeded, unlockFeedSound]);
 
   const fetchVideos = useCallback(async () => {
-    setLoading(true);
+    // Instant paint from local cache, then hydrate in the background
+    const cached = readCache<VideoData[]>("feed:videos");
+    if (cached && cached.length) {
+      const targetVideoId = searchParams.get("video");
+      setVideos(targetVideoId ? [...cached].sort((a, b) => Number(b.id === targetVideoId) - Number(a.id === targetVideoId)) : cached);
+      setLoading(false);
+    } else {
+      setLoading(true);
+    }
     const { data, error } = await supabase
       .from("videos")
-      .select("*, profiles:user_id(username, display_name, avatar_url)")
+      .select("id, video_url, thumbnail_url, user_id, description, hashtags, sound_name, sound_artist, likes_count, comments_count, shares_count, saves_count, comments_enabled, created_at, profiles:user_id(username, display_name, avatar_url)")
       .eq("is_published", true)
       .order("created_at", { ascending: false })
-      .limit(50);
+      .limit(30);
 
     if (data && !error) {
       const targetVideoId = searchParams.get("video");
@@ -88,6 +96,7 @@ export default function VideoFeed() {
         commentsEnabled: v.comments_enabled !== false,
       }));
       setVideos(targetVideoId ? [...mapped].sort((a, b) => Number(b.id === targetVideoId) - Number(a.id === targetVideoId)) : mapped);
+      writeCache("feed:videos", mapped);
     }
     setLoading(false);
   }, [searchParams]);
