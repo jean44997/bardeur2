@@ -1677,6 +1677,11 @@ export type Database = {
         Args: { _conversation_id: string; _user_id: string }
         Returns: boolean
       }
+      is_follower: {
+        Args: { _follower: string; _target: string }
+        Returns: boolean
+      }
+      is_mutual_follow: { Args: { _a: string; _b: string }; Returns: boolean }
       is_user_banned: {
         Args: { _user_id: string }
         Returns: {
