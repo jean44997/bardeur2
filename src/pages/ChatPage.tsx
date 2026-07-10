@@ -207,6 +207,9 @@ export default function ChatPage() {
   const pendingAutoScrollRef = useRef(true);
   const previousMessageCountRef = useRef(0);
   const [remoteConnected, setRemoteConnected] = useState(false);
+  const [hasMoreOlder, setHasMoreOlder] = useState(true);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const loadingOlderRef = useRef(false);
 
   const isNearChatBottom = () => {
     const el = messagesPaneRef.current;
@@ -217,6 +220,7 @@ export default function ChatPage() {
   const scrollChatToBottom = (behavior: ScrollBehavior = "smooth") => {
     bottomRef.current?.scrollIntoView({ behavior, block: "end" });
   };
+
 
   const requestCallWakeLock = async () => {
     const nav = navigator as any;
@@ -842,6 +846,7 @@ export default function ChatPage() {
       const mapped = await Promise.all(rows.filter((m: any) => !hidden.has(m.id)).map(mapMessage));
       setMessages(mapped);
       writeCache(cacheKey, mapped);
+      setHasMoreOlder((data || []).length >= 60);
       void fetchMessageReactions(mapped.map((m) => m.id));
       void fetchPollVotes(mapped.filter((m) => !!parsePollMessage(m.text)).map((m) => m.id));
       void fetchReadReceipts(mapped.map((m) => m.id));
@@ -851,6 +856,53 @@ export default function ChatPage() {
       if (!silent) setLoading(false);
     }
   };
+
+  // Progressive older-messages loader: triggered when scrolling near the top.
+  const loadOlderMessages = async () => {
+    if (!conversationId || loadingOlderRef.current || !hasMoreOlder) return;
+    if (messages.length === 0) return;
+    loadingOlderRef.current = true;
+    setLoadingOlder(true);
+    const el = messagesPaneRef.current;
+    const anchorHeight = el?.scrollHeight ?? 0;
+    const anchorTop = el?.scrollTop ?? 0;
+    try {
+      const oldest = messages[0]?.createdAt;
+      if (!oldest) return;
+      const { data, error } = await supabase
+        .from("messages")
+        .select("id, content, sender_id, created_at, is_read, media_url, media_type, reply_to_id, reply_preview" as any)
+        .eq("conversation_id", conversationId)
+        .lt("created_at", oldest)
+        .order("created_at", { ascending: false })
+        .limit(40) as any;
+      if (error) throw error;
+      const hidden = loadHiddenIds();
+      const rows = [...(data || [])].reverse();
+      const older = await Promise.all(rows.filter((m: any) => !hidden.has(m.id)).map(mapMessage));
+      if (older.length === 0) { setHasMoreOlder(false); return; }
+      // Prevent auto-scroll-to-bottom when older messages get prepended
+      pendingAutoScrollRef.current = false;
+      isNearChatBottomRef.current = false;
+      setMessages((prev) => [...older, ...prev]);
+      setHasMoreOlder((data || []).length >= 40);
+      void fetchMessageReactions(older.map((m) => m.id));
+      // Preserve scroll position by adjusting for the new content height
+      requestAnimationFrame(() => {
+        const el2 = messagesPaneRef.current;
+        if (el2) {
+          const delta = el2.scrollHeight - anchorHeight;
+          el2.scrollTop = anchorTop + delta;
+        }
+      });
+    } catch {
+      // silent — user can retry by scrolling
+    } finally {
+      loadingOlderRef.current = false;
+      setLoadingOlder(false);
+    }
+  };
+
 
   const fetchMessageReactions = async (messageIds: string[]) => {
     if (!conversationId || messageIds.length === 0) {
@@ -2876,7 +2928,27 @@ export default function ChatPage() {
         )}
       </AnimatePresence>
 
-      <div ref={messagesPaneRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-4 sm:px-4 no-scrollbar" style={chatBackgroundStyle}>
+      <div
+        ref={messagesPaneRef}
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          if (el.scrollTop < 80) loadOlderMessages();
+        }}
+        className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-4 sm:px-4 no-scrollbar"
+        style={chatBackgroundStyle}
+      >
+        {hasMoreOlder && messages.length > 0 && (
+          <div className="flex justify-center py-2" style={{ perspective: 600 }}>
+            <motion.div
+              animate={loadingOlder ? { rotateX: [0, 360], scale: [1, 1.05, 1] } : { rotateX: 0 }}
+              transition={loadingOlder ? { duration: 1.2, repeat: Infinity, ease: "easeInOut" } : {}}
+              style={{ transformStyle: "preserve-3d" }}
+              className="glass rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-muted-foreground shadow-[0_8px_24px_-12px_rgba(0,0,0,0.5)]"
+            >
+              {loadingOlder ? "Chargement…" : "Fais défiler vers le haut pour + d'historique"}
+            </motion.div>
+          </div>
+        )}
         {loading ? (
           <div className="text-center py-8">
             <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: "linear" }} className="h-6 w-6 border-2 border-primary border-t-transparent rounded-full mx-auto" />
@@ -2884,6 +2956,7 @@ export default function ChatPage() {
         ) : messages.length === 0 ? (
           <p className="text-center text-sm text-muted-foreground py-8">Dis bonjour ! 👋</p>
         ) : (
+
           messages.map(msg => {
             const isOfficial = !msg.fromMe && msg.text?.startsWith("[BARDEUR · Équipe officielle]");
             const officialBody = isOfficial ? msg.text.replace("[BARDEUR · Équipe officielle]", "").trim() : msg.text;
