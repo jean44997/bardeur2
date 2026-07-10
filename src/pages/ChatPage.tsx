@@ -207,6 +207,9 @@ export default function ChatPage() {
   const pendingAutoScrollRef = useRef(true);
   const previousMessageCountRef = useRef(0);
   const [remoteConnected, setRemoteConnected] = useState(false);
+  const [hasMoreOlder, setHasMoreOlder] = useState(true);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const loadingOlderRef = useRef(false);
 
   const isNearChatBottom = () => {
     const el = messagesPaneRef.current;
@@ -217,6 +220,7 @@ export default function ChatPage() {
   const scrollChatToBottom = (behavior: ScrollBehavior = "smooth") => {
     bottomRef.current?.scrollIntoView({ behavior, block: "end" });
   };
+
 
   const requestCallWakeLock = async () => {
     const nav = navigator as any;
