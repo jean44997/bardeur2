@@ -401,10 +401,17 @@ export default function CommentsDrawer({ isOpen, onClose, commentCount, videoId,
               ) : comments.length === 0 ? (
                 <p className="text-center text-sm text-muted-foreground py-8">Aucun commentaire. Sois le premier ! 💬</p>
               ) : (
-                comments.map(comment => {
-                  const renderOne = (c: Comment, isReply: boolean) => (
-                    <div key={c.id} className={`flex gap-3 ${isReply ? "mt-3" : ""}`}>
-                      <div className={`${isReply ? "h-7 w-7 text-[10px]" : "h-9 w-9 text-xs"} shrink-0 rounded-full bg-secondary flex items-center justify-center font-bold text-secondary-foreground`}>
+                comments.map((comment, ci) => {
+                  const renderOne = (c: Comment, isReply: boolean, idx: number) => (
+                    <motion.div
+                      key={c.id}
+                      initial={{ opacity: 0, y: 10, rotateX: -8, scale: 0.98 }}
+                      animate={{ opacity: 1, y: 0, rotateX: 0, scale: 1 }}
+                      transition={{ type: "spring", stiffness: 260, damping: 24, delay: Math.min(idx, 8) * 0.025 }}
+                      style={{ transformStyle: "preserve-3d", transformPerspective: 800 }}
+                      className={`flex gap-3 ${isReply ? "mt-3" : ""}`}
+                    >
+                      <div className={`${isReply ? "h-7 w-7 text-[10px]" : "h-9 w-9 text-xs"} shrink-0 rounded-full bg-secondary flex items-center justify-center font-bold text-secondary-foreground shadow-[0_6px_18px_-8px_rgba(0,0,0,0.5)]`}>
                         {c.user.avatar}
                       </div>
                       <div className="flex-1 min-w-0">
@@ -450,19 +457,20 @@ export default function CommentsDrawer({ isOpen, onClose, commentCount, videoId,
                           ) : null}
                         </div>
                       </div>
-                    </div>
+                    </motion.div>
                   );
                   return (
                     <div key={comment.id}>
-                      {renderOne(comment, false)}
+                      {renderOne(comment, false, ci)}
                       {comment.replies.length > 0 && (
                         <div className="ml-12 mt-1 border-l border-border/60 pl-3">
-                          {comment.replies.map(r => renderOne(r, true))}
+                          {comment.replies.map((r, ri) => renderOne(r, true, ri))}
                         </div>
                       )}
                     </div>
                   );
                 })
+
               )}
             </div>
 
