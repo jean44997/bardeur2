@@ -8,7 +8,9 @@ import { toast } from "sonner";
 import { checkClientRateLimit, formatRetryAfter } from "@/lib/clientRateLimit";
 import { validateUserText } from "@/lib/contentSafety";
 import { getBestAudioRecorderOptions } from "@/lib/mediaCapabilities";
+import { readCache, writeCache } from "@/lib/instantCache";
 import CommentVoiceNote from "@/components/CommentVoiceNote";
+
 
 
 interface Comment {
