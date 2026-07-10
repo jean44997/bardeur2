@@ -137,44 +137,77 @@ export default function CommentsDrawer({ isOpen, onClose, commentCount, videoId,
         .filter(m => !mentionQuery || m.username.toLowerCase().includes(mentionQuery) || m.display_name.toLowerCase().includes(mentionQuery))
         .slice(0, 5);
 
+  const buildTree = (rows: any[]): Comment[] => {
+    const toComment = (c: any): Comment => ({
+      id: c.id,
+      userId: c.user_id,
+      parentId: c.parent_id || null,
+      user: {
+        name: c.profiles?.username || "unknown",
+        avatar: (c.profiles?.display_name?.[0] || c.profiles?.username?.[0] || "?").toUpperCase(),
+        verified: false,
+      },
+      text: c.content,
+      likes: c.likes_count || 0,
+      liked: false,
+      time: getTimeAgo(c.created_at),
+      replies: [],
+      mediaUrl: c.media_url || undefined,
+      mediaType: c.media_type || undefined,
+    });
+    const all = rows.map(toComment);
+    const byId = new Map(all.map(c => [c.id, c]));
+    const roots: Comment[] = [];
+    for (const c of all) {
+      if (c.parentId && byId.has(c.parentId)) byId.get(c.parentId)!.replies.unshift(c);
+      else roots.push(c);
+    }
+    return roots;
+  };
+
   const fetchComments = async () => {
     if (!videoId) return;
-    setLoading(true);
+    // Progressive paint: cache -> preview batch -> full refresh
+    const cacheKey = `comments:${videoId}`;
+    const cached = readCache<Comment[]>(cacheKey);
+    let silent = false;
+    if (cached && cached.length) {
+      setComments(cached);
+      setLoading(false);
+      silent = true;
+    } else {
+      setLoading(true);
+    }
+
+    // 1) Fast preview: first 12 top-level rows for an almost-instant paint
+    const preview = await supabase
+      .from("comments")
+      .select("id, user_id, parent_id, content, likes_count, media_url, media_type, created_at, profiles:user_id(username, display_name, avatar_url)")
+      .eq("video_id", videoId)
+      .order("created_at", { ascending: false })
+      .limit(12);
+    if (preview.data && preview.data.length) {
+      setComments(buildTree(preview.data));
+      setLoading(false);
+      silent = true;
+    }
+
+    // 2) Full fetch in the background
     const { data } = await supabase
       .from("comments")
-      .select("*, profiles:user_id(username, display_name, avatar_url)")
+      .select("id, user_id, parent_id, content, likes_count, media_url, media_type, created_at, profiles:user_id(username, display_name, avatar_url)")
       .eq("video_id", videoId)
-      .order("created_at", { ascending: false });
+      .order("created_at", { ascending: false })
+      .limit(120);
 
     if (data) {
-      const toComment = (c: any): Comment => ({
-        id: c.id,
-        userId: c.user_id,
-        parentId: c.parent_id || null,
-        user: {
-          name: c.profiles?.username || "unknown",
-          avatar: (c.profiles?.display_name?.[0] || c.profiles?.username?.[0] || "?").toUpperCase(),
-          verified: false,
-        },
-        text: c.content,
-        likes: c.likes_count || 0,
-        liked: false,
-        time: getTimeAgo(c.created_at),
-        replies: [],
-        mediaUrl: c.media_url || undefined,
-        mediaType: c.media_type || undefined,
-      });
-      const all = data.map(toComment);
-      const byId = new Map(all.map(c => [c.id, c]));
-      const roots: Comment[] = [];
-      for (const c of all) {
-        if (c.parentId && byId.has(c.parentId)) byId.get(c.parentId)!.replies.unshift(c);
-        else roots.push(c);
-      }
-      setComments(roots);
+      const tree = buildTree(data);
+      setComments(tree);
+      writeCache(cacheKey, tree);
     }
-    setLoading(false);
+    if (!silent) setLoading(false);
   };
+
 
   const getTimeAgo = (date: string) => {
     const diff = Date.now() - new Date(date).getTime();
