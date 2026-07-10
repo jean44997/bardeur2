@@ -2928,7 +2928,27 @@ export default function ChatPage() {
         )}
       </AnimatePresence>
 
-      <div ref={messagesPaneRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-4 sm:px-4 no-scrollbar" style={chatBackgroundStyle}>
+      <div
+        ref={messagesPaneRef}
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          if (el.scrollTop < 80) loadOlderMessages();
+        }}
+        className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-4 sm:px-4 no-scrollbar"
+        style={chatBackgroundStyle}
+      >
+        {hasMoreOlder && messages.length > 0 && (
+          <div className="flex justify-center py-2" style={{ perspective: 600 }}>
+            <motion.div
+              animate={loadingOlder ? { rotateX: [0, 360], scale: [1, 1.05, 1] } : { rotateX: 0 }}
+              transition={loadingOlder ? { duration: 1.2, repeat: Infinity, ease: "easeInOut" } : {}}
+              style={{ transformStyle: "preserve-3d" }}
+              className="glass rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-muted-foreground shadow-[0_8px_24px_-12px_rgba(0,0,0,0.5)]"
+            >
+              {loadingOlder ? "Chargement…" : "Fais défiler vers le haut pour + d'historique"}
+            </motion.div>
+          </div>
+        )}
         {loading ? (
           <div className="text-center py-8">
             <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: "linear" }} className="h-6 w-6 border-2 border-primary border-t-transparent rounded-full mx-auto" />
@@ -2936,6 +2956,7 @@ export default function ChatPage() {
         ) : messages.length === 0 ? (
           <p className="text-center text-sm text-muted-foreground py-8">Dis bonjour ! 👋</p>
         ) : (
+
           messages.map(msg => {
             const isOfficial = !msg.fromMe && msg.text?.startsWith("[BARDEUR · Équipe officielle]");
             const officialBody = isOfficial ? msg.text.replace("[BARDEUR · Équipe officielle]", "").trim() : msg.text;
