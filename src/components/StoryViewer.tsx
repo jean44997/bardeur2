@@ -442,8 +442,26 @@ export default function StoryViewer({ stories, initialIndex = 0, onClose }: Prop
           </div>
         </div>
 
-        {!isOwner && (
+        {!isOwner && !user && (
           <div className="absolute bottom-0 left-0 right-0 z-30 px-3 pb-[max(0.65rem,var(--app-safe-bottom))]">
+            <div className="mx-auto flex max-w-lg items-center gap-3 rounded-2xl bg-black/55 px-3 py-2.5 text-white backdrop-blur-xl ring-1 ring-white/15">
+              <span className="min-w-0 flex-1 text-xs font-medium text-white/80">
+                Mode invité : lecture seule. Crée un compte pour répondre, réagir et publier.
+              </span>
+              <button
+                type="button"
+                onClick={() => { onClose(); navigate("/auth"); }}
+                className="shrink-0 rounded-full gradient-primary px-3.5 py-2 text-xs font-bold text-primary-foreground"
+              >
+                Se connecter
+              </button>
+            </div>
+          </div>
+        )}
+
+        {!isOwner && !!user && (
+          <div className="absolute bottom-0 left-0 right-0 z-30 px-3 pb-[max(0.65rem,var(--app-safe-bottom))]">
+
             <input
               ref={replyFileRef}
               type="file"
