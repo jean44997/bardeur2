@@ -44,6 +44,7 @@ export default function CommentsDrawer({ isOpen, onClose, commentCount, videoId,
   const [newComment, setNewComment] = useState("");
   const [showStickers, setShowStickers] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [fullyLoaded, setFullyLoaded] = useState(false);
   const [isRecordingAudio, setIsRecordingAudio] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
   const [mutuals, setMutuals] = useState<Array<{ id: string; username: string; display_name: string; avatar_url: string }>>([]);
