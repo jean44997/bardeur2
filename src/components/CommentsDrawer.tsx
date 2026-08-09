@@ -9,6 +9,7 @@ import { checkClientRateLimit, formatRetryAfter } from "@/lib/clientRateLimit";
 import { validateUserText } from "@/lib/contentSafety";
 import { getBestAudioRecorderOptions } from "@/lib/mediaCapabilities";
 import { readCache, writeCache } from "@/lib/instantCache";
+import { buildCommentTree, commentsCacheKey, fetchCommentTree, prefetchComments } from "@/lib/commentsData";
 import CommentVoiceNote from "@/components/CommentVoiceNote";
 
 
@@ -43,6 +44,7 @@ export default function CommentsDrawer({ isOpen, onClose, commentCount, videoId,
   const [newComment, setNewComment] = useState("");
   const [showStickers, setShowStickers] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [fullyLoaded, setFullyLoaded] = useState(false);
   const [isRecordingAudio, setIsRecordingAudio] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
   const [mutuals, setMutuals] = useState<Array<{ id: string; username: string; display_name: string; avatar_url: string }>>([]);
@@ -65,6 +67,27 @@ export default function CommentsDrawer({ isOpen, onClose, commentCount, videoId,
       fetchMutuals();
     }
   }, [isOpen, videoId, user?.id]);
+
+  // Reset completion state when switching video.
+  useEffect(() => { setFullyLoaded(false); }, [videoId]);
+
+  // Stay-on-page preloading: finish loading the full thread during idle time,
+  // so scrolling the comments never waits for the network.
+  useEffect(() => {
+    if (!videoId || fullyLoaded) return;
+    if (isOpen) {
+      const t = window.setTimeout(() => {
+        fetchCommentTree(videoId, 120).then((tree) => {
+          if (!tree) return;
+          setComments(tree as Comment[]);
+          writeCache(commentsCacheKey(videoId), tree);
+          setFullyLoaded(true);
+        });
+      }, 1200);
+      return () => window.clearTimeout(t);
+    }
+    prefetchComments(videoId);
+  }, [videoId, isOpen, fullyLoaded]);
 
   useEffect(() => {
     if (!isRecordingAudio) { setRecordingTime(0); return; }
@@ -137,76 +160,43 @@ export default function CommentsDrawer({ isOpen, onClose, commentCount, videoId,
         .filter(m => !mentionQuery || m.username.toLowerCase().includes(mentionQuery) || m.display_name.toLowerCase().includes(mentionQuery))
         .slice(0, 5);
 
-  const buildTree = (rows: any[]): Comment[] => {
-    const toComment = (c: any): Comment => ({
-      id: c.id,
-      userId: c.user_id,
-      parentId: c.parent_id || null,
-      user: {
-        name: c.profiles?.username || "unknown",
-        avatar: (c.profiles?.display_name?.[0] || c.profiles?.username?.[0] || "?").toUpperCase(),
-        verified: false,
-      },
-      text: c.content,
-      likes: c.likes_count || 0,
-      liked: false,
-      time: getTimeAgo(c.created_at),
-      replies: [],
-      mediaUrl: c.media_url || undefined,
-      mediaType: c.media_type || undefined,
-    });
-    const all = rows.map(toComment);
-    const byId = new Map(all.map(c => [c.id, c]));
-    const roots: Comment[] = [];
-    for (const c of all) {
-      if (c.parentId && byId.has(c.parentId)) byId.get(c.parentId)!.replies.unshift(c);
-      else roots.push(c);
-    }
-    return roots;
-  };
+  const buildTree = (rows: any[]): Comment[] => buildCommentTree(rows) as Comment[];
 
   const fetchComments = async () => {
     if (!videoId) return;
     // Progressive paint: cache -> preview batch -> full refresh
-    const cacheKey = `comments:${videoId}`;
+    const cacheKey = commentsCacheKey(videoId);
     const cached = readCache<Comment[]>(cacheKey);
     let silent = false;
     if (cached && cached.length) {
       setComments(cached);
       setLoading(false);
       silent = true;
+      if (cached.length >= 12) setFullyLoaded(true);
     } else {
       setLoading(true);
     }
 
     // 1) Fast preview: first 12 top-level rows for an almost-instant paint
-    const preview = await supabase
-      .from("comments")
-      .select("id, user_id, parent_id, content, likes_count, media_url, media_type, created_at, profiles:user_id(username, display_name, avatar_url)")
-      .eq("video_id", videoId)
-      .order("created_at", { ascending: false })
-      .limit(12);
-    if (preview.data && preview.data.length) {
-      setComments(buildTree(preview.data));
-      setLoading(false);
-      silent = true;
+    if (!silent) {
+      const preview = await fetchCommentTree(videoId, 12);
+      if (preview && preview.length) {
+        setComments(preview as Comment[]);
+        setLoading(false);
+        silent = true;
+      }
     }
 
     // 2) Full fetch in the background
-    const { data } = await supabase
-      .from("comments")
-      .select("id, user_id, parent_id, content, likes_count, media_url, media_type, created_at, profiles:user_id(username, display_name, avatar_url)")
-      .eq("video_id", videoId)
-      .order("created_at", { ascending: false })
-      .limit(120);
-
-    if (data) {
-      const tree = buildTree(data);
-      setComments(tree);
+    const tree = await fetchCommentTree(videoId, 120);
+    if (tree) {
+      setComments(tree as Comment[]);
       writeCache(cacheKey, tree);
+      setFullyLoaded(true);
     }
     if (!silent) setLoading(false);
   };
+
 
 
   const getTimeAgo = (date: string) => {

@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { X, Pause, Play, Volume2, VolumeX, Trash2, Eye, Clock, ShieldCheck, Send, Paperclip, LockKeyhole, EyeOff } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
+import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { validateUploadFile, validateUserText } from "@/lib/contentSafety";
 
@@ -53,6 +54,7 @@ function hideStoryForUser(userId: string, storyId: string) {
  */
 export default function StoryViewer({ stories, initialIndex = 0, onClose }: Props) {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [index, setIndex] = useState(initialIndex);
   const [progress, setProgress] = useState(0);
   const [paused, setPaused] = useState(false);
@@ -405,7 +407,7 @@ export default function StoryViewer({ stories, initialIndex = 0, onClose }: Prop
               <Trash2 className="h-4 w-4" />
             </button>
           )}
-          {!isOwner && (
+          {!isOwner && !!user && (
             <button type="button" onClick={hideCurrentForMe} aria-label="Masquer cette story pour moi" className="grid h-9 w-9 place-items-center rounded-full bg-black/40 text-white">
               <EyeOff className="h-4 w-4" />
             </button>
@@ -442,8 +444,26 @@ export default function StoryViewer({ stories, initialIndex = 0, onClose }: Prop
           </div>
         </div>
 
-        {!isOwner && (
+        {!isOwner && !user && (
           <div className="absolute bottom-0 left-0 right-0 z-30 px-3 pb-[max(0.65rem,var(--app-safe-bottom))]">
+            <div className="mx-auto flex max-w-lg items-center gap-3 rounded-2xl bg-black/55 px-3 py-2.5 text-white backdrop-blur-xl ring-1 ring-white/15">
+              <span className="min-w-0 flex-1 text-xs font-medium text-white/80">
+                Mode invité : lecture seule. Crée un compte pour répondre, réagir et publier.
+              </span>
+              <button
+                type="button"
+                onClick={() => { onClose(); navigate("/auth"); }}
+                className="shrink-0 rounded-full gradient-primary px-3.5 py-2 text-xs font-bold text-primary-foreground"
+              >
+                Se connecter
+              </button>
+            </div>
+          </div>
+        )}
+
+        {!isOwner && !!user && (
+          <div className="absolute bottom-0 left-0 right-0 z-30 px-3 pb-[max(0.65rem,var(--app-safe-bottom))]">
+
             <input
               ref={replyFileRef}
               type="file"

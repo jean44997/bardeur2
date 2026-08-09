@@ -11,6 +11,7 @@ import BanGate from "@/components/BanGate";
 import OnboardingFlow from "@/components/OnboardingFlow";
 
 import GlobalCallListener from "@/components/GlobalCallListener";
+import NotificationBubbles3D from "@/components/NotificationBubbles3D";
 import { useViewportInsets } from "@/hooks/useViewportInsets";
 import Index from "./pages/Index";
 import ExplorePage from "./pages/ExplorePage";
@@ -49,6 +50,7 @@ const App = () => (
         <AuthProvider>
           <ViewportRuntime />
           <GlobalCallListener />
+          <NotificationBubbles3D />
           <BanGate>
           <OnboardingFlow />
           <Routes>
