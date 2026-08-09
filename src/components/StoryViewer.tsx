@@ -407,7 +407,7 @@ export default function StoryViewer({ stories, initialIndex = 0, onClose }: Prop
               <Trash2 className="h-4 w-4" />
             </button>
           )}
-          {!isOwner && (
+          {!isOwner && !!user && (
             <button type="button" onClick={hideCurrentForMe} aria-label="Masquer cette story pour moi" className="grid h-9 w-9 place-items-center rounded-full bg-black/40 text-white">
               <EyeOff className="h-4 w-4" />
             </button>
