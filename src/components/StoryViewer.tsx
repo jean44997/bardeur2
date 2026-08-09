@@ -54,6 +54,7 @@ function hideStoryForUser(userId: string, storyId: string) {
  */
 export default function StoryViewer({ stories, initialIndex = 0, onClose }: Props) {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [index, setIndex] = useState(initialIndex);
   const [progress, setProgress] = useState(0);
   const [paused, setPaused] = useState(false);
