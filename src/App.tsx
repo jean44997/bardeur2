@@ -50,6 +50,7 @@ const App = () => (
         <AuthProvider>
           <ViewportRuntime />
           <GlobalCallListener />
+          <NotificationBubbles3D />
           <BanGate>
           <OnboardingFlow />
           <Routes>
