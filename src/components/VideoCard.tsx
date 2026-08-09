@@ -10,6 +10,7 @@ import { VideoData, formatCount } from "@/data/mockVideos";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
+import { prefetchComments } from "@/lib/commentsData";
 
 interface VideoCardProps {
   video: VideoData;
