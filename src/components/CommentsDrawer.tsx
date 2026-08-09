@@ -68,6 +68,27 @@ export default function CommentsDrawer({ isOpen, onClose, commentCount, videoId,
     }
   }, [isOpen, videoId, user?.id]);
 
+  // Reset completion state when switching video.
+  useEffect(() => { setFullyLoaded(false); }, [videoId]);
+
+  // Stay-on-page preloading: finish loading the full thread during idle time,
+  // so scrolling the comments never waits for the network.
+  useEffect(() => {
+    if (!videoId || fullyLoaded) return;
+    if (isOpen) {
+      const t = window.setTimeout(() => {
+        fetchCommentTree(videoId, 120).then((tree) => {
+          if (!tree) return;
+          setComments(tree as Comment[]);
+          writeCache(commentsCacheKey(videoId), tree);
+          setFullyLoaded(true);
+        });
+      }, 1200);
+      return () => window.clearTimeout(t);
+    }
+    prefetchComments(videoId);
+  }, [videoId, isOpen, fullyLoaded]);
+
   useEffect(() => {
     if (!isRecordingAudio) { setRecordingTime(0); return; }
     const interval = window.setInterval(() => setRecordingTime(t => t + 1), 1000);
