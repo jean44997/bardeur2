@@ -9,6 +9,7 @@ import { checkClientRateLimit, formatRetryAfter } from "@/lib/clientRateLimit";
 import { validateUserText } from "@/lib/contentSafety";
 import { getBestAudioRecorderOptions } from "@/lib/mediaCapabilities";
 import { readCache, writeCache } from "@/lib/instantCache";
+import { buildCommentTree, commentsCacheKey, fetchCommentTree, prefetchComments } from "@/lib/commentsData";
 import CommentVoiceNote from "@/components/CommentVoiceNote";
 
 
