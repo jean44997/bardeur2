@@ -133,6 +133,13 @@ export default function VideoCard({ video, isActive, isMuted, onToggleMute, onFo
     return () => clearTimeout(t);
   }, [isActive, viewCounted, video.id]);
 
+  // Warm the comment cache while the user watches (idle time only).
+  useEffect(() => {
+    if (!isActive) return;
+    const t = window.setTimeout(() => prefetchComments(video.id), 1500);
+    return () => window.clearTimeout(t);
+  }, [isActive, video.id]);
+
   useEffect(() => {
     const v = videoRef.current;
     if (!v || !isActive) return;
