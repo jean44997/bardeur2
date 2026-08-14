@@ -57,6 +57,9 @@ export default function NotificationBubbles3D() {
   const sweepMs = tier === "low" ? 1200 : 700;
 
   const usernameCache = useRef(new Map<string, string>());
+  // Keep a ref copy so the realtime callback can read bubbles without re-subscribing.
+  const bubblesRef = useRef<Bubble[]>([]);
+  bubblesRef.current = bubbles;
 
   const resolveUsername = useCallback(async (id?: string | null) => {
     if (!id) return "quelqu'un";
@@ -126,10 +129,6 @@ export default function NotificationBubbles3D() {
 
     return () => { supabase.removeChannel(channel); };
   }, [user?.id, maxBubbles, tier, resolveUsername]);
-
-  // Keep a ref copy so the realtime callback can read bubbles without re-subscribing.
-  const bubblesRef = useRef<Bubble[]>([]);
-  bubblesRef.current = bubbles;
 
   // Auto-dismiss expired bubbles (paused when the tab is hidden to save battery).
   useEffect(() => {
