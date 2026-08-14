@@ -1073,12 +1073,14 @@ export type Database = {
           bio: string | null
           created_at: string | null
           display_name: string
+          dnd_until: string | null
           hide_following: boolean
           hide_likes: boolean | null
           hide_saves: boolean | null
           id: string
           invisible_mode: boolean | null
           is_private: boolean | null
+          notification_frequency: string
           notification_quiet_hours_enabled: boolean
           notification_quiet_hours_end: string
           notification_quiet_hours_start: string
@@ -1107,12 +1109,14 @@ export type Database = {
           bio?: string | null
           created_at?: string | null
           display_name?: string
+          dnd_until?: string | null
           hide_following?: boolean
           hide_likes?: boolean | null
           hide_saves?: boolean | null
           id: string
           invisible_mode?: boolean | null
           is_private?: boolean | null
+          notification_frequency?: string
           notification_quiet_hours_enabled?: boolean
           notification_quiet_hours_end?: string
           notification_quiet_hours_start?: string
@@ -1141,12 +1145,14 @@ export type Database = {
           bio?: string | null
           created_at?: string | null
           display_name?: string
+          dnd_until?: string | null
           hide_following?: boolean
           hide_likes?: boolean | null
           hide_saves?: boolean | null
           id?: string
           invisible_mode?: boolean | null
           is_private?: boolean | null
+          notification_frequency?: string
           notification_quiet_hours_enabled?: boolean
           notification_quiet_hours_end?: string
           notification_quiet_hours_start?: string
