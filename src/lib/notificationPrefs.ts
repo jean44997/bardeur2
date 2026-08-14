@@ -1,4 +1,5 @@
 export type NotificationType = "all" | "like" | "comment" | "follow" | "message" | "share" | "mention" | "video";
+export type NotificationFrequency = "instant" | "batched" | "daily" | "off";
 
 type NotificationProfile = {
   push_notifications?: boolean | null;
@@ -10,6 +11,8 @@ type NotificationProfile = {
   notify_shares?: boolean | null;
   notify_mentions?: boolean | null;
   notification_sound?: string | null;
+  notification_frequency?: string | null;
+  dnd_until?: string | null;
   notification_quiet_hours_enabled?: boolean | null;
   notification_quiet_hours_start?: string | null;
   notification_quiet_hours_end?: string | null;
@@ -40,8 +43,39 @@ export function isQuietHoursNow(profile?: NotificationProfile | null, date = new
   return now >= start || now < end;
 }
 
+/** Manual "Ne pas déranger" timer, stored on the profile so it syncs across devices. */
+export function dndRemainingMs(profile?: NotificationProfile | null, now = Date.now()) {
+  if (!profile?.dnd_until) return 0;
+  const until = new Date(profile.dnd_until).getTime();
+  return Number.isNaN(until) ? 0 : Math.max(0, until - now);
+}
+
+export function isDndActive(profile?: NotificationProfile | null, date = new Date()) {
+  return dndRemainingMs(profile, date.getTime()) > 0 || isQuietHoursNow(profile, date);
+}
+
+export function getNotificationFrequency(profile?: NotificationProfile | null): NotificationFrequency {
+  const value = (profile?.notification_frequency || "instant") as NotificationFrequency;
+  return ["instant", "batched", "daily", "off"].includes(value) ? value : "instant";
+}
+
+/** Minimum delay between two visible/audible cues, driven by the frequency preference. */
+export function frequencyThrottleMs(profile?: NotificationProfile | null) {
+  switch (getNotificationFrequency(profile)) {
+    case "off":
+      return Number.POSITIVE_INFINITY;
+    case "daily":
+      return 6 * 60 * 60 * 1000;
+    case "batched":
+      return 5 * 60 * 1000;
+    default:
+      return 2500;
+  }
+}
+
 export function allowsNotificationType(profile: NotificationProfile | null | undefined, type: NotificationType) {
   if (!profile?.push_notifications) return false;
+  if (getNotificationFrequency(profile) === "off") return false;
   if (type === "all" || type === "video") return true;
   const key = typeToProfileKey[type];
   return key ? profile[key] !== false : true;
@@ -49,6 +83,17 @@ export function allowsNotificationType(profile: NotificationProfile | null | und
 
 export function getNotificationSound(profile?: NotificationProfile | null) {
   return profile?.notification_sound || "pop";
+}
+
+/** Rough device capability tier used to scale 3D animations down on weak phones. */
+export function getMotionTier(): "low" | "high" {
+  if (typeof window === "undefined") return "high";
+  const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+  const cores = (navigator as any).hardwareConcurrency || 4;
+  const memory = (navigator as any).deviceMemory || 4;
+  const saveData = (navigator as any).connection?.saveData;
+  if (reduced || saveData || cores <= 4 || memory <= 4) return "low";
+  return "high";
 }
 
 export function playNotificationCue(sound = "pop") {
