@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { probeAudioCodecs, isIOSDevice } from "@/lib/mediaCapabilities";
+import { dndRemainingMs } from "@/lib/notificationPrefs";
 
 interface SettingItemProps {
   icon: React.ReactNode;
