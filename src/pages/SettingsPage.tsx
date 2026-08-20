@@ -91,6 +91,28 @@ export default function SettingsPage() {
     toast.success(sound === "none" ? "Sons personnalisés désactivés" : `Son ${sound} activé`);
   };
 
+  const updateNotificationFrequency = async (frequency: "instant" | "batched" | "daily" | "off") => {
+    const { error } = await updateProfile({ notification_frequency: frequency } as any);
+    if (error) toast.error("Reglage impossible: applique la derniere migration");
+    else toast.success(`Fréquence : ${frequency === "instant" ? "instantanée" : frequency === "batched" ? "groupée" : frequency === "daily" ? "résumé" : "désactivée"}`);
+  };
+
+  const dndRemaining = dndRemainingMs(profile as any);
+  const dndActive = dndRemaining > 0;
+  const dndLabel = dndActive
+    ? dndRemaining > 3600_000
+      ? `${Math.round(dndRemaining / 3600_000)}h`
+      : `${Math.max(1, Math.round(dndRemaining / 60_000))}min`
+    : "";
+
+  const setDndHours = async (hours: number) => {
+    const value = hours > 0 ? new Date(Date.now() + hours * 3600_000).toISOString() : null;
+    const { error } = await updateProfile({ dnd_until: value } as any);
+    if (error) toast.error("Reglage impossible: applique la derniere migration");
+    else toast.success(hours > 0 ? `Ne pas déranger activé ${hours}h (tous tes appareils)` : "Ne pas déranger désactivé");
+  };
+
+
   const enableAllNotifications = async () => {
     await updateProfile({
       push_notifications: true,
