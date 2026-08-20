@@ -18,6 +18,7 @@ import ExplorePage from "./pages/ExplorePage";
 import ProfilePage from "./pages/ProfilePage";
 import StoryViewsPage from "./pages/StoryViewsPage";
 import InboxPage from "./pages/InboxPage";
+import NotificationsPage from "./pages/NotificationsPage";
 import CreatePage from "./pages/CreatePage";
 import AuthPage from "./pages/AuthPage";
 import ChatPage from "./pages/ChatPage";
