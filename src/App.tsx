@@ -82,7 +82,7 @@ const App = () => (
                       <Route path="/admin" element={<AuthGuard><AdminPage /></AuthGuard>} />
                       <Route path="/admin/diagnostic" element={<AuthGuard><AdminDiagnosticPage /></AuthGuard>} />
 
-                      <Route path="/notifications" element={<AuthGuard><Navigate to="/inbox?tab=activity" replace /></AuthGuard>} />
+                      <Route path="/notifications" element={<AuthGuard><NotificationsPage /></AuthGuard>} />
                       <Route path="*" element={<NotFound />} />
                     </Routes>
                   </main>
