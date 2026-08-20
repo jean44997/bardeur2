@@ -106,7 +106,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => subscription.unsubscribe();
   }, []);
 
+  // Cross-device sync: any preference change (DND, fréquence, confidentialité)
+  // faite sur un autre appareil est appliquée instantanément ici.
+  useEffect(() => {
+    if (!user?.id) return;
+    const channel = supabase
+      .channel(`profile-sync-${user.id}`)
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "profiles", filter: `id=eq.${user.id}` },
+        (payload) => {
+          const row = payload.new as Profile | null;
+          if (row) setProfile((prev) => ({ ...(prev || {} as Profile), ...row }));
+        }
+      )
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [user?.id]);
+
   // Use current origin for all redirect URLs - never lovable.app
+
   const getRedirectUrl = (path: string = "") => {
     return `${window.location.origin}${path}`;
   };
