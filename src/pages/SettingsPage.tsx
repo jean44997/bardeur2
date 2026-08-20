@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { probeAudioCodecs, isIOSDevice } from "@/lib/mediaCapabilities";
+import { dndRemainingMs } from "@/lib/notificationPrefs";
 
 interface SettingItemProps {
   icon: React.ReactNode;
@@ -90,6 +91,28 @@ export default function SettingsPage() {
     await updateProfile({ notification_sound: sound } as any);
     toast.success(sound === "none" ? "Sons personnalisés désactivés" : `Son ${sound} activé`);
   };
+
+  const updateNotificationFrequency = async (frequency: "instant" | "batched" | "daily" | "off") => {
+    const { error } = await updateProfile({ notification_frequency: frequency } as any);
+    if (error) toast.error("Reglage impossible: applique la derniere migration");
+    else toast.success(`Fréquence : ${frequency === "instant" ? "instantanée" : frequency === "batched" ? "groupée" : frequency === "daily" ? "résumé" : "désactivée"}`);
+  };
+
+  const dndRemaining = dndRemainingMs(profile as any);
+  const dndActive = dndRemaining > 0;
+  const dndLabel = dndActive
+    ? dndRemaining > 3600_000
+      ? `${Math.round(dndRemaining / 3600_000)}h`
+      : `${Math.max(1, Math.round(dndRemaining / 60_000))}min`
+    : "";
+
+  const setDndHours = async (hours: number) => {
+    const value = hours > 0 ? new Date(Date.now() + hours * 3600_000).toISOString() : null;
+    const { error } = await updateProfile({ dnd_until: value } as any);
+    if (error) toast.error("Reglage impossible: applique la derniere migration");
+    else toast.success(hours > 0 ? `Ne pas déranger activé ${hours}h (tous tes appareils)` : "Ne pas déranger désactivé");
+  };
+
 
   const enableAllNotifications = async () => {
     await updateProfile({
@@ -360,7 +383,49 @@ export default function SettingsPage() {
             <SettingItem icon={<Bell className="h-4 w-4 text-muted-foreground" />} label="Ne pas déranger 22h-08h" description="Coupe les sons et notifications navigateur pendant la nuit" toggle value={profile?.notification_quiet_hours_enabled === true} onToggle={v => handleToggle("notification_quiet_hours_enabled", v)} />
             <SettingItem icon={<Bell className="h-4 w-4 text-primary" />} label={`Autorisation navigateur : ${notificationPermission}`} description="Active les permissions système pour recevoir les alertes" onClick={requestNotificationPermission} />
             <SettingItem icon={<Bell className="h-4 w-4 text-accent" />} label="Tester la vibration" onClick={testVibration} />
+            <SettingItem icon={<Bell className="h-4 w-4 text-primary" />} label="Centre de notifications" description="Historique, filtres et marquage comme lu" onClick={() => navigate("/notifications")} />
           </div>
+
+          <p className="mt-3 px-4 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Fréquence</p>
+          <div className="mt-1 grid grid-cols-2 gap-2">
+            {([
+              ["instant", "Instantané"],
+              ["batched", "Groupé (5 min)"],
+              ["daily", "Résumé (6 h)"],
+              ["off", "Aucune"],
+            ] as const).map(([value, label]) => (
+              <button
+                key={value}
+                onClick={() => updateNotificationFrequency(value)}
+                className={`rounded-xl px-3 py-2 text-xs font-bold ${((profile as any)?.notification_frequency || "instant") === value ? "gradient-primary text-primary-foreground" : "glass text-foreground"}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          <p className="mt-3 px-4 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Ne pas déranger {dndActive ? `· actif encore ${dndLabel}` : "· inactif"}
+          </p>
+          <div className="mt-1 grid grid-cols-4 gap-2">
+            {[1, 2, 8].map(hours => (
+              <button
+                key={hours}
+                onClick={() => setDndHours(hours)}
+                className="rounded-xl glass px-2 py-2 text-xs font-bold text-foreground"
+              >
+                {hours}h
+              </button>
+            ))}
+            <button
+              onClick={() => setDndHours(0)}
+              disabled={!dndActive}
+              className={`rounded-xl px-2 py-2 text-xs font-bold ${dndActive ? "gradient-primary text-primary-foreground" : "glass text-muted-foreground opacity-50"}`}
+            >
+              Stop
+            </button>
+          </div>
+
           <div className="mt-2 grid grid-cols-3 gap-2">
             {(["pop", "soft", "none"] as const).map(sound => (
               <button key={sound} onClick={() => updateNotificationSound(sound)} className={`rounded-xl px-3 py-2 text-xs font-bold ${((profile as any)?.notification_sound || "pop") === sound ? "gradient-primary text-primary-foreground" : "glass text-foreground"}`}>
@@ -368,6 +433,7 @@ export default function SettingsPage() {
               </button>
             ))}
           </div>
+
         </div>
 
         <div className="mb-6">
